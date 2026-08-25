@@ -319,18 +319,6 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                             <DropdownMenuGroup>
                               <DropdownMenuItem
                                 className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                                onClick={() => {
-                                  setSelectedPacker(order.packer || "");
-                                  setPackingOverrideOpen(true);
-                                }}
-                              >
-                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-                                  <PackageCheck className="h-3.5 w-3.5" />
-                                </div>
-                                Force to Packing
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
                                 onClick={() =>
                                   showConfirm(
                                     "Reset Packer Assignment",
