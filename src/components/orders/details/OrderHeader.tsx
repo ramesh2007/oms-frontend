@@ -255,192 +255,217 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64 p-1.5">
-                  {/* ── Picking Actions ── */}
-                  <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-                    Picking
-                  </DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                      onClick={() => {
-                        setSelectedPicker(order.picker || "");
-                        setOverrideOpen(true);
-                      }}
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      </div>
-                      Force to Picking
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                      onClick={() =>
-                        showConfirm(
-                          "Reset Picker Assignment",
-                          "The currently assigned picker will be removed. The order will remain in its current status but become unassigned.",
-                          "Reset Assignment",
-                          () => handleAction("Reset Picker Assignment", async () => {
-                            await ordersApi.assignPicker(order.id, "");
-                          })
-                        )
-                      }
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400">
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      </div>
-                      Reset Picker Assignment
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
+                  {/* ── Determine active stage for contextual actions ── */}
+                  {(() => {
+                    const isPickingStage = ["New", "Unfulfilled", "Picking"].includes(order.status);
+                    const isPackingStage = ["Picked", "Packing"].includes(order.status);
+                    const isDriverStage = ["Ready to Assign", "Driver Accepted", "Started", "Delivered", "Delivery Failed"].includes(order.status);
+                    const isOtherStage = !isPickingStage && !isPackingStage && !isDriverStage;
 
-                  <DropdownMenuSeparator className="my-1.5" />
+                    const showPickingActions = isPickingStage || isOtherStage;
+                    const showPackingActions = isPackingStage || isOtherStage;
+                    const showDriverActions = isDriverStage || isOtherStage;
 
-                  {/* ── Packing Actions ── */}
-                  <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-                    Packing
-                  </DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                      onClick={() => {
-                        setSelectedPacker(order.packer || "");
-                        setPackingOverrideOpen(true);
-                      }}
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-                        <PackageCheck className="h-3.5 w-3.5" />
-                      </div>
-                      Force to Packing
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                      onClick={() =>
-                        showConfirm(
-                          "Reset Packer Assignment",
-                          "The currently assigned packer will be removed. The order will remain in its current status but become unassigned.",
-                          "Reset Assignment",
-                          () => handleAction("Reset Packer Assignment", async () => {
-                            await ordersApi.assignPacker(order.id, "");
-                          })
-                        )
-                      }
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400">
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      </div>
-                      Reset Packer Assignment
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                      onClick={() =>
-                        showConfirm(
-                          "Rollback to Picked",
-                          "This will revert the order status back to 'Picked', removing any packer progress. Use this if packing needs to be redone.",
-                          "Rollback",
-                          () => handleAction("Rollback to Picked", async () => {
-                            await ordersApi.updateOrderStatus(order.id, "Picked");
-                          })
-                        )
-                      }
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                        <Undo2 className="h-3.5 w-3.5" />
-                      </div>
-                      Rollback to Picked
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
+                    return (
+                      <>
+                        {/* ── Picking Actions ── */}
+                        {showPickingActions && (
+                          <>
+                            <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                              Picking
+                            </DropdownMenuLabel>
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                onClick={() => {
+                                  setSelectedPicker(order.picker || "");
+                                  setOverrideOpen(true);
+                                }}
+                              >
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                                  <RefreshCw className="h-3.5 w-3.5" />
+                                </div>
+                                Force to Picking
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                onClick={() =>
+                                  showConfirm(
+                                    "Reset Picker Assignment",
+                                    "The currently assigned picker will be removed. The order will remain in its current status but become unassigned.",
+                                    "Reset Assignment",
+                                    () => handleAction("Reset Picker Assignment", async () => {
+                                      await ordersApi.assignPicker(order.id, "");
+                                    })
+                                  )
+                                }
+                              >
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400">
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </div>
+                                Reset Picker Assignment
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                            <DropdownMenuSeparator className="my-1.5" />
+                          </>
+                        )}
 
-                  <DropdownMenuSeparator className="my-1.5" />
+                        {/* ── Packing Actions ── */}
+                        {showPackingActions && (
+                          <>
+                            <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                              Packing
+                            </DropdownMenuLabel>
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                onClick={() => {
+                                  setSelectedPacker(order.packer || "");
+                                  setPackingOverrideOpen(true);
+                                }}
+                              >
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                                  <PackageCheck className="h-3.5 w-3.5" />
+                                </div>
+                                Force to Packing
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                onClick={() =>
+                                  showConfirm(
+                                    "Reset Packer Assignment",
+                                    "The currently assigned packer will be removed. The order will remain in its current status but become unassigned.",
+                                    "Reset Assignment",
+                                    () => handleAction("Reset Packer Assignment", async () => {
+                                      await ordersApi.assignPacker(order.id, "");
+                                    })
+                                  )
+                                }
+                              >
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400">
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </div>
+                                Reset Packer Assignment
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                onClick={() =>
+                                  showConfirm(
+                                    "Rollback to Picked",
+                                    "This will revert the order status back to 'Picked', removing any packer progress. Use this if packing needs to be redone.",
+                                    "Rollback",
+                                    () => handleAction("Rollback to Picked", async () => {
+                                      await ordersApi.updateOrderStatus(order.id, "Picked");
+                                    })
+                                  )
+                                }
+                              >
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                  <Undo2 className="h-3.5 w-3.5" />
+                                </div>
+                                Rollback to Picked
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                            <DropdownMenuSeparator className="my-1.5" />
+                          </>
+                        )}
 
-                  {/* ── Driver Actions ── */}
-                  <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-                    Driver
-                  </DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                      onClick={() => {
-                        setDriverNameInput(order.driver || "");
-                        setSelectedDriverStatus(order.driverStatus || "None");
-                        setAdjustDriverOpen(true);
-                      }}
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                        <Truck className="h-3.5 w-3.5" />
-                      </div>
-                      Adjust Driver Status
-                    </DropdownMenuItem>
-                    {order.status === "Ready to Assign" && order.itemsList.length > 0 && !order.driver && (
-                      <DropdownMenuItem
-                        className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                        onClick={() => {
-                          setSelectedSendDriver("");
-                          setSendToDriverOpen(true);
-                        }}
-                      >
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                          <Truck className="h-3.5 w-3.5" />
-                        </div>
-                        Send to Driver
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuGroup>
+                        {/* ── Driver Actions ── */}
+                        {showDriverActions && (
+                          <>
+                            <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                              Driver
+                            </DropdownMenuLabel>
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                onClick={() => {
+                                  setDriverNameInput(order.driver || "");
+                                  setSelectedDriverStatus(order.driverStatus || "None");
+                                  setAdjustDriverOpen(true);
+                                }}
+                              >
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                                  <Truck className="h-3.5 w-3.5" />
+                                </div>
+                                Adjust Driver Status
+                              </DropdownMenuItem>
+                              {order.status === "Ready to Assign" && order.itemsList.length > 0 && !order.driver && (
+                                <DropdownMenuItem
+                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                  onClick={() => {
+                                    setSelectedSendDriver("");
+                                    setSendToDriverOpen(true);
+                                  }}
+                                >
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                    <Truck className="h-3.5 w-3.5" />
+                                  </div>
+                                  Send to Driver
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuGroup>
+                            <DropdownMenuSeparator className="my-1.5" />
+                          </>
+                        )}
 
-                  <DropdownMenuSeparator className="my-1.5" />
+                        {/* ── Payment Actions ── */}
+                        <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                          Payment
+                        </DropdownMenuLabel>
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem
+                            className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                            onClick={() => {
+                              setPaymentMethodInput(order.payment?.method || "Cash");
+                              setPaymentBalanceInput(order.payment?.balance || 0);
+                              setUpdatePaymentOpen(true);
+                            }}
+                          >
+                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                              <CreditCard className="h-3.5 w-3.5" />
+                            </div>
+                            Update Payment Details
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
 
-                  {/* ── Payment Actions ── */}
-                  <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-                    Payment
-                  </DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                      onClick={() => {
-                        setPaymentMethodInput(order.payment?.method || "Cash");
-                        setPaymentBalanceInput(order.payment?.balance || 0);
-                        setUpdatePaymentOpen(true);
-                      }}
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                        <CreditCard className="h-3.5 w-3.5" />
-                      </div>
-                      Update Payment Details
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
+                        <DropdownMenuSeparator className="my-1.5" />
 
-                  <DropdownMenuSeparator className="my-1.5" />
-
-                  {/* ── Warehouse Actions ── */}
-                  <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-                    Warehouse
-                  </DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                      onClick={() => {
-                        setBypassReasonType("");
-                        setBypassReasonText("");
-                        setBypassOpen(true);
-                      }}
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400">
-                        <Warehouse className="h-3.5 w-3.5" />
-                      </div>
-                      Bypass Warehouse (Direct)
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-destructive focus:text-destructive"
-                      onClick={() => {
-                        setCancelReason("");
-                        setSelectedCancelItems([]);
-                        setCancelAllocationOpen(true);
-                      }}
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
-                        <XCircle className="h-3.5 w-3.5" />
-                      </div>
-                      Cancel Allocation
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
+                        {/* ── Warehouse Actions ── */}
+                        <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                          Warehouse
+                        </DropdownMenuLabel>
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem
+                            className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                            onClick={() => {
+                              setBypassReasonType("");
+                              setBypassReasonText("");
+                              setBypassOpen(true);
+                            }}
+                          >
+                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                              <Warehouse className="h-3.5 w-3.5" />
+                            </div>
+                            Bypass Warehouse (Direct)
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-destructive focus:text-destructive"
+                            onClick={() => {
+                              setCancelReason("");
+                              setSelectedCancelItems([]);
+                              setCancelAllocationOpen(true);
+                            }}
+                          >
+                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
+                              <XCircle className="h-3.5 w-3.5" />
+                            </div>
+                            Cancel Allocation
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </>
+                    );
+                  })()}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
