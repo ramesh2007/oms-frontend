@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   UserPlus,
   Search,
@@ -62,6 +62,13 @@ const ROLE_CONFIG: Record<string, { label: string; icon: any; color: string; bg:
     bg: "bg-purple-500/10",
     border: "border-purple-500/30",
   },
+  manager: {
+    label: "Manager",
+    icon: Shield,
+    color: "text-purple-600 dark:text-purple-400",
+    bg: "bg-purple-500/10",
+    border: "border-purple-500/30",
+  },
   picker: {
     label: "Picker",
     icon: PackageSearch,
@@ -83,17 +90,64 @@ const ROLE_CONFIG: Record<string, { label: string; icon: any; color: string; bg:
     bg: "bg-success/10",
     border: "border-success/30",
   },
+  customer_care: {
+    label: "Customer Care",
+    icon: Headphones,
+    color: "text-info",
+    bg: "bg-info/10",
+    border: "border-info/30",
+  },
+  vl_staff: {
+    label: "VL Staff",
+    icon: Store,
+    color: "text-muted-foreground",
+    bg: "bg-muted/10",
+    border: "border-muted/30",
+  },
+  user: {
+    label: "User",
+    icon: Users,
+    color: "text-muted-foreground",
+    bg: "bg-muted/10",
+    border: "border-muted/30",
+  },
+};
+
+const getRoleConfig = (role: string) => {
+  const normRole = (role || "").toLowerCase();
+  return ROLE_CONFIG[normRole] || {
+    label: role || "User",
+    icon: Users,
+    color: "text-muted-foreground",
+    bg: "bg-muted/10",
+    border: "border-muted/30",
+  };
 };
 
 function UsersPage() {
-  const [users, setUsers] = useState<ManagedUser[]>(() => getUsers());
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const refreshUsers = () => setUsers(getUsers());
+  const refreshUsers = async () => {
+    setLoading(true);
+    try {
+      const data = await getUsers();
+      setUsers(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshUsers();
+  }, []);
 
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
@@ -112,17 +166,25 @@ function UsersPage() {
     driver: users.filter((u) => u.role === "driver").length,
   };
 
-  const handleDelete = (id: string) => {
-    deleteUser(id);
-    refreshUsers();
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteUser(id);
+      await refreshUsers();
+    } catch (err) {
+      console.error(err);
+    }
     setDeleteConfirm(null);
   };
 
-  const handleToggleStatus = (id: string) => {
+  const handleToggleStatus = async (id: string) => {
     const user = users.find((u) => u.id === id);
     if (user) {
-      updateUser(id, { status: user.status === "active" ? "inactive" : "active" });
-      refreshUsers();
+      try {
+        await updateUser(id, { status: user.status === "active" ? "inactive" : "active" });
+        await refreshUsers();
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -217,114 +279,124 @@ function UsersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUsers.map((u) => {
-                    const config = ROLE_CONFIG[u.role];
-                    const Icon = config.icon;
-                    const initials = u.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
-                    return (
-                      <tr
-                        key={u.id}
-                        className="border-t border-border hover:bg-muted/30 transition-colors group"
-                      >
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={cn(
-                                "h-9 w-9 rounded-full grid place-items-center text-xs font-bold shrink-0",
-                                config.bg,
-                                config.color,
-                              )}
-                            >
-                              {initials}
-                            </div>
-                            <div>
-                              <div className="font-medium">{u.name}</div>
-                              <div className="text-[11px] text-muted-foreground font-mono flex items-center gap-1.5">
-                                {u.id}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3">
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[11px] font-semibold",
-                              config.bg,
-                              config.color,
-                            )}
-                          >
-                            <Icon className="h-3 w-3" />
-                            {config.label}
-                          </span>
-                        </td>
-                        <td className="py-3 text-xs text-muted-foreground">{u.email}</td>
-                        <td className="py-3 text-xs tabular-nums">{u.phone}</td>
-                        <td className="py-3 text-center">
-                          <button
-                            onClick={() => handleToggleStatus(u.id)}
-                            className={cn(
-                              "inline-flex items-center gap-1 h-6 px-2 rounded-full text-[10px] font-semibold transition-colors",
-                              u.status === "active"
-                                ? "bg-success/10 text-success hover:bg-success/20"
-                                : "bg-muted text-muted-foreground hover:bg-muted/80",
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "h-1.5 w-1.5 rounded-full",
-                                u.status === "active" ? "bg-success" : "bg-muted-foreground",
-                              )}
-                            />
-                            {u.status === "active" ? "Active" : "Inactive"}
-                          </button>
-                        </td>
-                        <td className="py-3 text-xs text-muted-foreground">{u.createdAt}</td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={() => { setEditingUser(u); setShowAddDialog(true); }}
-                              className="h-7 w-7 rounded-md hover:bg-muted grid place-items-center"
-                              title="Edit"
-                            >
-                              <Edit3 className="h-3.5 w-3.5" />
-                            </button>
-                            {deleteConfirm === u.id ? (
-                              <div className="flex items-center gap-0.5">
-                                <button
-                                  onClick={() => handleDelete(u.id)}
-                                  className="h-7 w-7 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 grid place-items-center"
-                                  title="Confirm delete"
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => setDeleteConfirm(null)}
-                                  className="h-7 w-7 rounded-md hover:bg-muted grid place-items-center"
-                                  title="Cancel"
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => setDeleteConfirm(u.id)}
-                                className="h-7 w-7 rounded-md hover:bg-destructive/10 hover:text-destructive grid place-items-center transition-colors"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {filteredUsers.length === 0 && (
+                  {loading ? (
+                    <tr>
+                      <td colSpan={7} className="px-5 py-12 text-center text-sm text-muted-foreground">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
+                          <span>Loading users...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredUsers.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-5 py-12 text-center text-sm text-muted-foreground">
                         No users found. {search && "Try adjusting your search."}
                       </td>
                     </tr>
+                  ) : (
+                    filteredUsers.map((u) => {
+                      const config = getRoleConfig(u.role);
+                      const Icon = config.icon;
+                      const initials = u.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+                      return (
+                        <tr
+                          key={u.id}
+                          className="border-t border-border hover:bg-muted/30 transition-colors group"
+                        >
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={cn(
+                                  "h-9 w-9 rounded-full grid place-items-center text-xs font-bold shrink-0",
+                                  config.bg,
+                                  config.color,
+                                )}
+                              >
+                                {initials}
+                              </div>
+                              <div>
+                                <div className="font-medium">{u.name}</div>
+                                <div className="text-[11px] text-muted-foreground font-mono flex items-center gap-1.5">
+                                  {u.id}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3">
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[11px] font-semibold",
+                                config.bg,
+                                config.color,
+                              )}
+                            >
+                              <Icon className="h-3 w-3" />
+                              {config.label}
+                            </span>
+                          </td>
+                          <td className="py-3 text-xs text-muted-foreground">{u.email}</td>
+                          <td className="py-3 text-xs tabular-nums">{u.phone}</td>
+                          <td className="py-3 text-center">
+                            <button
+                              onClick={() => handleToggleStatus(u.id)}
+                              className={cn(
+                                "inline-flex items-center gap-1 h-6 px-2 rounded-full text-[10px] font-semibold transition-colors",
+                                u.status === "active"
+                                  ? "bg-success/10 text-success hover:bg-success/20"
+                                  : "bg-muted text-muted-foreground hover:bg-muted/80",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "h-1.5 w-1.5 rounded-full",
+                                  u.status === "active" ? "bg-success" : "bg-muted-foreground",
+                                )}
+                              />
+                              {u.status === "active" ? "Active" : "Inactive"}
+                            </button>
+                          </td>
+                          <td className="py-3 text-xs text-muted-foreground">{u.createdAt}</td>
+                          <td className="px-5 py-3">
+                            <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => { setEditingUser(u); setShowAddDialog(true); }}
+                                className="h-7 w-7 rounded-md hover:bg-muted grid place-items-center"
+                                title="Edit"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </button>
+                              {deleteConfirm === u.id ? (
+                                <div className="flex items-center gap-0.5">
+                                  <button
+                                    onClick={() => handleDelete(u.id)}
+                                    className="h-7 w-7 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 grid place-items-center"
+                                    title="Confirm delete"
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirm(null)}
+                                    className="h-7 w-7 rounded-md hover:bg-muted grid place-items-center"
+                                    title="Cancel"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setDeleteConfirm(u.id)}
+                                  className="h-7 w-7 rounded-md hover:bg-destructive/10 hover:text-destructive grid place-items-center transition-colors"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -381,38 +453,47 @@ function UserDialog({
     assignedLocationId: user?.assignedLocationId || user?.locationId || "",
   });
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!form.name || !form.email || !form.password) {
-      setError("Name, email, and password are required.");
+    if (!form.name || !form.email || (!isEdit && !form.password)) {
+      setError("Name, email, and password (for new users) are required.");
       return;
     }
 
-    if (isEdit && user) {
-      updateUser(user.id, {
-        name: form.name,
-        email: form.email,
-        role: form.role as ManagedUser["role"],
-        phone: form.phone,
-        password: form.password,
-        status: form.status as ManagedUser["status"],
-      });
-    } else {
-      addUser({
-        id: `u${Date.now()}`,
-        name: form.name,
-        email: form.email,
-        role: form.role as ManagedUser["role"],
-        phone: form.phone,
-        password: form.password,
-        status: form.status as ManagedUser["status"],
-        createdAt: new Date().toISOString().split("T")[0],
-      });
+    setSubmitting(true);
+    try {
+      if (isEdit && user) {
+        await updateUser(user.id, {
+          name: form.name,
+          email: form.email,
+          role: form.role as ManagedUser["role"],
+          phone: form.phone,
+          password: form.password || undefined,
+          status: form.status as ManagedUser["status"],
+        });
+      } else {
+        await addUser({
+          id: `u${Date.now()}`,
+          name: form.name,
+          email: form.email,
+          role: form.role as ManagedUser["role"],
+          phone: form.phone,
+          password: form.password,
+          status: form.status as ManagedUser["status"],
+          createdAt: new Date().toISOString().split("T")[0],
+        });
+      }
+      onSave();
+    } catch (err: any) {
+      console.error("[UserDialog] Failed to save user:", err);
+      setError(err.message || "Failed to save user. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
-    onSave();
   };
 
   return (
@@ -549,8 +630,13 @@ function UserDialog({
               </button>
               <button
                 type="submit"
-                className="h-9 px-4 rounded-lg bg-gradient-primary text-white text-sm font-semibold shadow-soft hover:opacity-90 transition-opacity"
+                disabled={submitting}
+                className={cn(
+                  "h-9 px-4 rounded-lg bg-gradient-primary text-white text-sm font-semibold shadow-soft hover:opacity-90 transition-opacity flex items-center gap-1.5",
+                  submitting && "opacity-70 cursor-not-allowed"
+                )}
               >
+                {submitting && <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />}
                 {isEdit ? "Save Changes" : "Create User"}
               </button>
             </div>

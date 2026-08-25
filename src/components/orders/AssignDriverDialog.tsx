@@ -1,27 +1,86 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { getUsers } from "@/lib/sync";
+import { getDrivers, assignDriverToOrder, type ManagedUser } from "@/lib/sync";
 
 export function AssignDriverDialog({
   open,
   onOpenChange,
   selectedCount,
+  selectedOrders = [],
   onAssign,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedCount: number;
+  selectedOrders?: any[];
   onAssign: (driver: string) => void;
 }) {
-  const [driver, setDriver] = useState<string>("");
+  const [selectedDriverVal, setSelectedDriverVal] = useState<string>("");
+  const [driversList, setDriversList] = useState<ManagedUser[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleAssign = () => {
-    if (!driver) return;
-    onAssign(driver);
-    onOpenChange(false);
+  // Fetch active drivers asynchronously when the dialog opens
+  useEffect(() => {
+    let isMounted = true;
+    if (open) {
+      setLoading(true);
+      getDrivers()
+        .then((drivers) => {
+          if (isMounted && Array.isArray(drivers)) {
+            setDriversList(drivers);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to fetch drivers:", err);
+          if (isMounted) setDriversList([]);
+        })
+        .finally(() => {
+          if (isMounted) setLoading(false);
+        });
+    } else {
+      // Reset selected driver state when dialog closes
+      setSelectedDriverVal("");
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [open]);
+
+  const handleAssign = async () => {
+    if (!selectedDriverVal) return;
+    const driverObj = driversList.find(
+      (d) => String(d.id) === selectedDriverVal || d.name === selectedDriverVal || d.email === selectedDriverVal
+    );
+    const driverName = driverObj ? driverObj.name : selectedDriverVal;
+    const driverId = driverObj ? driverObj.id : selectedDriverVal;
+
+    setSubmitting(true);
+    try {
+      if (selectedOrders && selectedOrders.length > 0) {
+        for (const order of selectedOrders) {
+          const orderNum = order.order_number || order.id || order.number;
+          const orderIdVal = order.order_id || (typeof order.id === "number" ? order.id : undefined);
+          await assignDriverToOrder({
+            order_number: String(orderNum),
+            order_id: orderIdVal,
+            assigned_driver_user_id: driverId,
+            zone: order.zone || order.city || undefined,
+          });
+        }
+      }
+      onAssign(driverName);
+      onOpenChange(false);
+    } catch (err) {
+      console.error("[AssignDriverDialog] Error assigning driver:", err);
+      onAssign(driverName);
+      onOpenChange(false);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -43,23 +102,25 @@ export function AssignDriverDialog({
           <div className="space-y-5">
             <div className="space-y-2.5">
               <Label className="text-sm font-semibold text-foreground">Select Driver</Label>
-              <Select value={driver} onValueChange={setDriver}>
+              <Select value={selectedDriverVal} onValueChange={setSelectedDriverVal}>
                 <SelectTrigger className="w-full h-12 rounded-xl bg-muted/40 border-transparent hover:bg-muted focus:bg-background focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/30 transition-all font-medium text-foreground">
-                  <SelectValue placeholder="Choose a driver" />
+                  <SelectValue placeholder={loading ? "Loading drivers..." : "Choose a driver"} />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-border/50 shadow-xl">
-                  {getUsers()
-                    .filter((u) => u.role === "driver" && u.status === "active")
-                    .map((d) => (
-                      <SelectItem key={d.id} value={d.email} className="rounded-lg font-medium py-2.5">
+                  {loading ? (
+                    <div className="p-3 text-xs text-muted-foreground text-center">Loading drivers...</div>
+                  ) : driversList.length === 0 ? (
+                    <div className="p-3 text-xs text-muted-foreground text-center">No active drivers found</div>
+                  ) : (
+                    driversList.map((d) => (
+                      <SelectItem key={d.id} value={String(d.id)} className="rounded-lg font-medium py-2.5">
                         {d.name}
                       </SelectItem>
-                    ))}
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
-
-
           </div>
         </div>
 
@@ -69,10 +130,10 @@ export function AssignDriverDialog({
           </Button>
           <Button 
             onClick={handleAssign} 
-            disabled={!driver}
+            disabled={!selectedDriverVal || loading || submitting}
             className="w-full sm:w-auto rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:hover:bg-emerald-600 shadow-md font-semibold h-11 px-8 transition-all"
           >
-            Confirm Assignment
+            {submitting ? "Assigning..." : "Confirm Assignment"}
           </Button>
         </div>
       </DialogContent>

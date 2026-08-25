@@ -86,9 +86,38 @@ export function PickingTable({
                   <span className="text-xs font-medium">{getOrderItemsCount(order)}</span>
                 </td>
                 <td className="py-3 pr-3 align-middle">
-                  <span className="inline-flex items-center rounded-full bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/10 dark:text-violet-400">
-                    {order.pickingStatus || "0/0 Picked"}
-                  </span>
+                  {(() => {
+                    let pickingStat = order.pickingStatus;
+                    if (!pickingStat || pickingStat === "0/0 Picked") {
+                      const total = getOrderItemsCount(order) || order.items || 1;
+                      if (order.itemsList && order.itemsList.length > 0) {
+                        const picked = order.itemsList.filter(item => item.status === "Prepared" || (item.status as string) === "Picked").length;
+                        pickingStat = `${picked}/${total} Picked`;
+                      } else {
+                        const fullyPickedStatuses = ["Picked", "Packing", "Ready to Assign", "Driver Accepted", "Started", "Delivered"];
+                        if (fullyPickedStatuses.includes(order.status)) {
+                          pickingStat = `${total}/${total} Picked`;
+                        } else {
+                          pickingStat = `0/${total} Picked`;
+                        }
+                      }
+                    }
+
+                    const parts = pickingStat.split(" ")[0].split("/");
+                    const picked = parts[0];
+                    const totalVal = parts[1];
+                    const isFullyPicked = picked && totalVal && picked === totalVal && totalVal !== "0";
+                    return (
+                      <span className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                        isFullyPicked
+                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                          : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                      )}>
+                        {pickingStat}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="py-3 pr-3 align-middle">
                   {order.picker ? (

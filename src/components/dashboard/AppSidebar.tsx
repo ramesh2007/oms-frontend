@@ -19,6 +19,7 @@ import {
   MapPin,
   CalendarDays,
   TrendingUp,
+  Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -60,8 +61,11 @@ function SidebarContent({ closeOnNavigate = false }: { closeOnNavigate?: boolean
   const packingCount = orders.filter(
     (order) => order.status === "Packing",
   ).length;
+  const inDeliveryCount = orders.filter(
+    (order) => order.status === "Driver Accepted" || order.status === "Started" || Boolean(order.driver),
+  ).length;
   const readyToAssignCount = orders.filter(
-    (order) => order.status === "Ready to Assign",
+    (order) => order.status === "Ready to Assign" && !order.driver,
   ).length;
   const deliveredCount = orders.filter(
     (order) => order.status === "Delivered",
@@ -87,6 +91,7 @@ function SidebarContent({ closeOnNavigate = false }: { closeOnNavigate?: boolean
     { title: "Picking", url: "/orders", search: { tab: "Picking" }, icon: PackageSearch, badge: pickingCount.toString() },
     { title: "Packing", url: "/orders", search: { tab: "Packing" }, icon: Boxes, badge: packingCount.toString() },
     { title: "Ready to Assign", url: "/orders", search: { tab: "Ready to Assign" }, icon: ClipboardCheck, badge: readyToAssignCount.toString() },
+    { title: "In Delivery", url: "/orders", search: { tab: "In Delivery" }, icon: Truck, badge: inDeliveryCount.toString() },
     { title: "Delivered", url: "/orders", search: { tab: "Delivered" }, icon: CheckCircle2, badge: deliveredCount.toString() },
     { title: "Flags & Exceptions", url: "/orders", search: { tab: "Flags & Exceptions" }, icon: Flag, badge: flaggedOrderCount.toString(), danger: true },
     {

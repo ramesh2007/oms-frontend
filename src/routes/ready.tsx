@@ -3,7 +3,7 @@ import { AppSidebar } from "@/components/dashboard/AppSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
 import { OrderTable } from "@/components/orders/OrderTable";
 import { type Order } from "@/lib/orders";
-import { useOrders } from "@/hooks/useOrders";
+import { useOrdersByStatus } from "@/hooks/useOrders";
 import { useState, useEffect } from "react";
 import { BulkActionBar } from "@/components/orders/BulkActionBar";
 import { AssignDriverDialog } from "@/components/orders/AssignDriverDialog";
@@ -21,23 +21,15 @@ export const Route = createFileRoute("/ready")({
 
 function ReadyPage() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [zoneDialogOpen, setZoneDialogOpen] = useState(false);
-  const { data: allOrders = [] } = useOrders();
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setLoading(false), 380);
-    return () => window.clearTimeout(t);
-  }, []);
+  const { data: orders = [], isLoading: loading } = useOrdersByStatus("ready-to-assign");
 
   const goToOrder = (order: Order) => {
     navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
   };
-
-  const orders = allOrders.filter(o => o.status === "Ready to Assign");
 
   const onSelect = (id: string, selected: boolean) => {
     setSelectedIds((prev) => {
@@ -100,6 +92,7 @@ function ReadyPage() {
             open={driverDialogOpen}
             onOpenChange={setDriverDialogOpen}
             selectedCount={selectedIds.size}
+            selectedOrders={orders.filter((o) => selectedIds.has(o.id))}
             onAssign={(driver) => {
               toast.success(`Assigned driver ${driver} to ${selectedIds.size} order(s)`);
               setSelectedIds(new Set());

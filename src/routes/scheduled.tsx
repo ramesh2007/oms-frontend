@@ -1,4 +1,4 @@
-import { useState, useMemo, useSyncExternalStore } from "react";
+import { useState, useEffect, useMemo, useSyncExternalStore } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppSidebar } from "@/components/dashboard/AppSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
@@ -64,16 +64,23 @@ function ScheduledInstallationsContent() {
   const navigate = useNavigate();
   const items = useSyncExternalStore(subscribe, getSnapshot);
 
-  const driversList = useMemo(() => {
-    const list = new Set<string>();
-    try {
-      getUsers()
-        .filter((u) => u.role === "driver" && u.status === "active")
-        .forEach((u) => list.add(u.name));
-    } catch (e) {}
+  const [driversList, setDriversList] = useState<string[]>(AVAILABLE_DRIVERS);
 
-    if (list.size > 0) return Array.from(list);
-    return AVAILABLE_DRIVERS;
+  useEffect(() => {
+    getUsers()
+      .then((users) => {
+        if (Array.isArray(users)) {
+          const activeDrivers = users
+            .filter((u) => u.role === "driver" && u.status === "active")
+            .map((u) => u.name);
+          if (activeDrivers.length > 0) {
+            setDriversList(Array.from(new Set(activeDrivers)));
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch drivers:", err);
+      });
   }, []);
 
   const [activeTab, setActiveTab] = useState<"Pending" | "Assigned">("Pending");

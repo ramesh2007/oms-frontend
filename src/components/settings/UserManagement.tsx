@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo,useEffect } from "react";
 import {
   UserPlus,
   Search,
@@ -43,6 +43,13 @@ const ROLE_CONFIG = {
     bg: "bg-purple-500/10",
     border: "border-purple-500/30",
   },
+  manager: {
+    label: "Manager",
+    icon: Shield,
+    color: "text-purple-600 dark:text-purple-400",
+    bg: "bg-purple-500/10",
+    border: "border-purple-500/30",
+  },
   picker: {
     label: "Picker",
     icon: PackageSearch,
@@ -64,22 +71,64 @@ const ROLE_CONFIG = {
     bg: "bg-success/10",
     border: "border-success/30",
   },
+  customer_care: {
+    label: "Customer Care",
+    icon: Headphones,
+    color: "text-info",
+    bg: "bg-info/10",
+    border: "border-info/30",
+  },
+  vl_staff: {
+    label: "VL Staff",
+    icon: Store,
+    color: "text-muted-foreground",
+    bg: "bg-muted/10",
+    border: "border-muted/30",
+  },
+  user: {
+    label: "User",
+    icon: Users,
+    color: "text-muted-foreground",
+    bg: "bg-muted/10",
+    border: "border-muted/30",
+  },
+};
+
+const getRoleConfig = (role: string) => {
+  const normRole = (role || "").toLowerCase();
+  return ROLE_CONFIG[normRole as keyof typeof ROLE_CONFIG] || {
+    label: role || "User",
+    icon: Users,
+    color: "text-muted-foreground",
+    bg: "bg-muted/10",
+    border: "border-muted/30",
+  };
 };
 
 /* ══════════════════════════════════════════════════════════════════════ */
 
 export function UserManagement() {
-  const [users, setUsers] = useState<ManagedUser[]>(() => getUsers());
+const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const refreshUsers = () => setUsers(getUsers());
+  const refreshUsers = () => {
+    getUsers()
+      .then((data) => setUsers(Array.isArray(data) ? data : []))
+      .catch(() => setUsers([]));
+  };
+
+  useEffect(() => {
+    refreshUsers();
+  }, []);
 
   const filteredUsers = useMemo(() => {
-    return users.filter((u) => {
+    const safeUsers = Array.isArray(users) ? users : [];
+    return safeUsers.filter((u) => {
       const matchesSearch =
         !search ||
         u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -88,13 +137,13 @@ export function UserManagement() {
       return matchesSearch && matchesRole;
     });
   }, [users, search, roleFilter]);
-
+  const safeUsers = Array.isArray(users) ? users : [];
   const roleCounts = {
-    all: users.length,
-    admin: users.filter((u) => u.role === "admin").length,
-    picker: users.filter((u) => u.role === "picker").length,
-    packer: users.filter((u) => u.role === "packer").length,
-    driver: users.filter((u) => u.role === "driver").length,
+    all: safeUsers.length,
+    admin: safeUsers.filter((u) => u.role === "admin").length,
+    picker: safeUsers.filter((u) => u.role === "picker").length,
+    packer: safeUsers.filter((u) => u.role === "packer").length,
+    driver: safeUsers.filter((u) => u.role === "driver").length,
   };
 
   const handleDelete = (id: string) => {
@@ -104,7 +153,7 @@ export function UserManagement() {
   };
 
   const handleToggleStatus = (id: string) => {
-    const user = users.find((u) => u.id === id);
+    const user = safeUsers.find((u) => u.id === id);
     if (user) {
       updateUser(id, { status: user.status === "active" ? "inactive" : "active" });
       refreshUsers();
@@ -212,7 +261,7 @@ export function UserManagement() {
             </thead>
             <tbody>
               {filteredUsers.map((u) => {
-                const config = ROLE_CONFIG[u.role];
+                const config = getRoleConfig(u.role);
                 const Icon = config.icon;
                 const initials = u.name
                   .split(" ")

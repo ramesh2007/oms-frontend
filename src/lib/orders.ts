@@ -187,6 +187,7 @@ export interface Order {
   lat?: number;
   lng?: number;
   itemsList?: OrderItemType[];
+  line_items?: any[];
   zone?: string;
 }
 
@@ -218,6 +219,8 @@ export interface OrderItemType {
   scheduledAt?: string;
   /** Driver/installer assigned for the installation */
   installationDriver?: string | null;
+  /** Location ID for vendor/warehouse */
+  locationId?: string;
 }
 
 export type ReturnStatus = "pending" | "picked up" | "completed";
@@ -263,32 +266,32 @@ export interface OrderTimelineEvent {
   /** Whether this event supports a "View Raw Details" action. */
   hasRawDetails?: boolean;
   type:
-  | "added"
-  | "placed"
-  | "allocated"
-  | "picking_started"
-  | "picking_completed"
-  | "packing_started"
-  | "packing_completed"
-  | "recalculated"
-  | "updated"
-  | "driver_assigned"
-  | "driver_accepted"
-  | "started"
-  | "out_for_delivery"
-  | "delivered"
-  | "item_picked"
-  | "item_packed"
-  | "picker_assigned"
-  | "packer_assigned"
-  | "bags_verified"
-  | "order_created"
-  | "auto_fulfilled"
-  | "auto_marked_paid"
-  | "line_item_updated"
-  | "delivery_failed"
-  | "cancelled"
-  | "bypassed";
+    | "added"
+    | "placed"
+    | "allocated"
+    | "picking_started"
+    | "picking_completed"
+    | "packing_started"
+    | "packing_completed"
+    | "recalculated"
+    | "updated"
+    | "driver_assigned"
+    | "driver_accepted"
+    | "started"
+    | "out_for_delivery"
+    | "delivered"
+    | "item_picked"
+    | "item_packed"
+    | "picker_assigned"
+    | "packer_assigned"
+    | "bags_verified"
+    | "order_created"
+    | "auto_fulfilled"
+    | "auto_marked_paid"
+    | "line_item_updated"
+    | "delivery_failed"
+    | "cancelled"
+    | "bypassed";
 }
 
 export interface EnrichedOrder extends Order {
@@ -297,7 +300,8 @@ export interface EnrichedOrder extends Order {
   returnsList: OrderReturn[];
   timeline: OrderTimelineEvent[];
   payment: {
-    method: "Cash" | "Card" | "Split";
+    method: string;
+    status?: string;
     totalPaid: number;
     cash: number;
     card: number;
@@ -307,6 +311,9 @@ export interface EnrichedOrder extends Order {
     total: number;
     balance: number;
     shippingMethod: string;
+    id?: number | string;
+    shopifyOrderId?: string;
+    processedAt?: string | null;
   };
   notes: string;
   shippingAddress: {
@@ -1004,7 +1011,8 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
           name: "Frida Baby NoseFrida Saline Snot Spray",
           sku: "NS-SPNC-1P-0200",
           barcode: "9350764006338",
-          image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
+          image:
+            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
           qty: 1,
           price: 31.0,
           fc: "F01",
@@ -1020,7 +1028,8 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
           name: "Frida Baby NoseFrida Saline Snot Spray",
           sku: "NS-SPNC-1P-0200",
           barcode: "9350764006338",
-          image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
+          image:
+            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
           qty: 1,
           price: 31.0,
           fc: "F01",
@@ -1049,7 +1058,8 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
           name: "Frida Baby NoseFrida Saline Snot Spray",
           sku: "NS-SPNC-1P-0200",
           barcode: "9350764006338",
-          image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
+          image:
+            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
           qty: 1,
           price: 31.0,
           fc: "F01",
@@ -1062,7 +1072,8 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
           name: "SmarTrike STR3 6-in-1 Stroller-Trike (Black)",
           sku: "5021933",
           barcode: "9350764006339",
-          image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
+          image:
+            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
           qty: 1,
           price: 599.0,
           fc: "F01",
@@ -1091,7 +1102,8 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
           name: "Frida Baby NoseFrida Saline Snot Spray",
           sku: "NS-SPNC-1P-0200",
           barcode: "9350764006338",
-          image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
+          image:
+            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
           qty: 1,
           price: 31.0,
           fc: "F01",
@@ -1104,7 +1116,8 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
           name: "SmarTrike STR3 6-in-1 Stroller-Trike (Black)",
           sku: "5021933",
           barcode: "9350764006339",
-          image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
+          image:
+            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
           qty: 1,
           price: 599.0,
           fc: "F01",
@@ -1148,7 +1161,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
     try {
       const raw = localStorage.getItem("hm_cancelled_items");
       if (raw) cancelledItemIds = JSON.parse(raw);
-    } catch { }
+    } catch {}
   }
 
   return itemsList.map((item) => {
@@ -1180,53 +1193,74 @@ export function getEnrichedOrder(id: string): EnrichedOrder | undefined {
     ...baseOrder,
     zone: "No Zone",
     itemsList,
-    returnsList: baseOrder.returnItems && baseOrder.returnItems.length > 0
-      ? baseOrder.returnItems
-      : [],
+    returnsList:
+      baseOrder.returnItems && baseOrder.returnItems.length > 0 ? baseOrder.returnItems : [],
     timeline: buildTimelineFor(baseOrder, itemsList),
-    payment: baseOrder.payment ? {
-      ...baseOrder.payment,
-      subtotal: calculatedTotal - (baseOrder.payment.shipping ?? 0) + (baseOrder.payment.discount ?? 0),
-      total: calculatedTotal,
-      balance: (baseOrder as any).paymentBalance !== undefined 
-        ? (baseOrder as any).paymentBalance 
-        : (calculatedTotal - (baseOrder.payment.totalPaid ?? 0)),
-      totalPaid: calculatedTotal - ((baseOrder as any).paymentBalance !== undefined 
-        ? (baseOrder as any).paymentBalance 
-        : (baseOrder.payment.balance ?? 0)),
-    } : {
-      method: ((baseOrder as any).paymentMethod as any) || "Cash",
-      totalPaid: calculatedTotal - ((baseOrder as any).paymentBalance ?? 0),
-      cash: ((baseOrder as any).paymentMethod || "Cash") === "Cash" ? calculatedTotal - ((baseOrder as any).paymentBalance ?? 0) : 0,
-      card: ((baseOrder as any).paymentMethod || "Cash") === "Card" ? calculatedTotal - ((baseOrder as any).paymentBalance ?? 0) : 0,
-      subtotal: calculatedTotal - 10,
-      discount: 0,
-      shipping: 10,
-      total: calculatedTotal,
-      balance: ((baseOrder as any).paymentBalance ?? 0),
-      shippingMethod: "Standard Delivery",
-    },
+    payment: baseOrder.payment
+      ? {
+          ...baseOrder.payment,
+          method: baseOrder.payment.payment_method || baseOrder.payment.method || ((baseOrder as any).paymentMethod as any) || "Cash",
+          status: baseOrder.payment.payment_status || baseOrder.payment.status || ((baseOrder as any).paymentBalance > 0 ? "pending" : "paid"),
+          subtotal:
+            calculatedTotal - (baseOrder.payment.shipping ?? 0) + (baseOrder.payment.discount ?? 0),
+          total: calculatedTotal,
+          balance:
+            baseOrder.payment.total_outstanding !== undefined
+              ? baseOrder.payment.total_outstanding
+              : (baseOrder as any).paymentBalance !== undefined
+              ? (baseOrder as any).paymentBalance
+              : calculatedTotal - (baseOrder.payment.totalPaid ?? baseOrder.payment.paid_amount ?? 0),
+          totalPaid:
+            baseOrder.payment.paid_amount !== undefined
+              ? baseOrder.payment.paid_amount
+              : calculatedTotal -
+                ((baseOrder as any).paymentBalance !== undefined
+                  ? (baseOrder as any).paymentBalance
+                  : (baseOrder.payment.balance ?? 0)),
+        }
+      : {
+          method: ((baseOrder as any).paymentMethod as any) || "Cash",
+          status: ((baseOrder as any).paymentBalance ?? 0) > 0 ? "pending" : "paid",
+          totalPaid: calculatedTotal - ((baseOrder as any).paymentBalance ?? 0),
+          cash:
+            ((baseOrder as any).paymentMethod || "Cash") === "Cash"
+              ? calculatedTotal - ((baseOrder as any).paymentBalance ?? 0)
+              : 0,
+          card:
+            ((baseOrder as any).paymentMethod || "Cash") === "Card"
+              ? calculatedTotal - ((baseOrder as any).paymentBalance ?? 0)
+              : 0,
+          subtotal: calculatedTotal - 10,
+          discount: 0,
+          shipping: 10,
+          total: calculatedTotal,
+          balance: (baseOrder as any).paymentBalance ?? 0,
+          shippingMethod: "Standard Delivery",
+        },
     notes: baseOrder.notes || "Please leave at the door if no one answers.",
-    shippingAddress: id === "HM99005" ? {
-      line1: "Al Waab St",
-      line2: "Doha",
-      city: "Qatar",
-      country: "Qatar",
-      lat: 25.2638,
-      lng: 51.4822,
-    } : {
-      line1: "Al rayyan al azizya, Home number 20",
-      line2: "Al azizya",
-      city: "Qatar",
-      country: "Qatar",
-      lat: 25.24127,
-      lng: 51.444699,
-    },
+    shippingAddress:
+      id === "HM99005"
+        ? {
+            line1: "Al Waab St",
+            line2: "Doha",
+            city: "Qatar",
+            country: "Qatar",
+            lat: 25.2638,
+            lng: 51.4822,
+          }
+        : {
+            line1: "Al rayyan al azizya, Home number 20",
+            line2: "Al azizya",
+            city: "Qatar",
+            country: "Qatar",
+            lat: 25.24127,
+            lng: 51.444699,
+          },
     matrix: [
       {
         fc: "F01",
         fcName: "Fulfillment Center Hilal",
-        items: itemsList.map(item => ({
+        items: itemsList.map((item) => ({
           sku: item.sku,
           req: item.qty,
           available: item.fc === "F01" ? item.qty : 0,
@@ -1235,25 +1269,27 @@ export function getEnrichedOrder(id: string): EnrichedOrder | undefined {
       {
         fc: "MWO",
         fcName: "Main Warehouse Outdoor",
-        items: itemsList.map(item => ({
+        items: itemsList.map((item) => ({
           sku: item.sku,
           req: item.qty,
-          available: item.fc === "MWO" ? item.qty : (item.sku === "561KC" || item.sku === "26790" ? 10 : 0),
+          available:
+            item.fc === "MWO" ? item.qty : item.sku === "561KC" || item.sku === "26790" ? 10 : 0,
         })),
       },
       {
         fc: "VS",
         fcName: "Virtual Stock",
-        items: itemsList.map(item => ({
+        items: itemsList.map((item) => ({
           sku: item.sku,
           req: item.qty,
-          available: item.fc === "VS" ? item.qty : (item.sku === "820304" || item.sku === "58034" ? 15 : 0),
+          available:
+            item.fc === "VS" ? item.qty : item.sku === "820304" || item.sku === "58034" ? 15 : 0,
         })),
       },
       {
         fc: "F02",
         fcName: "Main Warehouse - Safety Stock",
-        items: itemsList.map(item => ({
+        items: itemsList.map((item) => ({
           sku: item.sku,
           req: item.qty,
           available: item.fc === "F02" ? item.qty : 5,
@@ -1352,7 +1388,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "0/0 Packed",
     bags: 0,
     lat: 25.2854,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM59239",
@@ -1416,7 +1452,8 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "0/3 Packed",
     bags: 0,
     tags: ["PAYLATER", "PAYMENTLINKSENT"],
-    notes: "Customer chose Pay Later. Payment link sent: https://halamama.myshopify.com/checkouts/pay/c1b2c3d4e5f6",
+    notes:
+      "Customer chose Pay Later. Payment link sent: https://halamama.myshopify.com/checkouts/pay/c1b2c3d4e5f6",
     payment: {
       subtotal: 1429,
       discount: 0,
@@ -1430,7 +1467,7 @@ export const MOCK_ORDERS: Order[] = [
       card: 0,
     },
     lat: 25.3286,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM64110",
@@ -1453,7 +1490,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "0/2 Packed",
     bags: 0,
     lat: 25.3286,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM64112",
@@ -1710,7 +1747,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "1/1 Packed",
     bags: 1,
     lat: 25.2854,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM68300",
@@ -1734,7 +1771,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "1/1 Packed",
     bags: 1,
     lat: 25.2854,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM68229",
@@ -1758,7 +1795,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "4/4 Packed",
     bags: 2,
     lat: 25.2854,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM68258",
@@ -1782,7 +1819,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "2/2 Packed",
     bags: 1,
     lat: 25.2854,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM68268",
@@ -1806,7 +1843,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "1/1 Packed",
     bags: 1,
     lat: 25.2854,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM64839",
@@ -1830,7 +1867,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "1/1 Packed",
     bags: 1,
     lat: 25.2854,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM99001",
@@ -1853,7 +1890,7 @@ export const MOCK_ORDERS: Order[] = [
     packingStatus: "0/2 Packed",
     bags: 0,
     lat: 25.2854,
-    lng: 51.5310,
+    lng: 51.531,
   },
   {
     id: "HM99003",
@@ -1878,9 +1915,12 @@ export const MOCK_ORDERS: Order[] = [
     lat: 25.4182,
     lng: 51.5218,
   },
-]
+];
 
-export function isUnpaidPayLaterOrder(order: { tags?: string[]; payment?: { balance: number } }): boolean {
+export function isUnpaidPayLaterOrder(order: {
+  tags?: string[];
+  payment?: { balance: number };
+}): boolean {
   const hasTag = order.tags?.some((t) => t.toUpperCase() === "PAYLATER") ?? false;
   const isPending = (order.payment?.balance ?? 0) > 0;
   return hasTag && isPending;
@@ -1913,7 +1953,7 @@ export const ORDER_STATS = [
   },
   {
     label: "Revenue",
-    value: `QAR ${Math.round(MOCK_ORDERS.filter(o => !isUnpaidPayLaterOrder(o)).reduce((sum, order) => sum + order.total, 0) / 1000)}K`,
+    value: `QAR ${Math.round(MOCK_ORDERS.filter((o) => !isUnpaidPayLaterOrder(o)).reduce((sum, order) => sum + order.total, 0) / 1000)}K`,
     icon: Wallet,
     tone: "success" as const,
   },
@@ -2003,6 +2043,7 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
   }
 
   if (tab === "All") return true;
+  if (tab === "New") return order.status === "New" || order.status === "Unfulfilled";
   if (tab === "Unfulfilled") return order.status !== "Delivered";
   if (tab === "Installation") return order.status === "Installation";
   if (tab === "Returns & Replacements")
@@ -2015,7 +2056,10 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
   }
   if (tab === "Replacement") return order.status === "Replacement";
   if (tab === "Exchange") return order.status === "Exchange";
-  if (tab === "In Delivery") return order.status === "Driver Accepted" || order.status === "Started";
+  if (tab === "In Delivery")
+    return order.status === "Driver Accepted" || order.status === "Started" || Boolean(order.driver);
+  if (tab === "Ready to Assign")
+    return order.status === "Ready to Assign" && !order.driver;
   return order.status === tab;
 }
 
@@ -2112,10 +2156,24 @@ export function getOrderSlaStatus(order: Order): {
 }
 
 /** Calculate unified item count across Order lists and Order Details */
-export function getOrderItemsCount(order: { itemsList?: OrderItemType[]; items?: number }): number {
-  if (order.itemsList && order.itemsList.length > 0) {
-    return order.itemsList.reduce((sum, item) => sum + item.qty, 0);
+export function getOrderItemsCount(order: {
+  itemsList?: OrderItemType[];
+  items?: number;
+  line_items?: { quantity?: number; qty?: number }[];
+}): number {
+  if (!order) return 0;
+
+  // Accept Shopify-style or dynamic API `line_items` payloads (quantity or qty)
+  if (order.line_items && Array.isArray(order.line_items) && order.line_items.length > 0) {
+    return order.line_items.reduce((sum, li) => sum + (li.quantity ?? li.qty ?? 1), 0);
   }
+
+  // Prefer the normalized `itemsList` when available
+  if (order.itemsList && Array.isArray(order.itemsList) && order.itemsList.length > 0) {
+    return order.itemsList.reduce((sum, item) => sum + (item.qty ?? 1), 0);
+  }
+
+  // Fallback to the simple items count
   return order.items || 0;
 }
 

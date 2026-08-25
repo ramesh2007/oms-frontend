@@ -16,6 +16,7 @@ import { MOCK_ORDERS, type Order, getMockOrderTotal, getMockOrderItems } from "@
 import { isDemoMode } from "@/lib/api/config";
 import { getProducts } from "./products";
 import { getVendorLocations } from "./vendor-locations";
+import { erpNextClient } from "./api/client";
 
 const STORAGE_KEY = "hm_shared_orders";
 const SYNC_EVENT_KEY = "hm_sync_signal";
@@ -271,7 +272,7 @@ export interface ManagedUser {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "picker" | "packer" | "driver";
+  role: string;
   phone: string;
   status: "active" | "inactive";
   password: string;
@@ -303,16 +304,111 @@ function seedUsersIfNeeded(): void {
   }
 }
 
-export function getUsers(): ManagedUser[] {
-  seedUsersIfNeeded();
+export async function getUsers(): Promise<ManagedUser[]> {
+  if (isDemoMode()) {
+    seedUsersIfNeeded();
+    try {
+      const raw = localStorage.getItem(USERS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return parsed.filter((u: any) => u.role !== "customer_care" && u.role !== "vl_staff");
+      }
+    } catch {}
+    return DEFAULT_USERS;
+  }
+
   try {
-    const raw = localStorage.getItem(USERS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return parsed.filter((u: any) => u.role !== "customer_care" && u.role !== "vl_staff");
+    const response = await erpNextClient.get<{ success: boolean; data: any[] }>("/api/users");
+    if (response && response.success && Array.isArray(response.data)) {
+      return response.data.map((u: any) => ({
+        id: String(u.id),
+        name: u.name || "",
+        email: u.email || "",
+        role: u.role || "picker",
+        phone: u.phone || "",
+        status: u.status || "active",
+        password: "", // hide password in UI list
+        createdAt: u.created_at ? u.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
+      }));
     }
-  } catch {}
-  return DEFAULT_USERS;
+  } catch (err) {
+    console.error("[Sync] Failed to fetch users from backend:", err);
+  }
+  return [];
+}
+
+export async function getDrivers(): Promise<ManagedUser[]> {
+  if (isDemoMode()) {
+    const users = await getUsers();
+    return users.filter((u) => u.role === "driver" && u.status === "active");
+  }
+
+  try {
+    const response = await erpNextClient.get<any>("/api/get-drivers-list");
+    const rawList = Array.isArray(response) ? response : (response?.data || response?.drivers || []);
+    if (Array.isArray(rawList)) {
+      return rawList.map((d: any) => ({
+        id: String(d.id),
+        name: d.name || d.username || d.email || `Driver #${d.id}`,
+        email: d.email || "",
+        role: d.role || "driver",
+        phone: d.phone || "",
+        status: d.status || "active",
+        password: "",
+        createdAt: d.created_at ? d.created_at.split("T")[0] : "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[Sync] /api/get-drivers-list request error, fallback to /api/drivers", err);
+  }
+
+  try {
+    const response = await erpNextClient.get<any>("/api/drivers");
+    const rawList = Array.isArray(response) ? response : (response?.data || response?.drivers || []);
+    if (Array.isArray(rawList)) {
+      return rawList.map((d: any) => ({
+        id: String(d.id),
+        name: d.name || d.username || d.email || `Driver #${d.id}`,
+        email: d.email || "",
+        role: d.role || "driver",
+        phone: d.phone || "",
+        status: d.status || "active",
+        password: "",
+        createdAt: d.created_at ? d.created_at.split("T")[0] : "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[Sync] /api/drivers request error, fallback to getUsers()", err);
+  }
+
+  // Fallback to getUsers()
+  const users = await getUsers();
+  return users.filter((u) => u.role === "driver");
+}
+
+export async function assignDriverToOrder(payload: {
+  order_number?: string;
+  order_id?: number | string;
+  assigned_driver_user_id: number | string;
+  zone?: string;
+}) {
+  if (isDemoMode()) {
+    console.log("[Sync] Demo mode: assignDriverToOrder", payload);
+    return { status: "success", message: "Driver assigned (demo mode)" };
+  }
+
+  try {
+    const response = await erpNextClient.post<any>("/api/orders/assign-driver", {
+      order_number: payload.order_number,
+      order_id: payload.order_id ? Number(payload.order_id) : undefined,
+      assigned_driver_user_id: Number(payload.assigned_driver_user_id),
+      zone: payload.zone || undefined,
+    });
+    return response;
+  } catch (err) {
+    console.error("[Sync] Failed to assign driver via API:", err);
+    throw err;
+  }
 }
 
 export function saveUsers(users: ManagedUser[]): void {
@@ -321,22 +417,51 @@ export function saveUsers(users: ManagedUser[]): void {
   localStorage.setItem("hm_users_sync", Date.now().toString());
 }
 
-export function addUser(user: ManagedUser): void {
-  const users = getUsers();
-  users.push(user);
-  saveUsers(users);
-}
-
-export function updateUser(id: string, updates: Partial<ManagedUser>): void {
-  const users = getUsers();
-  const idx = users.findIndex((u) => u.id === id);
-  if (idx >= 0) {
-    users[idx] = { ...users[idx], ...updates };
+export async function addUser(user: ManagedUser): Promise<void> {
+  if (isDemoMode()) {
+    const users = await getUsers();
+    users.push(user);
     saveUsers(users);
+    return;
   }
+
+  await erpNextClient.post("/api/users", {
+    name: user.name,
+    email: user.email,
+    password: user.password,
+    phone: user.phone,
+    role: user.role,
+    status: user.status,
+  });
 }
 
-export function deleteUser(id: string): void {
-  const users = getUsers().filter((u) => u.id !== id);
-  saveUsers(users);
+export async function updateUser(id: string, updates: Partial<ManagedUser>): Promise<void> {
+  if (isDemoMode()) {
+    const users = await getUsers();
+    const idx = users.findIndex((u) => u.id === id);
+    if (idx >= 0) {
+      users[idx] = { ...users[idx], ...updates };
+      saveUsers(users);
+    }
+    return;
+  }
+
+  await erpNextClient.put(`/api/users/${id}`, {
+    name: updates.name,
+    email: updates.email,
+    phone: updates.phone,
+    role: updates.role,
+    status: updates.status,
+    password: updates.password || undefined,
+  });
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  if (isDemoMode()) {
+    const users = (await getUsers()).filter((u) => u.id !== id);
+    saveUsers(users);
+    return;
+  }
+
+  await erpNextClient.delete(`/api/users/${id}`);
 }

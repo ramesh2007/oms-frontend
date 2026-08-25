@@ -439,7 +439,7 @@ function ProductDialog({ product, onClose, onSave }: ProductDialogProps) {
             </label>
             <select
               value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
+              onChange={(e) => setForm({ ...form, status: e.target.value as Product["status"] })}
               className="w-full h-10 px-3 rounded-xl border border-border bg-muted/30 focus:outline-none font-medium text-foreground"
             >
               <option value="In Stock">In Stock</option>

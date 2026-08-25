@@ -3,7 +3,18 @@ import type { EnrichedOrder } from "@/lib/orders";
 import { cn } from "@/lib/utils";
 
 export function PaymentSummary({ order }: { order: EnrichedOrder }) {
-  const paymentStatus = order.payment.balance > 0 ? "Pending" : "Paid";
+  const rawStatus =
+    order.payment?.status ||
+    (order.payment?.balance > 0 ? "pending" : "paid");
+
+  const paymentStatus = rawStatus
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
+  const isPaid = paymentStatus.toLowerCase() === "paid";
+  const isPending = paymentStatus.toLowerCase() === "pending" || paymentStatus.toLowerCase() === "unpaid";
 
   return (
     <section className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -16,10 +27,13 @@ export function PaymentSummary({ order }: { order: EnrichedOrder }) {
           <span
             className={cn(
               "inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
-              paymentStatus === "Paid" &&
+              isPaid &&
                 "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400",
-              paymentStatus === "Pending" &&
+              isPending &&
                 "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400",
+              !isPaid &&
+                !isPending &&
+                "border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-500/20 dark:bg-gray-500/10 dark:text-gray-400",
             )}
           >
             {paymentStatus}

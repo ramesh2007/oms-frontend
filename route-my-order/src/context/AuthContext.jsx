@@ -1,9 +1,10 @@
 import { createContext, useContext, useState, useCallback } from 'react'
 import { findManagedUser } from '../api/sync'
+import { apiConfig } from '../api/config'
 
 const AuthContext = createContext(null)
 
-/* Mock user database — will be replaced by POST /login */
+/* Mock user database — used as fallback when VITE_USE_MOCK_DATA=true */
 const MOCK_USERS = {
   'picker@rmo.qa':   { id: '1', name: 'Ahmed Khalil',   email: 'picker@rmo.qa',  role: 'picker',  password: 'picker123' },
   'packer@rmo.qa':   { id: '2', name: 'Sara Al-Thani',  email: 'packer@rmo.qa',  role: 'packer',  password: 'packer123' },
@@ -18,7 +19,47 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem('rmo_token'))
 
   const login = useCallback(async (email, password) => {
-    /* ─── API HOOK: Replace with POST /api/login { email, password } ─── */
+    // ── Live mode: call API login endpoint ──
+    if (!apiConfig.useMockData) {
+      try {
+        const response = await fetch(`${apiConfig.baseUrl.replace(/\/$/, '')}/api/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({ email, password }),
+        })
+
+        if (!response.ok) {
+          throw new Error('Invalid credentials')
+        }
+
+        const resData = await response.json()
+        if (resData.success && resData.data?.token) {
+          const userData = resData.data.user || {}
+          const profile = {
+            id: userData.id || '1',
+            name: userData.name || email,
+            email: userData.email || email,
+            role: userData.role || 'driver',
+          }
+
+          localStorage.setItem('rmo_user', JSON.stringify(profile))
+          localStorage.setItem('rmo_token', resData.data.token)
+          setUser(profile)
+          setToken(resData.data.token)
+          return profile
+        } else {
+          throw new Error(resData.message || 'Invalid credentials')
+        }
+      } catch (err) {
+        console.error('[Auth] Login failed:', err)
+        throw err
+      }
+    }
+
+    // ── Demo mode ──
     await new Promise(r => setTimeout(r, 800)) // simulate latency
     
     // 1. Check admin-managed users first (created via User Management page)

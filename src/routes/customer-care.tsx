@@ -383,7 +383,7 @@ function ScheduleDialog({ order, locations, onClose, onSaved }: {
   onSaved: () => void;
 }) {
   const items = (order.itemsList || getMockOrderItems(order.id, order.items)).filter(
-    (i) => i.itemType === "MWH" || i.itemType === "VL_SUPPLIER",
+    (i: any) => i.itemType === "MWH" || i.itemType === "VL_SUPPLIER",
   );
   const [locationId, setLocationId] = useState("");
   const [teamId, setTeamId] = useState("");
@@ -408,7 +408,7 @@ function ScheduleDialog({ order, locations, onClose, onSaved }: {
       teamId,
       locationId,
       orderId: order.id,
-      itemIds: items.map((i) => i.id),
+      itemIds: items.map((i: any) => i.id),
       customerName: order.customer.name,
       customerPhone: order.customer.phone,
       scheduledDate: date,
@@ -441,7 +441,7 @@ function ScheduleDialog({ order, locations, onClose, onSaved }: {
             <p className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
               <AlertCircle className="h-3.5 w-3.5" /> Items requiring installation
             </p>
-            {items.map((item) => (
+            {items.map((item: any) => (
               <p key={item.id} className="text-xs text-amber-800 dark:text-amber-300 pl-5">
                 · {item.name} ({item.itemType})
               </p>

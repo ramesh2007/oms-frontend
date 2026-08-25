@@ -18,7 +18,7 @@ import {
   type EnrichedOrder,
 } from "@/lib/orders";
 import { getEnrichedOrder } from "@/lib/orders";
-import { useOrders } from "@/hooks/useOrders";
+import { useOrders, useOrdersByStatus } from "@/hooks/useOrders";
 import { PrintInvoiceDialog } from "./PrintInvoiceDialog";
 import { ViewExportDialog } from "./ViewExportDialog";
 import { BulkActionBar } from "./BulkActionBar";
@@ -32,9 +32,33 @@ import { toast } from "sonner";
 
 export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const navigate = useNavigate();
-  const { data: apiOrders = [], refetch } = useOrders();
-  const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<LegacyTabId>(initialTab || "New");
+
+  const statusSlug = useMemo(() => {
+    switch (activeTab) {
+      case "New":
+      case "Unfulfilled":
+        return "new";
+      case "Ready to Assign":
+        return "ready-to-assign";
+      case "Picking":
+        return "picking";
+      case "Picked":
+        return "picked";
+      case "Packing":
+        return "packing";
+      case "In Delivery":
+        return "in-delivery";
+      case "Delivered":
+        return "delivered";
+      default:
+        return "all";
+    }
+  }, [activeTab]);
+
+  const { data: allOrders = [] } = useOrders();
+  const { data: statusOrders = [], refetch, isLoading: isStatusLoading } = useOrdersByStatus(statusSlug);
+  const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,7 +69,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const [giftPrintDialogOpen, setGiftPrintDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [orders, setOrders] = useState<Order[]>(apiOrders);
+  const [orders, setOrders] = useState<Order[]>(statusOrders);
   const [days, setDays] = useState("30");
   const [filters, setFilters] = useState({
     status: "All",
@@ -69,14 +93,18 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const [singleActionOrder, setSingleActionOrder] = useState<Order | null>(null);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setLoading(false), 380);
-    return () => window.clearTimeout(t);
-  }, []);
+    setLoading(isStatusLoading);
+  }, [isStatusLoading]);
 
-  // Sync orders from hook whenever apiOrders changes
+  // Sync orders whenever statusOrders changes
   useEffect(() => {
-    if (apiOrders.length > 0) setOrders(apiOrders);
-  }, [apiOrders]);
+    if (Array.isArray(statusOrders)) {
+      setOrders(statusOrders);
+    } else if (Array.isArray(allOrders)) {
+      setOrders(allOrders);
+    }
+  }, [statusOrders, allOrders]);
+
 
   useEffect(() => {
     if (initialTab) {
@@ -89,7 +117,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   }, [activeTab]);
 
   const baseOrders = useMemo(() => {
-    let result = [...orders];
+    let result = orders.length > 0 ? [...orders] : [...allOrders];
 
     if (search.trim()) {
       result = result.filter((o) => matchesSearch(o, search));
@@ -106,10 +134,13 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     }
 
     return result;
-  }, [orders, search, filters.customer, days]);
+  }, [orders, allOrders, search, filters.customer, days]);
 
   const filtered = useMemo(() => {
-    let result = baseOrders.filter((o) => matchesLegacyTab(o, activeTab));
+    let result = baseOrders;
+    if (activeTab !== "All") {
+      result = result.filter((o) => matchesLegacyTab(o, activeTab));
+    }
 
     if (filters.status !== "All") {
       result = result.filter((o) => o.status === filters.status);
@@ -159,11 +190,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
   const tabCounts = useMemo(() => {
     const counts = {} as Record<LegacyTabId, number>;
+    const dataset = allOrders.length > 0 ? allOrders : orders;
     for (const tab of LEGACY_TABS) {
-      counts[tab.id] = countForLegacyTab(baseOrders, tab.id);
+      counts[tab.id] = countForLegacyTab(dataset, tab.id);
     }
     return counts;
-  }, [baseOrders]);
+  }, [allOrders, orders]);
 
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
@@ -427,6 +459,11 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
           if (!open) setSingleActionOrder(null);
         }}
         selectedCount={singleActionOrder ? 1 : selectedCount}
+        selectedOrders={
+          singleActionOrder
+            ? [singleActionOrder]
+            : orders.filter((o) => selectedIds.has(o.id))
+        }
         onAssign={(driver) => {
           const targetIds = singleActionOrder ? [singleActionOrder.id] : Array.from(selectedIds);
           setOrders((prev) =>

@@ -43,7 +43,11 @@ function getHeaders(): HeadersInit {
     Accept: "application/json",
   };
 
-  if (apiConfig.apiKey && apiConfig.apiSecret) {
+  // Check if we have a stored Laravel Sanctum token
+  const token = typeof window !== "undefined" ? localStorage.getItem("hm_auth_token") : null;
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  } else if (apiConfig.apiKey && apiConfig.apiSecret) {
     headers["Authorization"] = `token ${apiConfig.apiKey}:${apiConfig.apiSecret}`;
   }
 
@@ -54,10 +58,12 @@ function getHeaders(): HeadersInit {
 // Combines the base URL with the endpoint path
 
 function buildUrl(endpoint: string, params?: Record<string, string>): string {
-  // Remove double slashes: "https://site.com/" + "/api/resource" → clean URL
-  const base = apiConfig.baseUrl.replace(/\/$/, "");
+  const base = apiConfig.baseUrl ? apiConfig.baseUrl.replace(/\/$/, "") : "";
   const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-  const url = new URL(`${base}${path}`);
+  const fullPath = `${base}${path}`;
+  const url = typeof window !== "undefined"
+    ? new URL(fullPath, window.location.origin)
+    : new URL(fullPath, "http://localhost");
 
   // Add query parameters (e.g. ?limit_page_length=100)
   if (params) {

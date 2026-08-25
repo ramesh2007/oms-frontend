@@ -103,24 +103,27 @@ try {
   copyDir(mainDist, stagingDist);
   console.log('Staging area prepared.');
 
-  // Step 5: Compress to ZIP
-  console.log('\n[5/5] Compressing staging directory to ZIP file...');
-  if (fs.existsSync(zipFile)) {
-    fs.unlinkSync(zipFile);
+  // Helper function for cross-platform compression
+  function compressFolder(sourceDir, targetZip) {
+    if (fs.existsSync(targetZip)) {
+      fs.unlinkSync(targetZip);
+    }
+    if (process.platform === 'win32') {
+      const psCommand = `powershell -NoProfile -Command "Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${targetZip}' -Force"`;
+      execSync(psCommand, { stdio: 'inherit' });
+    } else {
+      execSync(`zip -r -q "${targetZip}" .`, { cwd: sourceDir, stdio: 'inherit' });
+    }
   }
 
-  // Use powershell Compress-Archive for full source code
-  const psCommand = `powershell -NoProfile -Command "Compress-Archive -Path '${stagingDir}\\*' -DestinationPath '${zipFile}' -Force"`;
-  execSync(psCommand, { stdio: 'inherit' });
+  // Step 5: Compress to ZIP
+  console.log('\n[5/5] Compressing staging directory to ZIP file...');
+  compressFolder(stagingDir, zipFile);
   console.log(`Successfully generated full package: ${zipFile}`);
 
   // Compress only the dist folder
   console.log('\nCompressing compiled dist directory to ZIP file...');
-  if (fs.existsSync(distZipFile)) {
-    fs.unlinkSync(distZipFile);
-  }
-  const psCommandDist = `powershell -NoProfile -Command "Compress-Archive -Path '${mainDist}\\*' -DestinationPath '${distZipFile}' -Force"`;
-  execSync(psCommandDist, { stdio: 'inherit' });
+  compressFolder(mainDist, distZipFile);
   console.log(`Successfully generated dist-only package: ${distZipFile}`);
 
   // Clean up

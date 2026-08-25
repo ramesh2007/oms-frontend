@@ -37,6 +37,8 @@ export const orderKeys = {
   all: ["orders"] as const,
   /** The main orders list */
   list: () => [...orderKeys.all, "list"] as const,
+  /** Status specific query */
+  status: (status: string, page = 1) => [...orderKeys.all, "status", status, page] as const,
   /** A single order's details */
   detail: (id: string) => [...orderKeys.all, "detail", id] as const,
 };
@@ -45,21 +47,6 @@ export const orderKeys = {
 
 /**
  * Hook to fetch all orders.
- *
- * @example
- * function OrdersPage() {
- *   const { data: orders, isLoading, error, refetch } = useOrders();
- *
- *   if (isLoading) return <p>Loading orders...</p>;
- *   if (error) return <p>Error: {error.message}</p>;
- *
- *   return (
- *     <div>
- *       <p>Found {orders.length} orders</p>
- *       <button onClick={() => refetch()}>Refresh</button>
- *     </div>
- *   );
- * }
  */
 export function useOrders() {
   return useQuery<Order[], Error>({
@@ -76,6 +63,29 @@ export function useOrders() {
     refetchOnWindowFocus: false,
   });
 }
+
+/**
+ * Hook to fetch orders by dedicated status API (e.g. 'new', 'picking', 'picked', 'packing', 'ready-to-assign', 'in-delivery', 'delivered', 'all').
+ */
+export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
+  return useQuery<Order[], Error>({
+    queryKey: orderKeys.status(statusName, page),
+    queryFn: async () => {
+      const res: any = await ordersApi.fetchOrdersByStatus(statusName, page, perPage);
+      if (res && res.mappedOrders) {
+        return res.mappedOrders;
+      }
+      if (res && Array.isArray(res.data)) {
+        return res.data;
+      }
+      return [];
+    },
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 
 // ─── useOrderDetails ─────────────────────────────────────────────────────
 

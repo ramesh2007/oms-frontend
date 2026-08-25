@@ -21,6 +21,7 @@ import { Route as PackingRouteImport } from './routes/packing'
 import { Route as MisBenchmarksRouteImport } from './routes/mis-benchmarks'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LocationsRouteImport } from './routes/locations'
+import { Route as InDeliveryRouteImport } from './routes/in-delivery'
 import { Route as FlagsRouteImport } from './routes/flags'
 import { Route as DriverRouteImport } from './routes/driver'
 import { Route as DeliveredRouteImport } from './routes/delivered'
@@ -90,6 +91,11 @@ const LocationsRoute = LocationsRouteImport.update({
   path: '/locations',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InDeliveryRoute = InDeliveryRouteImport.update({
+  id: '/in-delivery',
+  path: '/in-delivery',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FlagsRoute = FlagsRouteImport.update({
   id: '/flags',
   path: '/flags',
@@ -138,6 +144,7 @@ export interface FileRoutesByFullPath {
   '/delivered': typeof DeliveredRoute
   '/driver': typeof DriverRoute
   '/flags': typeof FlagsRoute
+  '/in-delivery': typeof InDeliveryRoute
   '/locations': typeof LocationsRoute
   '/login': typeof LoginRoute
   '/mis-benchmarks': typeof MisBenchmarksRoute
@@ -160,6 +167,7 @@ export interface FileRoutesByTo {
   '/delivered': typeof DeliveredRoute
   '/driver': typeof DriverRoute
   '/flags': typeof FlagsRoute
+  '/in-delivery': typeof InDeliveryRoute
   '/locations': typeof LocationsRoute
   '/login': typeof LoginRoute
   '/mis-benchmarks': typeof MisBenchmarksRoute
@@ -183,6 +191,7 @@ export interface FileRoutesById {
   '/delivered': typeof DeliveredRoute
   '/driver': typeof DriverRoute
   '/flags': typeof FlagsRoute
+  '/in-delivery': typeof InDeliveryRoute
   '/locations': typeof LocationsRoute
   '/login': typeof LoginRoute
   '/mis-benchmarks': typeof MisBenchmarksRoute
@@ -207,6 +216,7 @@ export interface FileRouteTypes {
     | '/delivered'
     | '/driver'
     | '/flags'
+    | '/in-delivery'
     | '/locations'
     | '/login'
     | '/mis-benchmarks'
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/delivered'
     | '/driver'
     | '/flags'
+    | '/in-delivery'
     | '/locations'
     | '/login'
     | '/mis-benchmarks'
@@ -251,6 +262,7 @@ export interface FileRouteTypes {
     | '/delivered'
     | '/driver'
     | '/flags'
+    | '/in-delivery'
     | '/locations'
     | '/login'
     | '/mis-benchmarks'
@@ -274,6 +286,7 @@ export interface RootRouteChildren {
   DeliveredRoute: typeof DeliveredRoute
   DriverRoute: typeof DriverRoute
   FlagsRoute: typeof FlagsRoute
+  InDeliveryRoute: typeof InDeliveryRoute
   LocationsRoute: typeof LocationsRoute
   LoginRoute: typeof LoginRoute
   MisBenchmarksRoute: typeof MisBenchmarksRoute
@@ -376,6 +389,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LocationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/in-delivery': {
+      id: '/in-delivery'
+      path: '/in-delivery'
+      fullPath: '/in-delivery'
+      preLoaderRoute: typeof InDeliveryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/flags': {
       id: '/flags'
       path: '/flags'
@@ -442,6 +462,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeliveredRoute: DeliveredRoute,
   DriverRoute: DriverRoute,
   FlagsRoute: FlagsRoute,
+  InDeliveryRoute: InDeliveryRoute,
   LocationsRoute: LocationsRoute,
   LoginRoute: LoginRoute,
   MisBenchmarksRoute: MisBenchmarksRoute,

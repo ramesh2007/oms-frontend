@@ -128,16 +128,20 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                   <p className="text-[11px] text-muted-foreground italic pl-6 flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>{info.address}</span>
                     <span className="hidden sm:inline text-muted-foreground/40">•</span>
-                    <span className="font-medium text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-border">Method: {info.method}</span>
+                    <span className="font-medium text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-border">
+                      Method: {info.method}
+                    </span>
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
-                  <span className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border",
-                    info.flow === "Picker App Flow"
-                      ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900"
-                      : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                  )}>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border",
+                      info.flow === "Picker App Flow"
+                        ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900"
+                        : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700",
+                    )}
+                  >
                     {info.flow}
                   </span>
                   <StatusPill
@@ -158,24 +162,26 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                       className="grid gap-4 p-4 transition-colors hover:bg-muted/10 sm:grid-cols-[72px_1fr_auto] sm:p-5"
                     >
                       <div className="h-20 w-20 overflow-hidden rounded-lg border border-border bg-muted/30 sm:h-[72px] sm:w-[72px]">
-                        <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="h-full w-full object-cover"
+                        />
                       </div>
 
                       <div className="min-w-0 space-y-2">
                         <div className="space-y-1">
-                          <h4 className="font-semibold leading-snug text-foreground">{item.name}</h4>
+                          <h4 className="font-semibold leading-snug text-foreground">
+                            {item.name}
+                          </h4>
                         </div>
 
                         <div className="flex flex-col gap-0.5 mt-1">
                           {item.sku && (
-                            <p className="text-xs text-muted-foreground">
-                              SKU: {item.sku}
-                            </p>
+                            <p className="text-xs text-muted-foreground">SKU: {item.sku}</p>
                           )}
                           {item.barcode && (
-                            <p className="text-xs text-muted-foreground">
-                              Barcode: {item.barcode}
-                            </p>
+                            <p className="text-xs text-muted-foreground">Barcode: {item.barcode}</p>
                           )}
                         </div>
 
@@ -251,8 +257,12 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                   />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm sm:text-base font-semibold text-foreground truncate">{pendingItem.name}</p>
-                  <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">SKU: {pendingItem.sku}</p>
+                  <p className="text-sm sm:text-base font-semibold text-foreground truncate">
+                    {pendingItem.name}
+                  </p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
+                    SKU: {pendingItem.sku}
+                  </p>
                 </div>
               </div>
             )}
@@ -299,8 +309,12 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                   />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm sm:text-base font-semibold text-foreground truncate">{itemToCancel.name}</p>
-                  <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">SKU: {itemToCancel.sku}</p>
+                  <p className="text-sm sm:text-base font-semibold text-foreground truncate">
+                    {itemToCancel.name}
+                  </p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
+                    SKU: {itemToCancel.sku}
+                  </p>
                 </div>
               </div>
             )}
@@ -341,9 +355,9 @@ function StatusPill({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
         tone === "blue" &&
-        "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400",
+          "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400",
         tone === "emerald" &&
-        "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400",
+          "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400",
       )}
     >
       <span className="text-muted-foreground">{label}:</span>
@@ -358,11 +372,11 @@ function ItemStatus({ status }: { status: EnrichedOrder["itemsList"][number]["st
       className={cn(
         "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
         status === "Prepared" &&
-        "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400",
+          "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400",
         status === "Allocated" &&
-        "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400",
+          "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400",
         status === "Accepted" &&
-        "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400",
+          "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400",
         status === "Pending" && "border-border bg-muted text-muted-foreground",
       )}
     >

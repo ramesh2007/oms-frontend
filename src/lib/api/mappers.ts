@@ -40,9 +40,9 @@ export interface ERPNextSalesOrder {
   status: string;                  // ERPNext status (e.g. "To Deliver and Bill")
   delivery_status?: string;        // Custom delivery status
   items?: ERPNextSalesOrderItem[]; // Line items
+  line_items?: ERPNextSalesOrderItem[]; // Shopify / Backend dynamic line items
 
   // ── Custom fields your ERPNext dev may add ──
-  // These are placeholders. Rename them when you get the real API.
   custom_city?: string;
   custom_zone?: string;
   custom_coordinator?: string;
@@ -67,24 +67,32 @@ export interface ERPNextSalesOrder {
   custom_tags?: string;
 }
 
-/** Raw Sales Order Item from ERPNext */
+/** Raw Sales Order Item from ERPNext or Shopify API */
 export interface ERPNextSalesOrderItem {
-  name: string;
-  item_code: string;
-  item_name: string;
-  qty: number;
-  rate: number;
-  amount: number;
+  id?: number | string;
+  name?: string;
+  item_code?: string;
+  item_name?: string;
+  qty?: number;
+  quantity?: number;
+  rate?: number;
+  price?: number;
+  amount?: number;
   warehouse?: string;
   custom_barcode?: string;
   custom_bin?: string;
   custom_status?: string;
   image?: string;
+  sku?: string;
+  product_id?: number | string;
+  variant_id?: number | string;
 }
 
 /** Standard ERPNext list response wrapper */
 export interface ERPNextListResponse<T> {
   data: T[];
+  count?: number;
+  source?: string;
 }
 
 /** Standard ERPNext single document response wrapper */
@@ -122,6 +130,7 @@ function mapStatus(erpStatus: string): OrderStatus {
     "Delivery Failed": "Delivery Failed",
     "Flagged": "Flagged",
     "New": "New",
+    "Pending": "New",
     "Unfulfilled": "Unfulfilled",
     "Replacement": "Replacement",
     "Exchange": "Exchange",
@@ -160,10 +169,6 @@ function calculateTat(orderDate?: string): string {
  *
  * This is the most important function. It translates ERPNext field names
  * into the field names our React components expect.
- *
- * WHEN YOU GET THE REAL API:
- * 1. Console.log the raw ERPNext response to see field names
- * 2. Update the field mappings below (left = our field, right = ERPNext field)
  */
 export function mapErpNextToOrder(raw: ERPNextSalesOrder): Order {
   const dateObj = raw.transaction_date ? new Date(raw.transaction_date) : new Date();
@@ -178,6 +183,11 @@ export function mapErpNextToOrder(raw: ERPNextSalesOrder): Order {
     }
   }
 
+  const rawLineItems = raw.line_items || raw.items || [];
+  const itemCount = rawLineItems.length > 0
+    ? rawLineItems.reduce((sum: number, item: any) => sum + (item.quantity ?? item.qty ?? 1), 0)
+    : 0;
+
   return {
     id: raw.name,
     customerId: `cust-${raw.customer?.replace(/\s+/g, "-").toLowerCase() || "unknown"}`,
@@ -190,7 +200,8 @@ export function mapErpNextToOrder(raw: ERPNextSalesOrder): Order {
       phone: raw.contact_phone || "",
     },
     channel: mapChannel(raw.custom_channel),
-    items: raw.items?.length ?? 0,
+    items: itemCount,
+    line_items: rawLineItems,
     status: mapStatus(raw.status),
     returns: raw.custom_return_count
       ? { type: "Return", count: raw.custom_return_count }
@@ -213,17 +224,17 @@ export function mapErpNextToOrder(raw: ERPNextSalesOrder): Order {
 }
 
 /**
- * Maps an ERPNext Sales Order Item → Dashboard OrderItemType
+ * Maps an ERPNext or Shopify Sales Order Item → Dashboard OrderItemType
  */
 export function mapErpNextToOrderItem(raw: ERPNextSalesOrderItem): OrderItemType {
   return {
-    id: raw.name,
-    name: raw.item_name,
-    sku: raw.item_code,
+    id: String(raw.id || raw.name || Math.random()),
+    name: raw.name || raw.item_name || "Item",
+    sku: raw.sku || raw.item_code || "",
     barcode: raw.custom_barcode || "",
     image: raw.image || "",
-    qty: raw.qty,
-    price: raw.rate,
+    qty: raw.quantity ?? raw.qty ?? 1,
+    price: raw.price ?? raw.rate ?? 0,
     fc: "F01",
     fcName: raw.warehouse || "Default Warehouse",
     bin: raw.custom_bin || "—",
@@ -237,7 +248,47 @@ export function mapErpNextToOrderItem(raw: ERPNextSalesOrderItem): OrderItemType
  */
 export function mapErpNextToEnrichedOrder(raw: ERPNextSalesOrder): EnrichedOrder {
   const base = mapErpNextToOrder(raw);
-  const itemsList = raw.items?.map(mapErpNextToOrderItem) || [];
+  const rawLineItems = raw.line_items || raw.items || [];
+  const itemsList = rawLineItems.map(mapErpNextToOrderItem);
+
+  const rawPayment = (raw as any).payment || {};
+  const paymentMethod =
+    rawPayment.payment_method ||
+    (raw as any).payment_method ||
+    (raw as any).custom_payment_method ||
+    "Cash on Delivery (COD)";
+
+  const paymentStatus =
+    rawPayment.payment_status ||
+    (raw as any).payment_status ||
+    (raw as any).custom_payment_status ||
+    (raw as any).financial_status ||
+    "pending";
+
+  const totalPrice =
+    typeof rawPayment.total_price === "number"
+      ? rawPayment.total_price
+      : (raw.grand_total || 0);
+
+  const paidAmount =
+    typeof rawPayment.paid_amount === "number"
+      ? rawPayment.paid_amount
+      : typeof (raw as any).paid_amount === "number"
+      ? (raw as any).paid_amount
+      : paymentStatus.toLowerCase() === "paid"
+      ? totalPrice
+      : 0;
+
+  const totalOutstanding =
+    typeof rawPayment.total_outstanding === "number"
+      ? rawPayment.total_outstanding
+      : typeof (raw as any).total_outstanding === "number"
+      ? (raw as any).total_outstanding
+      : Math.max(0, totalPrice - paidAmount);
+
+  const lowerMethod = paymentMethod.toLowerCase();
+  const isCash = lowerMethod.includes("cash") || lowerMethod.includes("cod");
+  const isCard = lowerMethod.includes("card");
 
   return {
     ...base,
@@ -246,16 +297,20 @@ export function mapErpNextToEnrichedOrder(raw: ERPNextSalesOrder): EnrichedOrder
     returnsList: [],
     timeline: [],
     payment: {
-      method: "Cash",
-      totalPaid: raw.grand_total || 0,
-      cash: raw.grand_total || 0,
-      card: 0,
-      subtotal: (raw.grand_total || 0) - 10,
+      method: paymentMethod,
+      status: paymentStatus,
+      totalPaid: paidAmount,
+      cash: isCash ? paidAmount : 0,
+      card: isCard ? paidAmount : 0,
+      subtotal: Math.max(0, totalPrice - 10),
       discount: 0,
       shipping: 10,
-      total: raw.grand_total || 0,
-      balance: 0,
+      total: totalPrice,
+      balance: totalOutstanding,
       shippingMethod: "Standard Delivery",
+      id: rawPayment.id,
+      shopifyOrderId: rawPayment.shopify_order_id,
+      processedAt: rawPayment.processed_at,
     },
     notes: raw.custom_notes || "",
     shippingAddress: {
@@ -269,3 +324,130 @@ export function mapErpNextToEnrichedOrder(raw: ERPNextSalesOrder): EnrichedOrder
     matrix: [],
   };
 }
+
+/**
+ * 🔄 LARAVEL API MAPPER: Converts Laravel Order API JSON → Dashboard Order
+ * Maps responses from /api/orders/status/{all,new,ready-to-assign,picking,picked,packing,in-delivery,delivered}
+ */
+export function mapLaravelOrderToDashboardOrder(raw: any): Order {
+  if (!raw) return mapErpNextToOrder({ name: "UNKNOWN", customer: "UNKNOWN", grand_total: 0, status: "New" });
+
+  // If payload is already standard ERPNext format, fallback to mapErpNextToOrder
+  if (raw.name && !raw.order_number) {
+    return mapErpNextToOrder(raw);
+  }
+
+  const dateObj = raw.created_at ? new Date(raw.created_at) : new Date();
+  const date = dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const time = dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  const rawStatus = (raw.status || "pending").toLowerCase();
+  const hasDriverAssigned = Boolean(
+    raw.driver_user ||
+    raw.driver_assignment ||
+    raw.assigned_driver_user_id ||
+    raw.driver_name
+  );
+
+  let status: OrderStatus = "New";
+  if (hasDriverAssigned && rawStatus !== "delivered" && rawStatus !== "cancelled") {
+    status = "Started";
+  } else if (rawStatus === "ready_to_assign" || rawStatus === "packed") {
+    status = "Ready to Assign";
+  } else if (rawStatus === "pending") {
+    status = "New";
+  } else if (rawStatus === "picking") {
+    status = "Picking";
+  } else if (rawStatus === "picked") {
+    status = "Picked";
+  } else if (rawStatus === "packing") {
+    status = "Packing";
+  } else if (rawStatus === "assigned_to_driver" || rawStatus === "out_for_delivery" || rawStatus === "in_delivery" || rawStatus === "started" || rawStatus === "driver_accepted") {
+    status = "Started";
+  } else if (rawStatus === "delivered") {
+    status = "Delivered";
+  } else if (rawStatus === "cancelled") {
+    status = "Cancelled";
+  }
+
+  const pickerName = raw.pickers && raw.pickers.length > 0
+    ? raw.pickers.map((p: any) => p.name).join(", ")
+    : (raw.assigned_user?.name || null);
+
+  const packerName = raw.packers && raw.packers.length > 0
+    ? raw.packers.map((p: any) => p.name).join(", ")
+    : null;
+
+  const totalItems = raw.summary?.total_items ?? (raw.items && raw.items.length > 0 ? raw.items.reduce((sum: number, i: any) => sum + (i.quantity || 1), 0) : (raw.items ? raw.items.length : 1));
+
+  let pickingStatus = raw.custom_picking_status;
+  if (!pickingStatus) {
+    if (typeof raw.summary?.picked_items === "number") {
+      pickingStatus = `${raw.summary.picked_items}/${totalItems} Picked`;
+    } else if (raw.items && raw.items.length > 0) {
+      const pickedCount = raw.items.filter((i: any) => i.status === "picked" || i.status === "packed" || i.status === "delivered").length;
+      pickingStatus = `${pickedCount}/${totalItems} Picked`;
+    } else if (["picked", "packing", "packed", "ready_to_assign", "assigned_to_driver", "in_delivery", "out_for_delivery", "delivered"].includes(rawStatus)) {
+      pickingStatus = `${totalItems}/${totalItems} Picked`;
+    } else {
+      pickingStatus = `0/${totalItems} Picked`;
+    }
+  }
+
+  let packingStatus = raw.custom_packing_status;
+  if (!packingStatus) {
+    if (typeof raw.summary?.packed_items === "number") {
+      packingStatus = `${raw.summary.packed_items}/${totalItems} Packed`;
+    } else if (raw.items && raw.items.length > 0) {
+      const packedCount = raw.items.filter((i: any) => i.status === "packed" || i.status === "delivered").length;
+      packingStatus = `${packedCount}/${totalItems} Packed`;
+    } else if (["packed", "ready_to_assign", "assigned_to_driver", "in_delivery", "out_for_delivery", "delivered"].includes(rawStatus)) {
+      packingStatus = `${totalItems}/${totalItems} Packed`;
+    } else {
+      packingStatus = `0/${totalItems} Packed`;
+    }
+  }
+
+  return {
+    id: raw.order_number || String(raw.order_id || ""),
+    customerId: `cust-${raw.customer?.name?.replace(/\s+/g, "-").toLowerCase() || "unknown"}`,
+    tat: calculateTat(raw.created_at),
+    date,
+    time,
+    customer: {
+      name: raw.customer?.name || "Unknown Customer",
+      email: raw.customer?.email || "",
+      phone: raw.customer?.phone || "N/A",
+    },
+    channel: "shopify",
+    items: totalItems,
+    status,
+    city: raw.customer?.delivery_address || "—",
+    coordinator: "-",
+    driver: raw.driver_user?.name || raw.assigned_user_name || raw.driver_name || null,
+    driverStatus: (raw.driver_user || raw.assigned_user_name || raw.driver_name) ? "Assigned" : null,
+    picker: pickerName,
+    packer: packerName,
+    total: raw.summary?.total_amount ?? (raw.total_amount || 0),
+    shopify: rawStatus === "delivered" ? "Fulfilled" : "Unfulfilled",
+    pickingStatus,
+    packingStatus,
+    bags: raw.bag_count || 0,
+    tags: [],
+    itemsList: (raw.items || []).map((i: any) => ({
+      id: String(i.item_id || i.line_item_id || Math.random()),
+      name: i.product_name || "Product Item",
+      sku: i.product_code || "",
+      barcode: i.barcode || "",
+      image: i.image || i.image_url || "",
+      qty: i.quantity || 1,
+      price: i.unit_price || 0,
+      fc: "F01",
+      fcName: "Fulfillment Center Hilal",
+      bin: "—",
+      status: i.status === "picked" ? "Prepared" : "Pending",
+    })),
+  };
+}
+
+

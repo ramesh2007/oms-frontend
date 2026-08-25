@@ -3,7 +3,7 @@ import { AppSidebar } from "@/components/dashboard/AppSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
 import { PickingTable } from "@/components/orders/tables/PickingTable";
 import { type Order } from "@/lib/orders";
-import { useOrders } from "@/hooks/useOrders";
+import { useOrdersByStatus } from "@/hooks/useOrders";
 import { useState, useEffect } from "react";
 
 export const Route = createFileRoute("/picking")({
@@ -17,20 +17,11 @@ export const Route = createFileRoute("/picking")({
 
 function PickingPage() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const { data: allOrders = [] } = useOrders();
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setLoading(false), 380);
-    return () => window.clearTimeout(t);
-  }, []);
+  const { data: orders = [], isLoading: loading } = useOrdersByStatus("picking");
 
   const goToOrder = (order: Order) => {
     navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
   };
-
-  // For demo, we just filter for orders that are in some Picking state or just show some orders
-  const orders = allOrders.filter(o => o.status === "New" || o.status === "Unfulfilled");
 
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">

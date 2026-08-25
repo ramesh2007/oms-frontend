@@ -337,6 +337,7 @@ let mockOrders = [
 ];
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const cleanOrderId = (id) => String(id || "").replace(/^#/, "");
 
 // ─── Operational API Gateway ─────────────────────────────────────────────
 function isUnpaidPayLaterOrder(order) {
@@ -506,7 +507,8 @@ export const assignOrder = async (orderId, email, role) => {
     body.custom_packing_status = "In Progress";
   }
 
-  const response = await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, body);
+  const cleanId = cleanOrderId(orderId);
+  const response = await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, body);
   return mapErpNextToRmoOrder(response.data);
 };
 
@@ -563,7 +565,8 @@ export const completePicking = async (orderId, pickerEmail, pickerName) => {
     return o;
   }
 
-  const response = await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, {
+  const cleanId = cleanOrderId(orderId);
+  const response = await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     status: "Packed",
     custom_picking_status: "Completed",
     custom_picker: pickerEmail
@@ -601,7 +604,8 @@ export const completePacking = async (orderId, bags, packerEmail, packerName) =>
     return o;
   }
 
-  const response = await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, {
+  const cleanId = cleanOrderId(orderId);
+  const response = await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     custom_bags: bags,
     custom_packing_status: "Completed",
     status: "Ready to Assign",
@@ -617,7 +621,8 @@ export const flagOrderIssue = async (orderId, note) => {
     return true;
   }
 
-  await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, {
+  const cleanId = cleanOrderId(orderId);
+  await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     status: "Flagged",
     custom_failure_reason: note
   });
@@ -640,7 +645,8 @@ export const startDelivery = async (orderId) => {
     return true;
   }
 
-  await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, {
+  const cleanId = cleanOrderId(orderId);
+  await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     status: "Started",
     custom_driver_status: "Started"
   });
@@ -663,7 +669,8 @@ export const markDelivered = async (orderId, paymentMethod) => {
     return true;
   }
 
-  await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, {
+  const cleanId = cleanOrderId(orderId);
+  await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     status: "Completed",
     delivery_status: "Delivered",
     payment_method: paymentMethod
@@ -687,7 +694,8 @@ export const markFailed = async (orderId, reason) => {
     return true;
   }
 
-  await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, {
+  const cleanId = cleanOrderId(orderId);
+  await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     status: "Delivery Failed",
     custom_failure_reason: reason
   });
@@ -714,7 +722,8 @@ export const markReturnCollected = async (orderId, returnId, driverEmail, note =
     return true;
   }
 
-  await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, {
+  const cleanId = cleanOrderId(orderId);
+  await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     custom_return_id: returnId,
     custom_return_status: 'picked up',
     custom_return_driver_note: note,
@@ -737,7 +746,8 @@ export const verifyOrderBags = async (orderId) => {
     return true;
   }
 
-  await erpNextClient.put(`/api/resource/Sales Order/${orderId}`, {
+  const cleanId = cleanOrderId(orderId);
+  await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     custom_bag_verification_status: "verified"
   });
   return true;

@@ -65,7 +65,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatusBadge } from "@/components/orders/StatusBadge";
 import { PrintInvoiceDialog } from "../PrintInvoiceDialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getOrderItemsCount, type EnrichedOrder, isUnpaidPayLaterOrder } from "@/lib/orders";
 import { useQueryClient } from "@tanstack/react-query";
 import { orderKeys } from "@/hooks/useOrders";
@@ -73,7 +73,7 @@ import { ordersApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import { getUsers } from "@/lib/sync";
+import { getUsers, type ManagedUser } from "@/lib/sync";
 
 interface ConfirmState {
   open: boolean;
@@ -97,6 +97,13 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
   const [printOpen, setPrintOpen] = useState(false);
   const [giftPrintOpen, setGiftPrintOpen] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState>(INITIAL_CONFIRM);
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+
+  useEffect(() => {
+    getUsers()
+      .then((data) => setUsers(Array.isArray(data) ? data : []))
+      .catch((err) => console.error("Failed to load users:", err));
+  }, []);
 
   // Custom dialog states
   const [overrideOpen, setOverrideOpen] = useState(false);
@@ -475,7 +482,13 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
       <div className="grid gap-4 border-t border-border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-4 items-stretch">
         <SummaryItem
           label="Payment"
-          value={order.payment?.balance > 0 ? "Balance due" : "Paid"}
+          value={
+            order.payment?.status
+              ? order.payment.status.replace(/_/g, " ").charAt(0).toUpperCase() + order.payment.status.replace(/_/g, " ").slice(1).toLowerCase()
+              : order.payment?.balance > 0
+              ? "Balance due"
+              : "Paid"
+          }
           Icon={CreditCard}
           tooltip="Current payment status of the order."
         />
@@ -534,7 +547,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   <SelectValue placeholder="Select a picker" />
                 </SelectTrigger>
                 <SelectContent className="rounded-lg border border-border shadow-md">
-                  {getUsers()
+                  {users
                     .filter((u) => u.role === "picker" && u.status === "active")
                     .map((p) => (
                       <SelectItem key={p.id} value={p.email}>
@@ -594,7 +607,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   <SelectValue placeholder="Select a packer" />
                 </SelectTrigger>
                 <SelectContent className="rounded-lg border border-border shadow-md">
-                  {getUsers()
+                  {users
                     .filter((u) => u.role === "packer" && u.status === "active")
                     .map((p) => (
                       <SelectItem key={p.id} value={p.email}>
@@ -654,7 +667,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   <SelectValue placeholder="Select a driver" />
                 </SelectTrigger>
                 <SelectContent className="rounded-lg border border-border shadow-md">
-                  {getUsers()
+                  {users
                     .filter((u) => u.role === "driver" && u.status === "active")
                     .map((d) => (
                       <SelectItem key={d.id} value={d.email}>
@@ -893,7 +906,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   <SelectValue placeholder="Select a driver" />
                 </SelectTrigger>
                 <SelectContent className="rounded-lg border border-border shadow-md">
-                  {getUsers()
+                  {users
                     .filter((u) => u.role === "driver" && u.status === "active")
                     .map((d) => (
                       <SelectItem key={d.id} value={d.email}>

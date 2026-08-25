@@ -15,9 +15,9 @@ export const apiConfig = {
   useMockData: import.meta.env.VITE_USE_MOCK_DATA !== "false",
 
   /**
-   * Your ERPNext server URL (e.g. "https://halamama.erpnext.com")
+   * Your server API base URL
    */
-  baseUrl: import.meta.env.VITE_ERPNEXT_URL || "",
+  baseUrl: import.meta.env.VITE_API_URL_DEV || import.meta.env.VITE_ERPNEXT_URL || "https://delivery-management.hmws.qatar123.com/public",
 
   /**
    * API Key from ERPNext (User → API Access → Generate Keys)
