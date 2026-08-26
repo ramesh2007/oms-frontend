@@ -18,7 +18,7 @@ import {
   type EnrichedOrder,
 } from "@/lib/orders";
 import { getEnrichedOrder } from "@/lib/orders";
-import { useOrders, useOrdersByStatus } from "@/hooks/useOrders";
+import { useOrders, useOrdersByStatus, useFlaggedOrders } from "@/hooks/useOrders";
 import { PrintInvoiceDialog } from "./PrintInvoiceDialog";
 import { ViewExportDialog } from "./ViewExportDialog";
 import { BulkActionBar } from "./BulkActionBar";
@@ -28,6 +28,7 @@ import { OrdersTabs } from "./OrdersTabs";
 import { OrdersToolbar, ViewToggle, type ViewMode } from "./OrdersToolbar";
 import { AssignDriverDialog } from "./AssignDriverDialog";
 import { AssignZoneDialog } from "./AssignZoneDialog";
+import { PaginationControls } from "./PaginationControls";
 import { toast } from "sonner";
 
 export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
@@ -51,13 +52,20 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         return "in-delivery";
       case "Delivered":
         return "delivered";
+      case "Flags & Exceptions":
+        return "flagged";
       default:
         return "all";
     }
   }, [activeTab]);
 
+  const [currentPage, setCurrentPage] = useState(1);
   const { data: allOrders = [] } = useOrders();
-  const { data: statusOrders = [], refetch, isLoading: isStatusLoading } = useOrdersByStatus(statusSlug);
+  const { data: statusResult, refetch, isLoading: isStatusLoading } = useOrdersByStatus(statusSlug, currentPage, 15);
+  const { data: flaggedResult } = useFlaggedOrders(1, 1);
+  const statusOrders = statusResult?.orders || [];
+  const pagination = statusResult?.pagination;
+
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -113,6 +121,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   }, [initialTab]);
 
   useEffect(() => {
+    setCurrentPage(1);
     setSelectedIds(new Set());
   }, [activeTab]);
 
@@ -138,7 +147,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
   const filtered = useMemo(() => {
     let result = baseOrders;
-    if (activeTab !== "All") {
+    if (activeTab !== "All" && activeTab !== "Flags & Exceptions") {
       result = result.filter((o) => matchesLegacyTab(o, activeTab));
     }
 
@@ -192,10 +201,16 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     const counts = {} as Record<LegacyTabId, number>;
     const dataset = allOrders.length > 0 ? allOrders : orders;
     for (const tab of LEGACY_TABS) {
-      counts[tab.id] = countForLegacyTab(dataset, tab.id);
+      if (tab.id === "Flags & Exceptions" && flaggedResult?.pagination?.total !== undefined) {
+        counts[tab.id] = flaggedResult.pagination.total;
+      } else if (tab.id === activeTab && pagination?.total !== undefined && activeTab !== "All") {
+        counts[tab.id] = pagination.total;
+      } else {
+        counts[tab.id] = countForLegacyTab(dataset, tab.id);
+      }
     }
     return counts;
-  }, [allOrders, orders]);
+  }, [allOrders, orders, flaggedResult, activeTab, pagination]);
 
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
@@ -302,8 +317,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>
-          Showing <span className="font-medium text-foreground">{filtered.length}</span> of{" "}
-          {orders.length} orders
+          Showing <span className="font-medium text-foreground">{pagination?.from ?? 1}</span> to{" "}
+          <span className="font-medium text-foreground">{pagination?.to ?? filtered.length}</span> of{" "}
+          {pagination?.total ?? orders.length} orders
         </span>
       </div>
 
@@ -404,21 +420,13 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         </>
       )}
 
-      {!loading && filtered.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-          <span>Page 1 of 1</span>
-          <div className="flex flex-wrap gap-1">
-            {["Prev", "1", "Next"].map((item) => (
-              <button
-                key={item}
-                type="button"
-                className="min-h-9 min-w-9 rounded-md px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
+      {!loading && (
+        <PaginationControls
+          pagination={pagination}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          isLoading={loading}
+        />
       )}
 
       <BulkActionBar

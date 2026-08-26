@@ -64,25 +64,98 @@ export function useOrders() {
   });
 }
 
+export interface PaginationMeta {
+  current_page: number;
+  per_page: number;
+  total: number;
+  last_page: number;
+  from?: number;
+  to?: number;
+  has_more_pages?: boolean;
+  next_page_url?: string | null;
+  prev_page_url?: string | null;
+}
+
+export interface OrdersByStatusResult {
+  orders: Order[];
+  pagination: PaginationMeta;
+  rawData?: any;
+}
+
 /**
  * Hook to fetch orders by dedicated status API (e.g. 'new', 'picking', 'picked', 'packing', 'ready-to-assign', 'in-delivery', 'delivered', 'all').
  */
 export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
-  return useQuery<Order[], Error>({
+  return useQuery<OrdersByStatusResult, Error>({
     queryKey: orderKeys.status(statusName, page),
     queryFn: async () => {
       const res: any = await ordersApi.fetchOrdersByStatus(statusName, page, perPage);
-      if (res && res.mappedOrders) {
-        return res.mappedOrders;
-      }
-      if (res && Array.isArray(res.data)) {
-        return res.data;
-      }
-      return [];
+      const mappedOrders: Order[] = res?.mappedOrders || (Array.isArray(res?.data) ? res.data : []);
+      const pagination: PaginationMeta = res?.pagination || {
+        current_page: page,
+        per_page: perPage,
+        total: mappedOrders.length,
+        last_page: Math.max(1, Math.ceil(mappedOrders.length / perPage)),
+        from: mappedOrders.length > 0 ? (page - 1) * perPage + 1 : 0,
+        to: Math.min(page * perPage, mappedOrders.length),
+        has_more_pages: page < Math.ceil(mappedOrders.length / perPage),
+        next_page_url: null,
+        prev_page_url: null,
+      };
+
+      return {
+        orders: mappedOrders,
+        pagination,
+        rawData: res,
+      };
     },
     staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Hook to fetch flagged orders from /api/orders/status/flagged or /api/orders/flagged
+ */
+export function useFlaggedOrders(page = 1, perPage = 15) {
+  return useQuery<OrdersByStatusResult, Error>({
+    queryKey: [...orderKeys.all, "flagged", page] as const,
+    queryFn: async () => {
+      const res: any = await ordersApi.fetchFlaggedOrders(page, perPage);
+      const mappedOrders: Order[] = res?.mappedOrders || (Array.isArray(res?.data) ? res.data : []);
+      const pagination: PaginationMeta = res?.pagination || {
+        current_page: page,
+        per_page: perPage,
+        total: mappedOrders.length,
+        last_page: Math.max(1, Math.ceil(mappedOrders.length / perPage)),
+        from: mappedOrders.length > 0 ? (page - 1) * perPage + 1 : 0,
+        to: Math.min(page * perPage, mappedOrders.length),
+        has_more_pages: page < Math.ceil(mappedOrders.length / perPage),
+        next_page_url: null,
+        prev_page_url: null,
+      };
+
+      return {
+        orders: mappedOrders,
+        pagination,
+        rawData: res,
+      };
+    },
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Hook to fetch flagged items from GET /api/orders/flagged-items
+ */
+export function useFlaggedItems() {
+  return useQuery<any, Error>({
+    queryKey: [...orderKeys.all, "flagged-items"] as const,
+    queryFn: () => ordersApi.fetchFlaggedItems(),
+    staleTime: 30 * 1000,
   });
 }
 

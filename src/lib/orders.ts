@@ -2051,10 +2051,7 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
   if (tab === "Returns & Replacements")
     return Boolean(order.returns) || order.status === "Replacement" || order.status === "Exchange";
   if (tab === "Flags & Exceptions") {
-    if (order.status === "Flagged" || order.status === "Delivery Failed") return true;
-    const m = order.tat.match(/(\d+)h/);
-    if (m && parseInt(m[1], 10) > 24) return true;
-    return false;
+    return order.status === "Flagged" || order.status === "Delivery Failed";
   }
   if (tab === "Replacement") return order.status === "Replacement";
   if (tab === "Exchange") return order.status === "Exchange";

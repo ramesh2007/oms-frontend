@@ -575,16 +575,25 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
     }
 
     const total = filtered.length;
-    const paginatedData = filtered.slice((page - 1) * perPage, page * perPage);
+    const lastPage = Math.max(1, Math.ceil(total / perPage));
+    const safePage = Math.min(page, lastPage);
+    const from = total > 0 ? (safePage - 1) * perPage + 1 : 0;
+    const to = Math.min(safePage * perPage, total);
+    const paginatedData = filtered.slice(from > 0 ? from - 1 : 0, to);
 
     return {
       success: true,
       status_filter: statusName,
       pagination: {
-        current_page: page,
+        current_page: safePage,
         per_page: perPage,
         total,
-        last_page: Math.ceil(total / perPage) || 1,
+        last_page: lastPage,
+        from,
+        to,
+        has_more_pages: safePage < lastPage,
+        next_page_url: safePage < lastPage ? `/api/orders/status/${statusName}?page=${safePage + 1}` : null,
+        prev_page_url: safePage > 1 ? `/api/orders/status/${statusName}?page=${safePage - 1}` : null,
       },
       data: paginatedData,
       mappedOrders: paginatedData,
@@ -595,10 +604,34 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
   const endpoint = `/api/orders/status/${statusName}?page=${page}&per_page=${perPage}`;
   const response: any = await erpNextClient.get(endpoint);
 
-  if (response && Array.isArray(response.data)) {
-    const mappedOrders = response.data.map(mapLaravelOrderToDashboardOrder);
+  if (response) {
+    const rawData = Array.isArray(response.data)
+      ? response.data
+      : Array.isArray(response)
+      ? response
+      : [];
+    const mappedOrders = rawData.map(mapLaravelOrderToDashboardOrder);
+
+    const totalItems = response.pagination?.total ?? response.total ?? mappedOrders.length;
+    const lastPg = response.pagination?.last_page ?? response.last_page ?? Math.max(1, Math.ceil(totalItems / perPage));
+
+    const pagination = response.pagination || {
+      current_page: page,
+      per_page: perPage,
+      total: totalItems,
+      last_page: lastPg,
+      from: response.from ?? (mappedOrders.length > 0 ? (page - 1) * perPage + 1 : 0),
+      to: response.to ?? Math.min(page * perPage, totalItems),
+      has_more_pages: response.has_more_pages ?? (page < lastPg),
+      next_page_url: response.next_page_url ?? null,
+      prev_page_url: response.prev_page_url ?? null,
+    };
+
     return {
-      ...response,
+      success: response.success ?? true,
+      status_filter: response.status_filter ?? statusName,
+      pagination,
+      data: rawData,
       mappedOrders,
     };
   }
@@ -630,6 +663,75 @@ export const fetchInDeliveryOrders = (page = 1, perPage = 15) => fetchOrdersBySt
 /** 8. GET /api/orders/status/delivered or /api/orders/delivered */
 export const fetchDeliveredOrders = (page = 1, perPage = 15) => fetchOrdersByStatus("delivered", page, perPage);
 
+/** 9. GET /api/orders/status/flagged or /api/orders/flagged */
+export const fetchFlaggedOrders = async (page = 1, perPage = 15) => {
+  if (isDemoMode()) {
+    return fetchOrdersByStatus("flagged", page, perPage);
+  }
+  try {
+    const res = await fetchOrdersByStatus("flagged", page, perPage);
+    if (res && (res.mappedOrders?.length > 0 || res.data?.length > 0)) {
+      return res;
+    }
+  } catch (e) {
+    console.warn("[FlaggedOrders] /api/orders/status/flagged failed, trying /api/orders/flagged fallback:", e);
+  }
+
+  // Fallback to /api/orders/flagged
+  try {
+    const response: any = await erpNextClient.get(`/api/orders/flagged?page=${page}&per_page=${perPage}`);
+    const rawData = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+    const mappedOrders = rawData.map(mapLaravelOrderToDashboardOrder);
+    return {
+      success: response?.success ?? true,
+      status_filter: "flagged",
+      pagination: response?.pagination || {
+        current_page: page,
+        per_page: perPage,
+        total: mappedOrders.length,
+        last_page: 1,
+        from: mappedOrders.length > 0 ? (page - 1) * perPage + 1 : 0,
+        to: Math.min(page * perPage, mappedOrders.length),
+        has_more_pages: false,
+      },
+      data: rawData,
+      mappedOrders,
+    };
+  } catch (err) {
+    console.error("[FlaggedOrders] Failed to fetch flagged orders:", err);
+    return { success: false, data: [], mappedOrders: [], pagination: { current_page: 1, per_page: perPage, total: 0, last_page: 1 } };
+  }
+};
+
+/** 10. GET /api/orders/flagged-items */
+export const fetchFlaggedItems = async () => {
+  if (isDemoMode()) {
+    return {
+      success: true,
+      data: [
+        {
+          id: 1,
+          order_id: "7045961220340",
+          item_name: "Fresh Whole Milk 1L",
+          sku: "MILK-001",
+          reason: "Damaged packaging during picking",
+          flagged_by: "John Picker",
+          flagged_at: "2026-08-26 14:30:00",
+          status: "Flagged",
+        },
+      ],
+    };
+  }
+
+  try {
+    const response: any = await erpNextClient.get("/api/orders/flagged-items");
+    return response;
+  } catch (err) {
+    console.error("[FlaggedItems] Failed to fetch flagged items via GET /api/orders/flagged-items:", err);
+    return { success: false, data: [] };
+  }
+};
+
 // ─── Export as a single object for convenience ───────────────────────────
 export const ordersApi = {
   fetchOrders,
@@ -643,6 +745,8 @@ export const ordersApi = {
   fetchPackingOrders,
   fetchInDeliveryOrders,
   fetchDeliveredOrders,
+  fetchFlaggedOrders,
+  fetchFlaggedItems,
   updateOrderStatus,
   assignDriver,
   assignPicker,
