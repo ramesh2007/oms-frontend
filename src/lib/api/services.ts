@@ -33,6 +33,10 @@ import {
   updateSharedOrder,
   deleteSharedOrder,
   broadcastChange,
+  assignPickerItemsToOrder,
+  unassignPickerItemsFromOrder,
+  assignPackerItemsToOrder,
+  unassignPackerItemsFromOrder,
 } from "@/lib/sync";
 
 // ─── Orders Service ──────────────────────────────────────────────────────
@@ -326,6 +330,73 @@ export async function assignPicker(
 }
 
 /**
+ * Assign picker items to an order via POST /api/orders/assign-picker-items
+ */
+export async function assignPickerItems(
+  orderId: string,
+  pickerIdOrName: string,
+  orderItems: (number | string)[],
+): Promise<any> {
+  const cleanId = getCleanOrderId(orderId);
+  return assignPickerItemsToOrder({
+    order_id: cleanId,
+    order_number: cleanId,
+    picker_id: pickerIdOrName,
+    picker_name: pickerIdOrName,
+    order_items: orderItems,
+  });
+}
+
+/**
+ * Unassign picker items from an order via POST /api/orders/unassign-picker-items
+ */
+export async function unassignPickerItems(
+  orderId: string,
+  orderItems: (number | string)[],
+): Promise<any> {
+  const cleanId = getCleanOrderId(orderId);
+  return unassignPickerItemsFromOrder({
+    order_id: cleanId,
+    order_number: cleanId,
+    order_items: orderItems,
+  });
+}
+
+/**
+ * Assign packer items to an order via POST /api/orders/assign-packer-items
+ */
+export async function assignPackerItems(
+  orderId: string,
+  packerIdOrName: string | number,
+  orderItems: (number | string)[],
+  packerName?: string,
+): Promise<any> {
+  const cleanId = getCleanOrderId(orderId);
+  return assignPackerItemsToOrder({
+    order_id: cleanId,
+    order_number: cleanId,
+    packer_id: packerIdOrName,
+    packer_name: packerName || (typeof packerIdOrName === "string" ? packerIdOrName : undefined),
+    order_items: orderItems,
+  });
+}
+
+/**
+ * Unassign packer items from an order via POST /api/orders/unassign-packer-items
+ */
+export async function unassignPackerItems(
+  orderId: string,
+  orderItems: (number | string)[],
+): Promise<any> {
+  const cleanId = getCleanOrderId(orderId);
+  return unassignPackerItemsFromOrder({
+    order_id: cleanId,
+    order_number: cleanId,
+    order_items: orderItems,
+  });
+}
+
+/**
  * Assign a packer to an order.
  */
 export async function assignPacker(
@@ -575,7 +646,11 @@ export const ordersApi = {
   updateOrderStatus,
   assignDriver,
   assignPicker,
+  assignPickerItems,
+  unassignPickerItems,
   assignPacker,
+  assignPackerItems,
+  unassignPackerItems,
   updateDriverStatus,
   updatePaymentDetails,
   updateOrderNotes,

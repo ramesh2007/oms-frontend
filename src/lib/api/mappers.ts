@@ -188,8 +188,15 @@ export function mapErpNextToOrder(raw: ERPNextSalesOrder): Order {
     ? rawLineItems.reduce((sum: number, item: any) => sum + (item.quantity ?? item.qty ?? 1), 0)
     : 0;
 
+  const rawId = String(raw.name || (raw as any).id || (raw as any).order_id || "");
+  const shopifyOrderId = (raw as any).shopify_order_id ? String((raw as any).shopify_order_id) : undefined;
+  const orderNumber = (raw as any).order_number ? String((raw as any).order_number) : undefined;
+  const displayId = shopifyOrderId || orderNumber || rawId;
+
   return {
-    id: raw.name,
+    id: displayId,
+    orderNumber: orderNumber || displayId,
+    shopifyOrderId,
     customerId: `cust-${raw.customer?.replace(/\s+/g, "-").toLowerCase() || "unknown"}`,
     tat: raw.custom_tat || calculateTat(raw.transaction_date),
     date,
@@ -408,8 +415,14 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     }
   }
 
+  const shopifyOrderId = raw.shopify_order_id ? String(raw.shopify_order_id) : undefined;
+  const orderNumber = raw.order_number ? String(raw.order_number) : undefined;
+  const displayId = shopifyOrderId || orderNumber || String(raw.order_id || raw.id || "UNKNOWN");
+
   return {
-    id: raw.order_number || String(raw.order_id || ""),
+    id: displayId,
+    orderNumber: orderNumber || displayId,
+    shopifyOrderId,
     customerId: `cust-${raw.customer?.name?.replace(/\s+/g, "-").toLowerCase() || "unknown"}`,
     tat: calculateTat(raw.created_at),
     date,

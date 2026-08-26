@@ -137,7 +137,7 @@ export function TimelineDialog({
             Order Timeline
           </DialogTitle>
           <p className="text-center text-xs text-muted-foreground mt-1">
-            Order #{order.id}
+            Order #{String(order.shopifyOrderId || order.orderNumber || order.id).replace(/^#+/, "")}
           </p>
         </DialogHeader>
 

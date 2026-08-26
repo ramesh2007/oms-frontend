@@ -386,6 +386,102 @@ export async function getDrivers(): Promise<ManagedUser[]> {
   return users.filter((u) => u.role === "driver");
 }
 
+export async function getPickers(): Promise<ManagedUser[]> {
+  if (isDemoMode()) {
+    const users = await getUsers();
+    return users.filter((u) => u.role === "picker" && u.status === "active");
+  }
+
+  try {
+    const response = await erpNextClient.get<any>("/api/get-pickers-list");
+    const rawList = Array.isArray(response) ? response : (response?.data || response?.pickers || []);
+    if (Array.isArray(rawList)) {
+      return rawList.map((p: any) => ({
+        id: String(p.id),
+        name: p.name || p.username || p.email || `Picker #${p.id}`,
+        email: p.email || "",
+        role: p.role || "picker",
+        phone: p.phone || "",
+        status: p.status || "active",
+        password: "",
+        createdAt: p.created_at ? p.created_at.split("T")[0] : "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[Sync] /api/get-pickers-list request error, fallback to /api/pickers", err);
+  }
+
+  try {
+    const response = await erpNextClient.get<any>("/api/pickers");
+    const rawList = Array.isArray(response) ? response : (response?.data || response?.pickers || []);
+    if (Array.isArray(rawList)) {
+      return rawList.map((p: any) => ({
+        id: String(p.id),
+        name: p.name || p.username || p.email || `Picker #${p.id}`,
+        email: p.email || "",
+        role: p.role || "picker",
+        phone: p.phone || "",
+        status: p.status || "active",
+        password: "",
+        createdAt: p.created_at ? p.created_at.split("T")[0] : "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[Sync] /api/pickers request error, fallback to getUsers()", err);
+  }
+
+  const users = await getUsers();
+  return users.filter((u) => u.role === "picker");
+}
+
+export async function getPackers(): Promise<ManagedUser[]> {
+  if (isDemoMode()) {
+    const users = await getUsers();
+    return users.filter((u) => u.role === "packer" && u.status === "active");
+  }
+
+  try {
+    const response = await erpNextClient.get<any>("/api/get-packers-list");
+    const rawList = Array.isArray(response) ? response : (response?.data || response?.packers || []);
+    if (Array.isArray(rawList)) {
+      return rawList.map((p: any) => ({
+        id: String(p.id),
+        name: p.name || p.username || p.email || `Packer #${p.id}`,
+        email: p.email || "",
+        role: p.role || "packer",
+        phone: p.phone || "",
+        status: p.status || "active",
+        password: "",
+        createdAt: p.created_at ? p.created_at.split("T")[0] : "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[Sync] /api/get-packers-list request error, fallback to /api/packers", err);
+  }
+
+  try {
+    const response = await erpNextClient.get<any>("/api/packers");
+    const rawList = Array.isArray(response) ? response : (response?.data || response?.packers || []);
+    if (Array.isArray(rawList)) {
+      return rawList.map((p: any) => ({
+        id: String(p.id),
+        name: p.name || p.username || p.email || `Packer #${p.id}`,
+        email: p.email || "",
+        role: p.role || "packer",
+        phone: p.phone || "",
+        status: p.status || "active",
+        password: "",
+        createdAt: p.created_at ? p.created_at.split("T")[0] : "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[Sync] /api/packers request error, fallback to getUsers()", err);
+  }
+
+  const users = await getUsers();
+  return users.filter((u) => u.role === "packer");
+}
+
 export async function assignDriverToOrder(payload: {
   order_number?: string;
   order_id?: number | string;
@@ -407,6 +503,113 @@ export async function assignDriverToOrder(payload: {
     return response;
   } catch (err) {
     console.error("[Sync] Failed to assign driver via API:", err);
+    throw err;
+  }
+}
+
+export async function assignPickerItemsToOrder(payload: {
+  order_id?: number | string;
+  order_number?: string;
+  picker_id?: number | string;
+  picker_name?: string;
+  order_items: (number | string)[];
+}) {
+  if (isDemoMode()) {
+    console.log("[Sync] Demo mode: assignPickerItemsToOrder", payload);
+    return { status: "success", message: "Picker items assigned (demo mode)" };
+  }
+
+  try {
+    const response = await erpNextClient.post<any>("/api/orders/assign-picker-items", {
+      order_id: payload.order_id ? Number(payload.order_id) : undefined,
+      order_number: payload.order_number,
+      order: payload.order_id || payload.order_number,
+      picker_id: payload.picker_id ? Number(payload.picker_id) : payload.picker_id,
+      picker_name: payload.picker_name,
+      picker: payload.picker_id || payload.picker_name,
+      order_items: payload.order_items,
+    });
+    return response;
+  } catch (err) {
+    console.error("[Sync] Failed to assign picker items via API:", err);
+    throw err;
+  }
+}
+
+export async function unassignPickerItemsFromOrder(payload: {
+  order_id?: number | string;
+  order_number?: string;
+  order_items: (number | string)[];
+}) {
+  if (isDemoMode()) {
+    console.log("[Sync] Demo mode: unassignPickerItemsFromOrder", payload);
+    return { status: "success", message: "Picker items unassigned (demo mode)" };
+  }
+
+  try {
+    const response = await erpNextClient.post<any>("/api/orders/unassign-picker-items", {
+      order_id: payload.order_id ? Number(payload.order_id) : undefined,
+      order_number: payload.order_number,
+      order: payload.order_id || payload.order_number,
+      order_items: payload.order_items,
+    });
+    return response;
+  } catch (err) {
+    console.error("[Sync] Failed to unassign picker items via API:", err);
+    throw err;
+  }
+}
+
+export async function assignPackerItemsToOrder(payload: {
+  order_id?: number | string;
+  order_number?: string;
+  packer_id?: number | string;
+  packer_name?: string;
+  order_items: (number | string)[];
+}) {
+  if (isDemoMode()) {
+    console.log("[Sync] Demo mode: assignPackerItemsToOrder", payload);
+    return { status: "success", message: "Packer items assigned (demo mode)" };
+  }
+
+  try {
+    const parsedPackerId = payload.packer_id && !isNaN(Number(payload.packer_id))
+      ? Number(payload.packer_id)
+      : payload.packer_id;
+
+    const response = await erpNextClient.post<any>("/api/orders/assign-packer-items", {
+      order_id: payload.order_id,
+      order_number: payload.order_number,
+      packer_id: parsedPackerId,
+      packer_name: payload.packer_name,
+      order_items: payload.order_items,
+    });
+    return response;
+  } catch (err) {
+    console.error("[Sync] Failed to assign packer items via API:", err);
+    throw err;
+  }
+}
+
+export async function unassignPackerItemsFromOrder(payload: {
+  order_id?: number | string;
+  order_number?: string;
+  order_items: (number | string)[];
+}) {
+  if (isDemoMode()) {
+    console.log("[Sync] Demo mode: unassignPackerItemsFromOrder", payload);
+    return { status: "success", message: "Packer items unassigned (demo mode)" };
+  }
+
+  try {
+    const response = await erpNextClient.post<any>("/api/orders/unassign-packer-items", {
+      order_id: payload.order_id,
+      order_number: payload.order_number,
+      order_items: payload.order_items,
+    });
+    return response;
+  } catch (err) {
+    console.error("[Sync] Failed to unassign packer items via API:", err);
     throw err;
   }
 }
