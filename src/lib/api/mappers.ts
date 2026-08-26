@@ -357,7 +357,11 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
   );
 
   let status: OrderStatus = "New";
-  if (hasDriverAssigned && rawStatus !== "delivered" && rawStatus !== "cancelled") {
+  if (rawStatus === "flagged") {
+    status = "Flagged";
+  } else if (rawStatus === "delivery_failed" || rawStatus === "failed") {
+    status = "Delivery Failed";
+  } else if (hasDriverAssigned && rawStatus !== "delivered" && rawStatus !== "cancelled") {
     status = "Started";
   } else if (rawStatus === "ready_to_assign" || rawStatus === "packed") {
     status = "Ready to Assign";

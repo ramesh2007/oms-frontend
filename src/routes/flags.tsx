@@ -1,9 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppSidebar } from "@/components/dashboard/AppSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
-import { FlagsTable } from "@/components/orders/tables/FlagsTable";
-import { MOCK_ORDERS, type Order } from "@/lib/orders";
-import { useState, useEffect, useMemo } from "react";
+import { FlagsTable, FlaggedItemsTable, type FlaggedItem } from "@/components/orders/tables/FlagsTable";
+import { type Order } from "@/lib/orders";
+import { useFlaggedOrders, useFlaggedItems } from "@/hooks/useOrders";
+import { PaginationControls } from "@/components/orders/PaginationControls";
+import { useState, useMemo } from "react";
 import {
   Flame,
   AlertTriangle,
@@ -13,6 +15,7 @@ import {
   Filter,
   Search,
   X,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -22,60 +25,71 @@ export const Route = createFileRoute("/flags")({
       { title: "Flags & Exceptions - Halamama LMD" },
       {
         name: "description",
-        content: "Monitor and resolve flagged orders and delivery exceptions.",
+        content: "Monitor and resolve flagged orders, delivery exceptions, and flagged items.",
       },
     ],
   }),
   component: FlagsPage,
 });
 
-type FilterCategory = "all" | "delivery_failed" | "flagged" | "tat_exceeded";
+type FilterCategory = "all" | "delivery_failed" | "flagged" | "tat_exceeded" | "flagged_items";
 
 const filterCategories: { id: FilterCategory; label: string; icon: typeof AlertTriangle }[] = [
   { id: "all", label: "All Exceptions", icon: Flame },
   { id: "delivery_failed", label: "Delivery Failed", icon: PackageX },
-  { id: "flagged", label: "Flagged", icon: ShieldAlert },
+  { id: "flagged", label: "Flagged Orders", icon: ShieldAlert },
   { id: "tat_exceeded", label: "TAT Exceeded", icon: Clock },
+  { id: "flagged_items", label: "Flagged Items", icon: Boxes },
 ];
 
 function FlagsPage() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
   const [activeFilter, setActiveFilter] = useState<FilterCategory>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  useEffect(() => {
-    const t = window.setTimeout(() => setLoading(false), 380);
-    return () => window.clearTimeout(t);
-  }, []);
+  // GET /api/orders/status/flagged & GET /api/orders/flagged
+  const { data: flaggedResult, isLoading: loadingOrders } = useFlaggedOrders(currentPage, 15);
+  const flaggedOrders = flaggedResult?.orders || [];
+  const pagination = flaggedResult?.pagination;
+
+  // GET /api/orders/flagged-items
+  const { data: flaggedItemsRes, isLoading: loadingItems } = useFlaggedItems();
+  const flaggedItems: FlaggedItem[] = useMemo(() => {
+    const rawData = Array.isArray(flaggedItemsRes?.data)
+      ? flaggedItemsRes.data
+      : Array.isArray(flaggedItemsRes)
+      ? flaggedItemsRes
+      : [];
+    return rawData.map((item: any, idx: number) => ({
+      id: item.id || idx + 1,
+      order_id: item.order_id || item.order_number || `#${item.id || idx + 1}`,
+      item_name: item.item_name || item.name || item.title || "Flagged Item",
+      sku: item.sku || item.item_sku || "—",
+      reason: item.reason || item.flag_reason || "Requires review",
+      flagged_by: item.flagged_by || item.user_name || "Warehouse Staff",
+      flagged_at: item.flagged_at || item.created_at || "—",
+      status: item.status || "Flagged",
+    }));
+  }, [flaggedItemsRes]);
 
   const goToOrder = (order: Order) => {
     navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
   };
 
-  // All flagged/exception orders
-  const allFlaggedOrders = useMemo(
-    () =>
-      MOCK_ORDERS.filter(
-        (o) =>
-          o.status === "Flagged" ||
-          o.status === "Delivery Failed" ||
-          (() => {
-            const m = o.tat.match(/(\d+)h/);
-            return m ? parseInt(m[1], 10) > 24 : false;
-          })(),
-      ),
-    [],
-  );
+  const goToOrderById = (orderId: string) => {
+    const cleanId = orderId.replace(/^#/, "");
+    navigate({ to: "/orders/$orderId", params: { orderId: cleanId } });
+  };
 
   // Filtered orders
   const filteredOrders = useMemo(() => {
-    let result = allFlaggedOrders;
+    let result = flaggedOrders;
 
     if (activeFilter === "delivery_failed") {
       result = result.filter((o) => o.status === "Delivery Failed");
     } else if (activeFilter === "flagged") {
-      result = result.filter((o) => o.status === "Flagged");
+      result = result.filter((o) => o.status === "Flagged" || o.status === "Unfulfilled");
     } else if (activeFilter === "tat_exceeded") {
       result = result.filter((o) => {
         const m = o.tat.match(/(\d+)h/);
@@ -96,30 +110,33 @@ function FlagsPage() {
     }
 
     return result;
-  }, [allFlaggedOrders, activeFilter, searchQuery]);
+  }, [flaggedOrders, activeFilter, searchQuery]);
+
+  // Filtered items
+  const filteredItems = useMemo(() => {
+    if (!searchQuery.trim()) return flaggedItems;
+    const q = searchQuery.toLowerCase();
+    return flaggedItems.filter(
+      (item) =>
+        String(item.order_id).toLowerCase().includes(q) ||
+        (item.item_name && item.item_name.toLowerCase().includes(q)) ||
+        (item.sku && item.sku.toLowerCase().includes(q)) ||
+        (item.reason && item.reason.toLowerCase().includes(q)),
+    );
+  }, [flaggedItems, searchQuery]);
 
   // Stat counts
-  const deliveryFailedCount = allFlaggedOrders.filter(
-    (o) => o.status === "Delivery Failed",
-  ).length;
-  const flaggedCount = allFlaggedOrders.filter(
-    (o) => o.status === "Flagged",
-  ).length;
-  const tatExceededCount = allFlaggedOrders.filter((o) => {
+  const deliveryFailedCount = flaggedOrders.filter((o) => o.status === "Delivery Failed").length;
+  const flaggedCount = flaggedOrders.filter((o) => o.status === "Flagged").length;
+  const tatExceededCount = flaggedOrders.filter((o) => {
     const m = o.tat.match(/(\d+)h/);
     return m ? parseInt(m[1], 10) > 24 : false;
-  }).length;
-
-  const criticalCount = allFlaggedOrders.filter((o) => {
-    if (o.status === "Delivery Failed") return true;
-    const m = o.tat.match(/(\d+)h/);
-    return m ? parseInt(m[1], 10) > 100 : false;
   }).length;
 
   const statCards = [
     {
       label: "Total Exceptions",
-      value: allFlaggedOrders.length,
+      value: pagination?.total || flaggedOrders.length,
       icon: Flame,
       tone: "bg-red-500/10 text-red-600 dark:text-red-400 ring-red-500/20",
       iconBg: "bg-red-500/10",
@@ -134,20 +151,20 @@ function FlagsPage() {
       iconColor: "text-orange-500",
     },
     {
+      label: "Flagged Items",
+      value: flaggedItems.length,
+      icon: Boxes,
+      tone: "bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-purple-500/20",
+      iconBg: "bg-purple-500/10",
+      iconColor: "text-purple-500",
+    },
+    {
       label: "TAT Exceeded",
       value: tatExceededCount,
       icon: Clock,
       tone: "bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20",
       iconBg: "bg-amber-500/10",
       iconColor: "text-amber-500",
-    },
-    {
-      label: "Critical",
-      value: criticalCount,
-      icon: AlertTriangle,
-      tone: "bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-rose-500/20",
-      iconBg: "bg-rose-500/10",
-      iconColor: "text-rose-500",
     },
   ];
 
@@ -168,8 +185,7 @@ function FlagsPage() {
                   Flags & Exceptions
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  Monitor and resolve flagged orders, delivery failures, and SLA
-                  breaches.
+                  Monitor and resolve flagged orders, delivery failures, and item exceptions.
                 </p>
               </div>
             </div>
@@ -202,7 +218,6 @@ function FlagsPage() {
                       <Icon className={cn("h-5 w-5", stat.iconColor)} />
                     </div>
                   </div>
-                  {/* Subtle bottom gradient accent */}
                   <div className="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-destructive/30 to-transparent" />
                 </div>
               );
@@ -222,9 +237,9 @@ function FlagsPage() {
                     type="button"
                     onClick={() => setActiveFilter(cat.id)}
                     className={cn(
-                      "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all",
+                      "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all cursor-pointer",
                       active
-                        ? "bg-destructive/10 text-destructive ring-1 ring-destructive/20 shadow-sm"
+                        ? "bg-destructive/10 text-destructive ring-1 ring-destructive/20 shadow-xs"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
@@ -239,12 +254,14 @@ function FlagsPage() {
                       )}
                     >
                       {cat.id === "all"
-                        ? allFlaggedOrders.length
+                        ? pagination?.total || flaggedOrders.length
                         : cat.id === "delivery_failed"
-                          ? deliveryFailedCount
-                          : cat.id === "flagged"
-                            ? flaggedCount
-                            : tatExceededCount}
+                        ? deliveryFailedCount
+                        : cat.id === "flagged"
+                        ? flaggedCount
+                        : cat.id === "tat_exceeded"
+                        ? tatExceededCount
+                        : flaggedItems.length}
                     </span>
                   </button>
                 );
@@ -258,7 +275,7 @@ function FlagsPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by order, customer, city..."
+                placeholder="Search by order, SKU, customer..."
                 className="h-9 w-full rounded-lg border border-border bg-muted/30 pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all md:w-[280px]"
               />
               {searchQuery && (
@@ -278,9 +295,9 @@ function FlagsPage() {
             <Filter className="h-3.5 w-3.5" />
             Showing{" "}
             <span className="font-semibold text-foreground">
-              {filteredOrders.length}
+              {activeFilter === "flagged_items" ? filteredItems.length : filteredOrders.length}
             </span>{" "}
-            exception{filteredOrders.length !== 1 ? "s" : ""}
+            {activeFilter === "flagged_items" ? "flagged item(s)" : "exception(s)"}
             {activeFilter !== "all" && (
               <>
                 {" "}
@@ -292,12 +309,30 @@ function FlagsPage() {
             )}
           </div>
 
-          {/* Table */}
-          <FlagsTable
-            orders={filteredOrders}
-            loading={loading}
-            onViewOrder={goToOrder}
-          />
+          {/* Table display */}
+          {activeFilter === "flagged_items" ? (
+            <FlaggedItemsTable
+              items={filteredItems}
+              loading={loadingItems}
+              onViewOrder={goToOrderById}
+            />
+          ) : (
+            <>
+              <FlagsTable
+                orders={filteredOrders}
+                loading={loadingOrders}
+                onViewOrder={goToOrder}
+              />
+              {!loadingOrders && (
+                <PaginationControls
+                  pagination={pagination}
+                  currentPage={currentPage}
+                  onPageChange={setCurrentPage}
+                  isLoading={loadingOrders}
+                />
+              )}
+            </>
+          )}
         </main>
       </div>
     </div>

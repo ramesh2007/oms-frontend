@@ -4,7 +4,8 @@ import { TopBar } from "@/components/dashboard/TopBar";
 import { OrderTable } from "@/components/orders/OrderTable";
 import { type Order } from "@/lib/orders";
 import { useOrdersByStatus } from "@/hooks/useOrders";
-import { useState, useEffect } from "react";
+import { PaginationControls } from "@/components/orders/PaginationControls";
+import { useState } from "react";
 import { BulkActionBar } from "@/components/orders/BulkActionBar";
 import { AssignDriverDialog } from "@/components/orders/AssignDriverDialog";
 import { AssignZoneDialog } from "@/components/orders/AssignZoneDialog";
@@ -25,7 +26,10 @@ function ReadyPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [zoneDialogOpen, setZoneDialogOpen] = useState(false);
-  const { data: orders = [], isLoading: loading } = useOrdersByStatus("ready-to-assign");
+  const [currentPage, setCurrentPage] = useState(1);
+  const { data: statusResult, isLoading: loading } = useOrdersByStatus("ready-to-assign", currentPage, 15);
+  const orders = statusResult?.orders || [];
+  const pagination = statusResult?.pagination;
 
   const goToOrder = (order: Order) => {
     navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
@@ -71,6 +75,15 @@ function ReadyPage() {
             onExpandedChange={setExpandedId}
             activeTab="Ready to Assign"
           />
+
+          {!loading && (
+            <PaginationControls
+              pagination={pagination}
+              currentPage={currentPage}
+              onPageChange={setCurrentPage}
+              isLoading={loading}
+            />
+          )}
 
           <BulkActionBar
             count={selectedIds.size}

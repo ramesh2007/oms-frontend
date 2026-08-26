@@ -299,3 +299,120 @@ export function FlagsTable({
     </div>
   );
 }
+
+/* ── Flagged Items Table ─────────────────────────────────────────────────── */
+
+export interface FlaggedItem {
+  id: number | string;
+  order_id: string;
+  item_id?: number | string;
+  item_name?: string;
+  name?: string;
+  sku?: string;
+  reason?: string;
+  flagged_by?: string;
+  flagged_at?: string;
+  status?: string;
+}
+
+export function FlaggedItemsTable({
+  items,
+  loading,
+  onViewOrder,
+}: {
+  items: FlaggedItem[];
+  loading?: boolean;
+  onViewOrder: (orderId: string) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex gap-4">
+              <Skeleton className="h-10 w-10 shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-1/3 max-w-xs" />
+                <Skeleton className="h-3 w-full max-w-md" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-soft">
+      <table className="w-full min-w-[900px] border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/30 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <th className="py-3 pl-4 pr-3 font-semibold">Order ID</th>
+            <th className="py-3 pr-3 font-semibold">Item Name</th>
+            <th className="py-3 pr-3 font-semibold">SKU</th>
+            <th className="py-3 pr-3 font-semibold">Flag Reason</th>
+            <th className="py-3 pr-3 font-semibold">Flagged By</th>
+            <th className="py-3 pr-3 font-semibold">Flagged At</th>
+            <th className="py-3 pr-4 font-semibold text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr
+              key={item.id}
+              className="border-b border-border/70 transition-colors hover:bg-muted/35 border-l-2 border-l-destructive"
+            >
+              <td className="py-3 pl-4 pr-3 align-middle">
+                <span
+                  className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer"
+                  onClick={() => onViewOrder(String(item.order_id))}
+                >
+                  {item.order_id}
+                </span>
+              </td>
+              <td className="py-3 pr-3 align-middle">
+                <span className="font-semibold text-foreground">
+                  {item.item_name || item.name || "—"}
+                </span>
+              </td>
+              <td className="py-3 pr-3 align-middle font-mono text-xs text-muted-foreground">
+                {item.sku || "—"}
+              </td>
+              <td className="py-3 pr-3 align-middle">
+                <span className="inline-flex items-center gap-1 text-xs text-destructive font-medium bg-destructive/10 px-2 py-0.5 rounded">
+                  <AlertTriangle className="h-3 w-3" />
+                  {item.reason || "Flagged item"}
+                </span>
+              </td>
+              <td className="py-3 pr-3 align-middle text-xs text-muted-foreground">
+                {item.flagged_by || "—"}
+              </td>
+              <td className="py-3 pr-3 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                {item.flagged_at || "—"}
+              </td>
+              <td className="py-3 pr-4 align-middle text-right">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1 rounded-md px-2.5 text-[11px] font-semibold shadow-xs"
+                  onClick={() => onViewOrder(String(item.order_id))}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  View Order
+                </Button>
+              </td>
+            </tr>
+          ))}
+          {items.length === 0 && (
+            <tr>
+              <td colSpan={7} className="py-12 text-center text-sm text-muted-foreground">
+                No flagged items found.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}

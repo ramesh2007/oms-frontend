@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { useOrders } from "@/hooks/useOrders";
+import { useOrders, useFlaggedOrders } from "@/hooks/useOrders";
 import { getSnapshot as getScheduledSnapshot } from "@/lib/scheduled-installations";
 import { hasAppointment } from "@/lib/scheduling";
 
@@ -46,6 +46,7 @@ function SidebarContent({ closeOnNavigate = false }: { closeOnNavigate?: boolean
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { data: orders = [] } = useOrders();
+  const { data: flaggedResult } = useFlaggedOrders(1, 1);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const isSchedulingPage = ["/customer-care", "/locations", "/calendars"].includes(pathname);
     return {
@@ -70,14 +71,8 @@ function SidebarContent({ closeOnNavigate = false }: { closeOnNavigate?: boolean
   const deliveredCount = orders.filter(
     (order) => order.status === "Delivered",
   ).length;
-  const flaggedOrderCount = orders.filter(
-    (order) =>
-      order.status === "Flagged" ||
-      order.status === "Delivery Failed" ||
-      (() => {
-        const m = order.tat.match(/(\d+)h/);
-        return m ? parseInt(m[1], 10) > 24 : false;
-      })(),
+  const flaggedOrderCount = flaggedResult?.pagination?.total ?? orders.filter(
+    (order) => order.status === "Flagged" || order.status === "Delivery Failed",
   ).length;
   const returnsCount = orders.filter(
     (o) => Boolean(o.returns) || o.status === "Replacement" || o.status === "Exchange",

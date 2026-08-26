@@ -2,9 +2,12 @@ import { AlertTriangle, PackageX, PhoneOff, Clock, Flame, ChevronRight, XCircle 
 import { cn } from "@/lib/utils";
 import type { Order } from "@/lib/orders";
 import { parseTatHours } from "@/lib/orders";
+import { useFlaggedOrders } from "@/hooks/useOrders";
+import { useNavigate } from "@tanstack/react-router";
+import { useMemo } from "react";
 
 interface FlagsPanelProps {
-  orders: Order[];
+  orders?: Order[];
 }
 
 interface FlagItem {
@@ -16,11 +19,22 @@ interface FlagItem {
   time: string;
 }
 
-export function FlagsPanel({ orders }: FlagsPanelProps) {
+export function FlagsPanel({ orders = [] }: FlagsPanelProps) {
+  const navigate = useNavigate();
+  const { data: flaggedResult } = useFlaggedOrders(1, 15);
+  const liveFlaggedOrders = flaggedResult?.orders || [];
+
+  const combinedOrders = useMemo(() => {
+    const map = new Map<string, Order>();
+    orders.forEach((o) => map.set(o.id, o));
+    liveFlaggedOrders.forEach((o) => map.set(o.id, o));
+    return Array.from(map.values());
+  }, [orders, liveFlaggedOrders]);
+
   // Build flags dynamically from order data
   const flags: FlagItem[] = [];
 
-  orders.forEach((o) => {
+  combinedOrders.forEach((o) => {
     // Delivery Failed orders are high priority
     if (o.status === "Delivery Failed") {
       flags.push({
@@ -92,7 +106,12 @@ export function FlagsPanel({ orders }: FlagsPanelProps) {
             </p>
           </div>
         </div>
-        <button className="text-xs font-medium text-primary hover:underline">View all</button>
+        <button
+          onClick={() => navigate({ to: "/flags" })}
+          className="text-xs font-medium text-primary hover:underline cursor-pointer"
+        >
+          View all
+        </button>
       </div>
       <div className="divide-y divide-border">
         {displayFlags.length === 0 && (
