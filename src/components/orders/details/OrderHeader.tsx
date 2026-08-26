@@ -257,128 +257,161 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                 <DropdownMenuContent align="end" className="w-64 p-1.5">
                   {/* ── Determine active stage for contextual actions ── */}
                   {(() => {
-                    const isPickingStage = ["New", "Unfulfilled", "Picking"].includes(order.status);
-                    const isPackingStage = ["Picked", "Packing"].includes(order.status);
-                    const isDriverStage = ["Ready to Assign", "Driver Accepted", "Started", "Delivered", "Delivery Failed"].includes(order.status);
-                    const isOtherStage = !isPickingStage && !isPackingStage && !isDriverStage;
+                    const isNewStage = ["New", "Unfulfilled"].includes(order.status);
+                    const isPickingStage = order.status === "Picking";
+                    const isPickedStage = order.status === "Picked";
+                    const isPackingStage = order.status === "Packing";
+                    const isReadyToAssignStage = order.status === "Ready to Assign";
+                    const isDriverStage = ["Driver Accepted", "Started", "Delivered", "Delivery Failed"].includes(order.status);
+                    const isOtherStage = !isNewStage && !isPickingStage && !isPickedStage && !isPackingStage && !isReadyToAssignStage && !isDriverStage;
 
-                    const showPickingActions = isPickingStage || isOtherStage;
-                    const showPackingActions = isPackingStage || isOtherStage;
-                    const showDriverActions = isDriverStage || isOtherStage;
+                    const showForceToPicking = isNewStage || isOtherStage;
+                    const showResetPickerAssignment = isPickingStage || isOtherStage;
+
+                    const showForceToPacking = isPickedStage || isOtherStage;
+                    const showResetPackerAssignment = isPackingStage || isOtherStage;
+                    const showRollbackToPicked = isPickedStage || isPackingStage || isReadyToAssignStage || isDriverStage || isOtherStage;
+
+                    const showAdjustDriverStatus = isReadyToAssignStage || isDriverStage || isOtherStage;
+                    const showSendToDriver = isReadyToAssignStage && order.itemsList.length > 0 && !order.driver;
 
                     return (
                       <>
                         {/* ── Picking Actions ── */}
-                        {showPickingActions && (
+                        {(showForceToPicking || showResetPickerAssignment) && (
                           <>
                             <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
                               Picking
                             </DropdownMenuLabel>
                             <DropdownMenuGroup>
-                              <DropdownMenuItem
-                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                                onClick={() => {
-                                  setSelectedPicker(order.picker || "");
-                                  setOverrideOpen(true);
-                                }}
-                              >
-                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                                  <RefreshCw className="h-3.5 w-3.5" />
-                                </div>
-                                Force to Picking
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                                onClick={() =>
-                                  showConfirm(
-                                    "Reset Picker Assignment",
-                                    "The currently assigned picker will be removed. The order will remain in its current status but become unassigned.",
-                                    "Reset Assignment",
-                                    () => handleAction("Reset Picker Assignment", async () => {
-                                      await ordersApi.assignPicker(order.id, "");
-                                    })
-                                  )
-                                }
-                              >
-                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400">
-                                  <RotateCcw className="h-3.5 w-3.5" />
-                                </div>
-                                Reset Picker Assignment
-                              </DropdownMenuItem>
+                              {showForceToPicking && (
+                                <DropdownMenuItem
+                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                  onClick={() => {
+                                    setSelectedPicker(order.picker || "");
+                                    setOverrideOpen(true);
+                                  }}
+                                >
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                  </div>
+                                  Force to Picking
+                                </DropdownMenuItem>
+                              )}
+                              {showResetPickerAssignment && (
+                                <DropdownMenuItem
+                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                  onClick={() =>
+                                    showConfirm(
+                                      "Reset Picker Assignment",
+                                      "The currently assigned picker will be removed. The order will remain in its current status but become unassigned.",
+                                      "Reset Assignment",
+                                      () => handleAction("Reset Picker Assignment", async () => {
+                                        await ordersApi.assignPicker(order.id, "");
+                                      })
+                                    )
+                                  }
+                                >
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400">
+                                    <RotateCcw className="h-3.5 w-3.5" />
+                                  </div>
+                                  Reset Picker Assignment
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuGroup>
                             <DropdownMenuSeparator className="my-1.5" />
                           </>
                         )}
 
                         {/* ── Packing Actions ── */}
-                        {showPackingActions && (
+                        {(showForceToPacking || showResetPackerAssignment || showRollbackToPicked) && (
                           <>
                             <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
                               Packing
                             </DropdownMenuLabel>
                             <DropdownMenuGroup>
-                              <DropdownMenuItem
-                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                                onClick={() =>
-                                  showConfirm(
-                                    "Reset Packer Assignment",
-                                    "The currently assigned packer will be removed. The order will remain in its current status but become unassigned.",
-                                    "Reset Assignment",
-                                    () => handleAction("Reset Packer Assignment", async () => {
-                                      await ordersApi.assignPacker(order.id, "");
-                                    })
-                                  )
-                                }
-                              >
-                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400">
-                                  <RotateCcw className="h-3.5 w-3.5" />
-                                </div>
-                                Reset Packer Assignment
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                                onClick={() =>
-                                  showConfirm(
-                                    "Rollback to Picked",
-                                    "This will revert the order status back to 'Picked', removing any packer progress. Use this if packing needs to be redone.",
-                                    "Rollback",
-                                    () => handleAction("Rollback to Picked", async () => {
-                                      await ordersApi.updateOrderStatus(order.id, "Picked");
-                                    })
-                                  )
-                                }
-                              >
-                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                                  <Undo2 className="h-3.5 w-3.5" />
-                                </div>
-                                Rollback to Picked
-                              </DropdownMenuItem>
+                              {showForceToPacking && (
+                                <DropdownMenuItem
+                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                  onClick={() => {
+                                    setSelectedPacker(order.packer || "");
+                                    setPackingOverrideOpen(true);
+                                  }}
+                                >
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                                    <PackageCheck className="h-3.5 w-3.5" />
+                                  </div>
+                                  Force to Packing
+                                </DropdownMenuItem>
+                              )}
+                              {showResetPackerAssignment && (
+                                <DropdownMenuItem
+                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                  onClick={() =>
+                                    showConfirm(
+                                      "Reset Packer Assignment",
+                                      "The currently assigned packer will be removed. The order will remain in its current status but become unassigned.",
+                                      "Reset Assignment",
+                                      () => handleAction("Reset Packer Assignment", async () => {
+                                        await ordersApi.assignPacker(order.id, "");
+                                      })
+                                    )
+                                  }
+                                >
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400">
+                                    <RotateCcw className="h-3.5 w-3.5" />
+                                  </div>
+                                  Reset Packer Assignment
+                                </DropdownMenuItem>
+                              )}
+                              {showRollbackToPicked && (
+                                <DropdownMenuItem
+                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                  onClick={() =>
+                                    showConfirm(
+                                      "Rollback to Picked",
+                                      "This will revert the order status back to 'Picked', removing any packer progress. Use this if packing needs to be redone.",
+                                      "Rollback",
+                                      () => handleAction("Rollback to Picked", async () => {
+                                        await ordersApi.updateOrderStatus(order.id, "Picked");
+                                      })
+                                    )
+                                  }
+                                >
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                    <Undo2 className="h-3.5 w-3.5" />
+                                  </div>
+                                  Rollback to Picked
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuGroup>
                             <DropdownMenuSeparator className="my-1.5" />
                           </>
                         )}
 
                         {/* ── Driver Actions ── */}
-                        {showDriverActions && (
+                        {(showAdjustDriverStatus || showSendToDriver) && (
                           <>
                             <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
                               Driver
                             </DropdownMenuLabel>
                             <DropdownMenuGroup>
-                              <DropdownMenuItem
-                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                                onClick={() => {
-                                  setDriverNameInput(order.driver || "");
-                                  setSelectedDriverStatus(order.driverStatus || "None");
-                                  setAdjustDriverOpen(true);
-                                }}
-                              >
-                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                                  <Truck className="h-3.5 w-3.5" />
-                                </div>
-                                Adjust Driver Status
-                              </DropdownMenuItem>
-                              {order.status === "Ready to Assign" && order.itemsList.length > 0 && !order.driver && (
+                              {showAdjustDriverStatus && (
+                                <DropdownMenuItem
+                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                  onClick={() => {
+                                    setDriverNameInput(order.driver || "");
+                                    setSelectedDriverStatus(order.driverStatus || "None");
+                                    setAdjustDriverOpen(true);
+                                  }}
+                                >
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                                    <Truck className="h-3.5 w-3.5" />
+                                  </div>
+                                  Adjust Driver Status
+                                </DropdownMenuItem>
+                              )}
+                              {showSendToDriver && (
                                 <DropdownMenuItem
                                   className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
                                   onClick={() => {
