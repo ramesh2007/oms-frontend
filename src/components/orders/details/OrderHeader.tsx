@@ -73,7 +73,7 @@ import { ordersApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import { getUsers, type ManagedUser } from "@/lib/sync";
+import { getUsers, getPickers, getPackers, getDrivers, type ManagedUser } from "@/lib/sync";
 
 interface ConfirmState {
   open: boolean;
@@ -98,19 +98,57 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
   const [giftPrintOpen, setGiftPrintOpen] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState>(INITIAL_CONFIRM);
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [pickersList, setPickersList] = useState<ManagedUser[]>([]);
+  const [packersList, setPackersList] = useState<ManagedUser[]>([]);
+  const [driversList, setDriversList] = useState<ManagedUser[]>([]);
+  const [loadingPickers, setLoadingPickers] = useState(false);
+  const [loadingPackers, setLoadingPackers] = useState(false);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
 
   useEffect(() => {
     getUsers()
       .then((data) => setUsers(Array.isArray(data) ? data : []))
       .catch((err) => console.error("Failed to load users:", err));
+
+    setLoadingPickers(true);
+    getPickers()
+      .then((data) => setPickersList(Array.isArray(data) ? data : []))
+      .catch((err) => console.error("Failed to load pickers:", err))
+      .finally(() => setLoadingPickers(false));
+
+    setLoadingPackers(true);
+    getPackers()
+      .then((data) => setPackersList(Array.isArray(data) ? data : []))
+      .catch((err) => console.error("Failed to load packers:", err))
+      .finally(() => setLoadingPackers(false));
+
+    setLoadingDrivers(true);
+    getDrivers()
+      .then((data) => setDriversList(Array.isArray(data) ? data : []))
+      .catch((err) => console.error("Failed to load drivers:", err))
+      .finally(() => setLoadingDrivers(false));
   }, []);
 
   // Custom dialog states
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [selectedPicker, setSelectedPicker] = useState("");
+  const [selectedPickerItems, setSelectedPickerItems] = useState<string[]>([]);
 
   const [packingOverrideOpen, setPackingOverrideOpen] = useState(false);
   const [selectedPacker, setSelectedPacker] = useState("");
+  const [selectedPackerItems, setSelectedPackerItems] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (overrideOpen && order?.itemsList) {
+      setSelectedPickerItems(order.itemsList.map((i) => i.id));
+    }
+  }, [overrideOpen, order?.itemsList]);
+
+  useEffect(() => {
+    if (packingOverrideOpen && order?.itemsList) {
+      setSelectedPackerItems(order.itemsList.map((i) => i.id));
+    }
+  }, [packingOverrideOpen, order?.itemsList]);
 
   const [adjustDriverOpen, setAdjustDriverOpen] = useState(false);
   const [driverNameInput, setDriverNameInput] = useState("");
@@ -180,8 +218,20 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
           {/* Left Block: Order Info */}
           <div className="flex flex-col gap-3">
             <div>
-              <h1 className="text-3xl font-extrabold tracking-tight text-foreground">{order.id}</h1>
-              <p className="mt-1 text-sm font-medium text-muted-foreground">Order #{order.id}</p>
+              {(() => {
+                const rawNum = order.shopifyOrderId || order.orderNumber || order.id;
+                const cleanNum = String(rawNum).replace(/^#+/, "");
+                return (
+                  <>
+                    <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
+                      #{cleanNum}
+                    </h1>
+                    <p className="mt-1 text-sm font-medium text-muted-foreground">
+                      Order #{cleanNum}
+                    </p>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="flex flex-col items-start gap-2.5 mt-2">
@@ -307,6 +357,8 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                                       "The currently assigned picker will be removed. The order will remain in its current status but become unassigned.",
                                       "Reset Assignment",
                                       () => handleAction("Reset Picker Assignment", async () => {
+                                        const allItemIds = order.itemsList.map((i) => i.id);
+                                        await ordersApi.unassignPickerItems(order.id, allItemIds);
                                         await ordersApi.assignPicker(order.id, "");
                                       })
                                     )
@@ -353,6 +405,8 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                                       "The currently assigned packer will be removed. The order will remain in its current status but become unassigned.",
                                       "Reset Assignment",
                                       () => handleAction("Reset Packer Assignment", async () => {
+                                        const allItemIds = order.itemsList.map((i) => i.id);
+                                        await ordersApi.unassignPackerItems(order.id, allItemIds);
                                         await ordersApi.assignPacker(order.id, "");
                                       })
                                     )
@@ -373,7 +427,10 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                                       "This will revert the order status back to 'Picked', removing any packer progress. Use this if packing needs to be redone.",
                                       "Rollback",
                                       () => handleAction("Rollback to Picked", async () => {
+                                        const allItemIds = order.itemsList.map((i) => i.id);
+                                        await ordersApi.unassignPackerItems(order.id, allItemIds);
                                         await ordersApi.updateOrderStatus(order.id, "Picked");
+                                        await ordersApi.assignPacker(order.id, "");
                                       })
                                     )
                                   }
@@ -573,35 +630,97 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
 
       {/* ── Warehouse Override Dialog (Force to Picking) ── */}
       <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
-        <DialogContent className="sm:max-w-[420px] rounded-xl border border-border bg-card shadow-lg p-6">
+        <DialogContent className="sm:max-w-[460px] rounded-xl border border-border bg-card shadow-lg p-6">
           <DialogHeader className="space-y-1.5">
             <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
-              Warehouse Override
+              Warehouse Override (Picking)
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Force this order back to Picking state.
+              Select a picker and confirm items to assign for picking.
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="picker-select" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Select Picker
+                Select Picker <span className="text-destructive">*</span>
               </Label>
               <Select value={selectedPicker} onValueChange={setSelectedPicker}>
                 <SelectTrigger id="picker-select" className="h-10 w-full bg-background border border-border rounded-lg shadow-sm focus:ring-2 focus:ring-primary/20">
-                  <SelectValue placeholder="Select a picker" />
+                  <SelectValue placeholder={loadingPickers ? "Loading pickers..." : "Select a picker"} />
                 </SelectTrigger>
                 <SelectContent className="rounded-lg border border-border shadow-md">
-                  {users
-                    .filter((u) => u.role === "picker" && u.status === "active")
-                    .map((p) => (
-                      <SelectItem key={p.id} value={p.email}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
+                  {loadingPickers ? (
+                    <div className="p-2 text-xs text-muted-foreground text-center">Loading pickers...</div>
+                  ) : (pickersList.length > 0 ? pickersList : users.filter((u) => u.role === "picker" && u.status === "active")).map((p) => (
+                    <SelectItem key={p.id} value={p.email || p.name || p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Confirm Items to Pick <span className="text-destructive">*</span>
+                </Label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedPickerItems.length === order.itemsList.length) {
+                      setSelectedPickerItems([]);
+                    } else {
+                      setSelectedPickerItems(order.itemsList.map((i) => i.id));
+                    }
+                  }}
+                  className="text-[11px] font-medium text-primary hover:underline"
+                >
+                  {selectedPickerItems.length === order.itemsList.length ? "Deselect All" : "Select All"}
+                </button>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/20 p-3 max-h-[180px] overflow-y-auto space-y-2">
+                {order.itemsList.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-2">No items found in order.</p>
+                ) : (
+                  order.itemsList.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between space-x-3 py-1 border-b border-border/40 last:border-0">
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <Checkbox
+                          id={`picker-item-${item.id}`}
+                          checked={selectedPickerItems.includes(item.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedPickerItems([...selectedPickerItems, item.id]);
+                            } else {
+                              setSelectedPickerItems(selectedPickerItems.filter((id) => id !== item.id));
+                            }
+                          }}
+                        />
+                        <div className="grid gap-0.5 truncate">
+                          <Label
+                            htmlFor={`picker-item-${item.id}`}
+                            className="text-xs font-medium text-foreground cursor-pointer truncate"
+                            title={item.name}
+                          >
+                            {item.name}
+                          </Label>
+                          <span className="text-[11px] text-muted-foreground font-mono">
+                            SKU: {item.sku}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold text-muted-foreground shrink-0">
+                        Qty: {item.qty}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground text-right">
+                {selectedPickerItems.length} of {order.itemsList.length} items selected
+              </p>
             </div>
           </div>
 
@@ -615,17 +734,22 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   toast.error("Please select a picker");
                   return;
                 }
+                if (selectedPickerItems.length === 0) {
+                  toast.error("Please select at least one item to assign");
+                  return;
+                }
                 handleAction("Force to Picking", async () => {
+                  await ordersApi.assignPickerItems(order.id, selectedPicker, selectedPickerItems);
                   await ordersApi.updateOrderStatus(order.id, "Picking");
                   await ordersApi.assignPicker(order.id, selectedPicker);
                 });
                 setOverrideOpen(false);
               }}
-              disabled={actionsLoading}
+              disabled={!selectedPicker || selectedPickerItems.length === 0 || actionsLoading}
               className="rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/95 transition-all shadow-md"
             >
               {actionsLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Confirm Override
+              Confirm Assignment
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -633,35 +757,97 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
 
       {/* ── Warehouse Override Dialog (Force to Packing) ── */}
       <Dialog open={packingOverrideOpen} onOpenChange={setPackingOverrideOpen}>
-        <DialogContent className="sm:max-w-[420px] rounded-xl border border-border bg-card shadow-lg p-6">
+        <DialogContent className="sm:max-w-[460px] rounded-xl border border-border bg-card shadow-lg p-6">
           <DialogHeader className="space-y-1.5">
             <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
               Warehouse Override (Packing)
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Force this order back to Packing state.
+              Select a packer and confirm items to assign for packing.
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="packer-select" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Select Packer
+                Select Packer <span className="text-destructive">*</span>
               </Label>
               <Select value={selectedPacker} onValueChange={setSelectedPacker}>
                 <SelectTrigger id="packer-select" className="h-10 w-full bg-background border border-border rounded-lg shadow-sm focus:ring-2 focus:ring-primary/20">
-                  <SelectValue placeholder="Select a packer" />
+                  <SelectValue placeholder={loadingPackers ? "Loading packers..." : "Select a packer"} />
                 </SelectTrigger>
                 <SelectContent className="rounded-lg border border-border shadow-md">
-                  {users
-                    .filter((u) => u.role === "packer" && u.status === "active")
-                    .map((p) => (
-                      <SelectItem key={p.id} value={p.email}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
+                  {loadingPackers ? (
+                    <div className="p-2 text-xs text-muted-foreground text-center">Loading packers...</div>
+                  ) : (packersList.length > 0 ? packersList : users.filter((u) => u.role === "packer" && u.status === "active")).map((p) => (
+                    <SelectItem key={p.id} value={p.email || p.name || p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Confirm Items to Pack <span className="text-destructive">*</span>
+                </Label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedPackerItems.length === order.itemsList.length) {
+                      setSelectedPackerItems([]);
+                    } else {
+                      setSelectedPackerItems(order.itemsList.map((i) => i.id));
+                    }
+                  }}
+                  className="text-[11px] font-medium text-primary hover:underline"
+                >
+                  {selectedPackerItems.length === order.itemsList.length ? "Deselect All" : "Select All"}
+                </button>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/20 p-3 max-h-[180px] overflow-y-auto space-y-2">
+                {order.itemsList.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-2">No items found in order.</p>
+                ) : (
+                  order.itemsList.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between space-x-3 py-1 border-b border-border/40 last:border-0">
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <Checkbox
+                          id={`packer-item-${item.id}`}
+                          checked={selectedPackerItems.includes(item.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedPackerItems([...selectedPackerItems, item.id]);
+                            } else {
+                              setSelectedPackerItems(selectedPackerItems.filter((id) => id !== item.id));
+                            }
+                          }}
+                        />
+                        <div className="grid gap-0.5 truncate">
+                          <Label
+                            htmlFor={`packer-item-${item.id}`}
+                            className="text-xs font-medium text-foreground cursor-pointer truncate"
+                            title={item.name}
+                          >
+                            {item.name}
+                          </Label>
+                          <span className="text-[11px] text-muted-foreground font-mono">
+                            SKU: {item.sku}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold text-muted-foreground shrink-0">
+                        Qty: {item.qty}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground text-right">
+                {selectedPackerItems.length} of {order.itemsList.length} items selected
+              </p>
             </div>
           </div>
 
@@ -675,17 +861,26 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   toast.error("Please select a packer");
                   return;
                 }
+                if (selectedPackerItems.length === 0) {
+                  toast.error("Please select at least one item to assign");
+                  return;
+                }
                 handleAction("Force to Packing", async () => {
+                  const packerObj = packersList.find((p) => p.id === selectedPacker || p.email === selectedPacker || p.name === selectedPacker);
+                  const packerId = packerObj ? packerObj.id : selectedPacker;
+                  const packerName = packerObj ? packerObj.name : selectedPacker;
+
+                  await ordersApi.assignPackerItems(order.id, packerId, selectedPackerItems, packerName);
                   await ordersApi.updateOrderStatus(order.id, "Packing");
                   await ordersApi.assignPacker(order.id, selectedPacker);
                 });
                 setPackingOverrideOpen(false);
               }}
-              disabled={actionsLoading}
+              disabled={!selectedPacker || selectedPackerItems.length === 0 || actionsLoading}
               className="rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/95 transition-all shadow-md"
             >
               {actionsLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Confirm Override
+              Confirm Assignment
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -710,16 +905,16 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               </Label>
               <Select value={driverNameInput} onValueChange={setDriverNameInput}>
                 <SelectTrigger id="driver-name-select" className="h-10 w-full bg-background border border-border rounded-lg shadow-sm focus:ring-2 focus:ring-primary/20">
-                  <SelectValue placeholder="Select a driver" />
+                  <SelectValue placeholder={loadingDrivers ? "Loading drivers..." : "Select a driver"} />
                 </SelectTrigger>
                 <SelectContent className="rounded-lg border border-border shadow-md">
-                  {users
-                    .filter((u) => u.role === "driver" && u.status === "active")
-                    .map((d) => (
-                      <SelectItem key={d.id} value={d.email}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
+                  {loadingDrivers ? (
+                    <div className="p-2 text-xs text-muted-foreground text-center">Loading drivers...</div>
+                  ) : (driversList.length > 0 ? driversList : users.filter((u) => u.role === "driver" && u.status === "active")).map((d) => (
+                    <SelectItem key={d.id} value={d.email || d.name || d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -949,16 +1144,16 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               </Label>
               <Select value={selectedSendDriver} onValueChange={setSelectedSendDriver}>
                 <SelectTrigger id="send-driver-select" className="h-10 w-full bg-background border border-border rounded-lg shadow-sm focus:ring-2 focus:ring-primary/20">
-                  <SelectValue placeholder="Select a driver" />
+                  <SelectValue placeholder={loadingDrivers ? "Loading drivers..." : "Select a driver"} />
                 </SelectTrigger>
                 <SelectContent className="rounded-lg border border-border shadow-md">
-                  {users
-                    .filter((u) => u.role === "driver" && u.status === "active")
-                    .map((d) => (
-                      <SelectItem key={d.id} value={d.email}>
-                        {d.name} ({d.email})
-                      </SelectItem>
-                    ))}
+                  {loadingDrivers ? (
+                    <div className="p-2 text-xs text-muted-foreground text-center">Loading drivers...</div>
+                  ) : (driversList.length > 0 ? driversList : users.filter((u) => u.role === "driver" && u.status === "active")).map((d) => (
+                    <SelectItem key={d.id} value={d.email || d.name || d.id}>
+                      {d.name} {d.email ? `(${d.email})` : ""}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

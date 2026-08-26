@@ -155,6 +155,8 @@ export const LEGACY_TABS: LegacyTab[] = [
 
 export interface Order {
   id: string;
+  orderNumber?: string;
+  shopifyOrderId?: string;
   /** Stable customer profile id (URL segment for /customers/:customerId). */
   customerId: string;
   tat: string;
