@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Truck,
+  User,
   UserCheck,
   UserPlus,
   Webhook,
@@ -140,6 +141,39 @@ export function TimelineDialog({
             Order #{String(order.shopifyOrderId || order.orderNumber || order.id).replace(/^#+/, "")}
           </p>
         </DialogHeader>
+
+        {/* Fulfillment Crew Summary: Who Picked, Who Packed, Who Driver */}
+        <div className="border-b border-border/40 bg-muted/10 px-6 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Fulfillment Crew
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="flex flex-col gap-0.5 rounded-lg border border-border/50 bg-card p-2">
+              <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+                <User className="h-3 w-3 text-emerald-600" /> Picker
+              </span>
+              <span className="font-semibold truncate text-foreground" title={order.picker ?? "Not assigned"}>
+                {order.picker ?? "Not assigned"}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 rounded-lg border border-border/50 bg-card p-2">
+              <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+                <Package className="h-3 w-3 text-indigo-600" /> Packer
+              </span>
+              <span className="font-semibold truncate text-foreground" title={order.packer ?? "Not assigned"}>
+                {order.packer ?? "Not assigned"}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 rounded-lg border border-border/50 bg-card p-2">
+              <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+                <Truck className="h-3 w-3 text-blue-600" /> Driver
+              </span>
+              <span className="font-semibold truncate text-foreground" title={order.driver ?? "Not assigned"}>
+                {order.driver ?? "Not assigned"}
+              </span>
+            </div>
+          </div>
+        </div>
 
         <div className="flex-1 overflow-y-auto px-2 py-6 sm:px-6">
           <div className="space-y-0 relative z-10 mx-auto max-w-lg">

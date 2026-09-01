@@ -33,6 +33,31 @@ export const Route = createFileRoute("/")(  {
   component: Dashboard,
 });
 
+function generateHourlySparkline(orderList: any[], filterFn?: (o: any) => boolean): number[] {
+  const target = filterFn ? orderList.filter(filterFn) : orderList;
+  const spark = new Array(12).fill(0);
+  if (target.length === 0) return spark;
+
+  target.forEach((o) => {
+    let hour = 12;
+    if (o.time) {
+      const match = String(o.time).match(/(\d{1,2}):/);
+      if (match) hour = parseInt(match[1], 10);
+    }
+    const bucket = Math.min(11, Math.max(0, Math.floor(hour / 2)));
+    spark[bucket] += 1;
+  });
+
+  // If all spark values are 0 or constant, distribute proportionally so sparkline visual looks smooth
+  const max = Math.max(...spark);
+  if (max === 0) {
+    const step = target.length / 12;
+    return Array.from({ length: 12 }, (_, i) => Math.round((i + 1) * step));
+  }
+
+  return spark;
+}
+
 function Dashboard() {
   const { data: orders = [] } = useOrders();
   const { user } = useAuth();
@@ -100,9 +125,89 @@ function Dashboard() {
     });
   }, [orders, period]);
 
+  const previousPeriodOrders = useMemo(() => {
+    if (orders.length === 0) return [];
+    const activeOrders = orders.filter((o) => !isUnpaidPayLaterOrder(o));
+    if (activeOrders.length === 0) return [];
+
+    const currentYear = new Date().getFullYear();
+    let referenceDate = new Date();
+    if (isDemoMode()) {
+      let maxDate = new Date(0);
+      activeOrders.forEach((o) => {
+        const d = new Date(`${o.date}, ${currentYear}`);
+        if (!isNaN(d.getTime()) && d.getTime() > maxDate.getTime()) {
+          maxDate = d;
+        }
+      });
+      if (maxDate.getTime() > 0) referenceDate = maxDate;
+    }
+
+    const refTime = new Date(
+      referenceDate.getFullYear(),
+      referenceDate.getMonth(),
+      referenceDate.getDate()
+    ).getTime();
+
+    return activeOrders.filter((order) => {
+      if (!order.date) return false;
+      const orderDateObj = new Date(`${order.date}, ${currentYear}`);
+      if (isNaN(orderDateObj.getTime())) return false;
+
+      const orderTime = new Date(
+        orderDateObj.getFullYear(),
+        orderDateObj.getMonth(),
+        orderDateObj.getDate()
+      ).getTime();
+      const diffDays = (refTime - orderTime) / (1000 * 60 * 60 * 24);
+
+      if (period === "Today") {
+        return diffDays === 1; // Yesterday
+      } else if (period === "7D") {
+        return diffDays >= 7 && diffDays < 14;
+      } else if (period === "30D") {
+        return diffDays >= 30 && diffDays < 60;
+      } else if (period === "QTD") {
+        const refMonth = referenceDate.getMonth();
+        const startOfQuarterMonth = Math.floor(refMonth / 3) * 3;
+        const prevQuarterStartMonth = (startOfQuarterMonth - 3 + 12) % 12;
+        const prevQuarterYear = startOfQuarterMonth === 0 ? referenceDate.getFullYear() - 1 : referenceDate.getFullYear();
+        const startOfPrevQuarter = new Date(prevQuarterYear, prevQuarterStartMonth, 1).getTime();
+        const endOfPrevQuarter = new Date(referenceDate.getFullYear(), startOfQuarterMonth, 0).getTime();
+        return orderTime >= startOfPrevQuarter && orderTime <= endOfPrevQuarter;
+      }
+      return false;
+    });
+  }, [orders, period]);
+
   const deliveredCount = filteredOrders.filter((order) => order.status === "Delivered").length;
   const pendingAllocationCount = filteredOrders.filter((order) => order.status === "Ready to Assign").length;
   const inProgressCount = filteredOrders.filter((order) => ACTIVE_STATUSES.includes(order.status)).length;
+
+  const prevTotalCount = previousPeriodOrders.length;
+  const prevDeliveredCount = previousPeriodOrders.filter((o) => o.status === "Delivered").length;
+  const prevPendingCount = previousPeriodOrders.filter((o) => o.status === "Ready to Assign").length;
+  const prevInProgressCount = previousPeriodOrders.filter((o) => ACTIVE_STATUSES.includes(o.status)).length;
+
+  const totalChange = useMemo(() => {
+    if (prevTotalCount === 0) return filteredOrders.length > 0 ? 100 : 0;
+    return Number((((filteredOrders.length - prevTotalCount) / prevTotalCount) * 100).toFixed(1));
+  }, [filteredOrders.length, prevTotalCount]);
+
+  const deliveredChange = useMemo(() => {
+    if (prevDeliveredCount === 0) return deliveredCount > 0 ? 100 : 0;
+    return Number((((deliveredCount - prevDeliveredCount) / prevDeliveredCount) * 100).toFixed(1));
+  }, [deliveredCount, prevDeliveredCount]);
+
+  const pendingChange = useMemo(() => {
+    if (prevPendingCount === 0) return pendingAllocationCount > 0 ? 100 : 0;
+    return Number((((pendingAllocationCount - prevPendingCount) / prevPendingCount) * 100).toFixed(1));
+  }, [pendingAllocationCount, prevPendingCount]);
+
+  const inProgressChange = useMemo(() => {
+    if (prevInProgressCount === 0) return inProgressCount > 0 ? 100 : 0;
+    return Number((((inProgressCount - prevInProgressCount) / prevInProgressCount) * 100).toFixed(1));
+  }, [inProgressCount, prevInProgressCount]);
 
   // Dynamic date
   const now = new Date();
@@ -118,35 +223,35 @@ function Dashboard() {
     {
       label: "Total Orders",
       value: filteredOrders.length.toLocaleString(),
-      change: 12.4,
+      change: totalChange,
       icon: Package,
       tone: "primary" as const,
-      spark: [12, 18, 16, 22, 28, 24, 32, 38, 42, 40, 48, 52],
+      spark: generateHourlySparkline(filteredOrders),
       pulse: true,
     },
     {
       label: "Completed Deliveries",
       value: deliveredCount.toLocaleString(),
-      change: 8.2,
+      change: deliveredChange,
       icon: CheckCircle2,
       tone: "success" as const,
-      spark: [8, 12, 18, 22, 20, 28, 32, 36, 40, 44, 48, 52],
+      spark: generateHourlySparkline(filteredOrders, (o) => o.status === "Delivered"),
     },
     {
       label: "Pending Allocation",
       value: pendingAllocationCount.toLocaleString(),
-      change: -4.1,
+      change: pendingChange,
       icon: Clock,
       tone: "warning" as const,
-      spark: [40, 38, 42, 36, 34, 30, 28, 32, 30, 28, 26, 32],
+      spark: generateHourlySparkline(filteredOrders, (o) => o.status === "Ready to Assign"),
     },
     {
       label: "Orders In Progress",
       value: inProgressCount.toLocaleString(),
-      change: 6.8,
+      change: inProgressChange,
       icon: Loader2,
       tone: "info" as const,
-      spark: [120, 135, 128, 142, 158, 150, 168, 172, 180, 178, 185, 183],
+      spark: generateHourlySparkline(filteredOrders, (o) => ACTIVE_STATUSES.includes(o.status)),
       pulse: true,
     },
   ];

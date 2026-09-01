@@ -101,13 +101,13 @@ export function OrderDetails({ orderId }: { orderId: string }) {
 
         {/* Right Column: Sidebar */}
         <div className="flex min-w-0 flex-col gap-6">
+          <ActivityTimeline order={order} />
           <CustomerSidebar 
             order={order} 
             onNotesUpdate={(newNotes) => {
               updateNotes.mutate({ orderId, notes: newNotes });
             }}
           />
-          <ActivityTimeline order={order} />
         </div>
       </div>
     </div>

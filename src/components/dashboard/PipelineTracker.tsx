@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Order } from "@/lib/orders";
+import type { Order, LegacyTabId } from "@/lib/orders";
+import { useNavigate } from "@tanstack/react-router";
 
 interface PipelineTrackerProps {
   orders: Order[];
@@ -46,36 +47,44 @@ const stageColors: Record<string, { bg: string; text: string; bar: string; dot: 
 };
 
 export function PipelineTracker({ orders }: PipelineTrackerProps) {
-  const stages = [
+  const navigate = useNavigate();
+
+  const stages: { key: string; label: string; count: number; tab: LegacyTabId }[] = [
     {
       key: "new",
       label: "New Orders",
       count: orders.filter((o) => o.status === "New" || o.status === "Unfulfilled").length,
+      tab: "New",
     },
     {
       key: "picked",
       label: "Picking / Picked",
       count: orders.filter((o) => o.status === "Picking" || o.status === "Picked").length,
+      tab: "Picking",
     },
     {
       key: "packed",
       label: "Packing",
       count: orders.filter((o) => o.status === "Packing").length,
+      tab: "Packing",
     },
     {
       key: "ready",
       label: "Ready to Assign",
       count: orders.filter((o) => o.status === "Ready to Assign").length,
+      tab: "Ready to Assign",
     },
     {
       key: "out",
       label: "Out for Delivery",
       count: orders.filter((o) => o.status === "Driver Accepted" || o.status === "Started").length,
+      tab: "In Delivery",
     },
     {
       key: "delivered",
       label: "Delivered",
       count: orders.filter((o) => o.status === "Delivered").length,
+      tab: "Delivered",
     },
   ];
 
@@ -90,7 +99,10 @@ export function PipelineTracker({ orders }: PipelineTrackerProps) {
             Real-time fulfillment workflow across warehouses
           </p>
         </div>
-        <button className="text-xs font-medium text-primary hover:text-primary/80 flex items-center gap-1 transition-colors">
+        <button
+          onClick={() => navigate({ to: "/orders" })}
+          className="text-xs font-medium text-primary hover:text-primary/80 flex items-center gap-1 transition-colors cursor-pointer"
+        >
           View kanban <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -102,7 +114,8 @@ export function PipelineTracker({ orders }: PipelineTrackerProps) {
           return (
             <button
               key={s.key}
-              className="relative text-left p-3 transition-all group hover:bg-muted/30 cursor-default"
+              onClick={() => navigate({ to: "/orders", search: { tab: s.tab } })}
+              className="relative text-left p-3 transition-all group hover:bg-muted/40 cursor-pointer active:scale-[0.99]"
             >
               <div className="flex items-center gap-2 mb-2">
                 <span className={cn("h-2 w-2 rounded-full", colors.dot)} />

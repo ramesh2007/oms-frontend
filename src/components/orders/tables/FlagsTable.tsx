@@ -189,8 +189,8 @@ export function FlagsTable({
         <thead>
           <tr className="border-b border-border bg-muted/30 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             <th className="py-3 pl-4 pr-3 font-semibold">Order</th>
-            <th className="py-3 pr-3 font-semibold">TAT</th>
             <th className="py-3 pr-3 font-semibold">Date & Time</th>
+            <th className="py-3 pr-3 font-semibold">TAT</th>
             <th className="py-3 pr-3 font-semibold">Customer</th>
             <th className="py-3 pr-3 font-semibold">Flag / Exception</th>
             <th className="py-3 pr-3 font-semibold">Priority</th>
@@ -221,15 +221,15 @@ export function FlagsTable({
                     {order.id}
                   </span>
                 </td>
-                <td className="py-3 pr-3 align-middle">
-                  <span className={cn("text-xs font-semibold tabular-nums", tatClass)}>
-                    {order.tat}
-                  </span>
-                </td>
                 <td className="whitespace-nowrap py-3 pr-3 align-middle">
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
                     <span className="text-foreground font-medium">📅 {order.date} | {order.time}</span>
                   </div>
+                </td>
+                <td className="py-3 pr-3 align-middle">
+                  <span className={cn("text-xs font-semibold tabular-nums", tatClass)}>
+                    {order.tat}
+                  </span>
                 </td>
                 <td className="max-w-[200px] py-3 pr-3 align-middle">
                   <div className="min-w-0">

@@ -510,8 +510,10 @@ export async function assignDriverToOrder(payload: {
 export async function assignPickerItemsToOrder(payload: {
   order_id?: number | string;
   order_number?: string;
-  picker_id?: number | string;
-  picker_name?: string;
+  order?: number | string;
+  picker_id?: number | string | null;
+  picker_name?: string | null;
+  picker?: number | string | null;
   order_items: (number | string)[];
 }) {
   if (isDemoMode()) {
@@ -520,13 +522,25 @@ export async function assignPickerItemsToOrder(payload: {
   }
 
   try {
+    const isNumericOrderId = payload.order_id !== undefined && payload.order_id !== null && !isNaN(Number(payload.order_id)) && String(payload.order_id).trim() !== "";
+    const numericOrderId = isNumericOrderId ? Number(payload.order_id) : (payload.order_id ?? undefined);
+
+    const isNumericPickerId = payload.picker_id !== undefined && payload.picker_id !== null && !isNaN(Number(payload.picker_id)) && String(payload.picker_id).trim() !== "";
+    const parsedPickerId = isNumericPickerId ? Number(payload.picker_id) : null;
+
+    const resolvedPickerName = payload.picker_name || (typeof payload.picker_id === "string" && isNaN(Number(payload.picker_id)) ? payload.picker_id : undefined);
+
+    const resolvedPicker = payload.picker || resolvedPickerName || (parsedPickerId !== null ? parsedPickerId : undefined);
+
+    const orderVal = payload.order || payload.order_id || payload.order_number;
+
     const response = await erpNextClient.post<any>("/api/orders/assign-picker-items", {
-      order_id: payload.order_id ? Number(payload.order_id) : undefined,
-      order_number: payload.order_number,
-      order: payload.order_id || payload.order_number,
-      picker_id: payload.picker_id ? Number(payload.picker_id) : payload.picker_id,
-      picker_name: payload.picker_name,
-      picker: payload.picker_id || payload.picker_name,
+      order_id: numericOrderId,
+      order_number: payload.order_number ? String(payload.order_number) : (payload.order_id ? String(payload.order_id) : undefined),
+      order: orderVal ? String(orderVal) : undefined,
+      picker_id: parsedPickerId,
+      picker_name: resolvedPickerName,
+      picker: resolvedPicker,
       order_items: payload.order_items,
     });
     return response;

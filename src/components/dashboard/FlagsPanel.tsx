@@ -125,8 +125,9 @@ export function FlagsPanel({ orders = [] }: FlagsPanelProps) {
           return (
             <div
               key={`${f.order}-${i}`}
+              onClick={() => navigate({ to: "/orders/$orderId", params: { orderId: f.order } })}
               className={cn(
-                "flex items-start gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors border-l-2",
+                "flex items-start gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors border-l-2 cursor-pointer group",
                 p.border,
               )}
             >
@@ -137,7 +138,7 @@ export function FlagsPanel({ orders = [] }: FlagsPanelProps) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-semibold">{f.title}</span>
+                  <span className="text-xs font-semibold group-hover:text-primary transition-colors">{f.title}</span>
                   <span
                     className={cn(
                       "text-[9px] uppercase tracking-wider font-bold px-1.5 h-4 rounded grid place-items-center",
@@ -156,7 +157,13 @@ export function FlagsPanel({ orders = [] }: FlagsPanelProps) {
                   <span>{f.time}</span>
                 </div>
               </div>
-              <button className="h-7 px-2.5 rounded-md text-[10px] font-semibold bg-primary/10 text-primary hover:bg-primary/15 transition-colors flex items-center gap-0.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate({ to: "/orders/$orderId", params: { orderId: f.order } });
+                }}
+                className="h-7 px-2.5 rounded-md text-[10px] font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-0.5 cursor-pointer shrink-0"
+              >
                 Resolve <ChevronRight className="h-3 w-3" />
               </button>
             </div>

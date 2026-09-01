@@ -334,15 +334,28 @@ export async function assignPicker(
  */
 export async function assignPickerItems(
   orderId: string,
-  pickerIdOrName: string,
+  pickerIdOrName: string | number,
   orderItems: (number | string)[],
+  pickerName?: string,
 ): Promise<any> {
   const cleanId = getCleanOrderId(orderId);
+  const isNumericPickerId =
+    typeof pickerIdOrName === "number" ||
+    (typeof pickerIdOrName === "string" &&
+      pickerIdOrName.trim() !== "" &&
+      !isNaN(Number(pickerIdOrName)));
+
+  const pickerId = isNumericPickerId ? Number(pickerIdOrName) : null;
+  const resolvedPickerName =
+    pickerName || (typeof pickerIdOrName === "string" ? pickerIdOrName : undefined);
+
   return assignPickerItemsToOrder({
     order_id: cleanId,
     order_number: cleanId,
-    picker_id: pickerIdOrName,
-    picker_name: pickerIdOrName,
+    order: cleanId,
+    picker_id: pickerId,
+    picker_name: resolvedPickerName,
+    picker: resolvedPickerName || (pickerId !== null ? pickerId : undefined),
     order_items: orderItems,
   });
 }

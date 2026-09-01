@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
     : (env.VITE_API_URL_DEV || "https://delivery-management.hmws.qatar123.com/public");
 
   return {
-    base: "/demo/order-management/",
+    base: "/",
     server: {
       proxy: {
         "/api": {

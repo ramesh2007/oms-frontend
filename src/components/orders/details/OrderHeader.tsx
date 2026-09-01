@@ -739,7 +739,22 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   return;
                 }
                 handleAction("Force to Picking", async () => {
-                  await ordersApi.assignPickerItems(order.id, selectedPicker, selectedPickerItems);
+                  const pickerObj = (pickersList.length > 0 ? pickersList : users).find(
+                    (p) => p.id === selectedPicker || p.email === selectedPicker || p.name === selectedPicker
+                  );
+                  const pickerId = pickerObj
+                    ? (!isNaN(Number(pickerObj.id)) ? Number(pickerObj.id) : null)
+                    : (!isNaN(Number(selectedPicker)) ? Number(selectedPicker) : null);
+                  const pickerName = pickerObj
+                    ? (pickerObj.email || pickerObj.name)
+                    : selectedPicker;
+
+                  await ordersApi.assignPickerItems(
+                    order.id,
+                    pickerId !== null ? pickerId : selectedPicker,
+                    selectedPickerItems,
+                    pickerName
+                  );
                   await ordersApi.updateOrderStatus(order.id, "Picking");
                   await ordersApi.assignPicker(order.id, selectedPicker);
                 });
