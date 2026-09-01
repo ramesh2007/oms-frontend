@@ -158,41 +158,7 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
         </div>
       </section>
 
-      {/* Tags Section */}
-      <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-5 py-3">
-          <Tag className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold text-foreground">Tags</h3>
-        </div>
-        <div className="p-5 flex flex-wrap gap-2">
-          {order.tags && order.tags.length > 0 ? (
-            order.tags.map((tag) => {
-              const isPayLaterTag = tag.toUpperCase() === "PAYLATER";
-              const isSentTag = tag.toUpperCase() === "PAYMENTLINKSENT";
-              return (
-                <span
-                  key={tag}
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border",
-                    isPayLaterTag
-                      ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900"
-                      : isSentTag
-                      ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900"
-                      : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                  )}
-                >
-                  {tag}
-                </span>
-              );
-            })
-          ) : (
-            <p className="text-sm text-muted-foreground italic opacity-70">
-              No tags on this order
-            </p>
-          )}
-        </div>
-      </section>
-
+      {/* Customer Section */}
       <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-5 py-3">
           <UserRound className="h-4 w-4 text-muted-foreground" />
@@ -260,6 +226,41 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
               </a>
             </Button>
           </div>
+        </div>
+      </section>
+
+      {/* Tags Section */}
+      <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-5 py-3">
+          <Tag className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-foreground">Tags</h3>
+        </div>
+        <div className="p-5 flex flex-wrap gap-2">
+          {order.tags && order.tags.length > 0 ? (
+            order.tags.map((tag) => {
+              const isPayLaterTag = tag.toUpperCase() === "PAYLATER";
+              const isSentTag = tag.toUpperCase() === "PAYMENTLINKSENT";
+              return (
+                <span
+                  key={tag}
+                  className={cn(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border",
+                    isPayLaterTag
+                      ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900"
+                      : isSentTag
+                      ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900"
+                      : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                  )}
+                >
+                  {tag}
+                </span>
+              );
+            })
+          ) : (
+            <p className="text-sm text-muted-foreground italic opacity-70">
+              No tags on this order
+            </p>
+          )}
         </div>
       </section>
     </aside>

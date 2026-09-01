@@ -53,14 +53,17 @@ export function useOrders() {
     queryKey: orderKeys.list(),
     queryFn: () => ordersApi.fetchOrders(),
 
-    // Keep data fresh for 30 seconds before refetching in background
-    staleTime: 30 * 1000,
+    // Keep data fresh for 10 seconds before refetching in background
+    staleTime: 10 * 1000,
 
     // Keep cached data for 5 minutes even if the component unmounts
     gcTime: 5 * 60 * 1000,
 
-    // Don't refetch when the browser tab regains focus (avoids flickering)
-    refetchOnWindowFocus: false,
+    // Auto-refetch every 15 seconds for live real-time dashboard dynamic updates
+    refetchInterval: 15 * 1000,
+
+    // Refetch when the browser tab regains focus
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -109,9 +112,10 @@ export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
         rawData: res,
       };
     },
-    staleTime: 30 * 1000,
+    staleTime: 10 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    refetchInterval: 15 * 1000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -142,9 +146,10 @@ export function useFlaggedOrders(page = 1, perPage = 15) {
         rawData: res,
       };
     },
-    staleTime: 30 * 1000,
+    staleTime: 10 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    refetchInterval: 15 * 1000,
+    refetchOnWindowFocus: true,
   });
 }
 

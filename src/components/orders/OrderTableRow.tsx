@@ -145,7 +145,7 @@ export function OrderTableRow({
   const isPacking = activeTab === "Packing";
   const colSpanCount = isPacking
     ? 10
-    : 13 + (dynamicCol ? 1 : 0) + (isPickingOrPicked ? -2 : 0) + (activeTab === "Ready to Assign" ? -1 : 0);
+    : 13 + (dynamicCol ? 1 : 0) + (isPickingOrPicked ? -4 : 0) + (activeTab === "Ready to Assign" ? -1 : 0);
 
   return (
     <>
@@ -178,11 +178,6 @@ export function OrderTableRow({
           </span>
         </td>
 
-        {/* TAT */}
-        <td className="py-3 pr-3 align-middle">
-          <span className={cn("text-xs font-semibold tabular-nums", tatClass)}>{order.tat}</span>
-        </td>
-
         {/* Date & Time */}
         <td className="whitespace-nowrap py-3 pr-3 align-middle">
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -190,6 +185,11 @@ export function OrderTableRow({
               📅 {order.date} | {order.time}
             </span>
           </div>
+        </td>
+
+        {/* TAT */}
+        <td className="py-3 pr-3 align-middle">
+          <span className={cn("text-xs font-semibold tabular-nums", tatClass)}>{order.tat}</span>
         </td>
 
         {/* Customer */}
@@ -377,7 +377,7 @@ export function OrderTableRow({
         )}
 
         {/* Total */}
-        {!isPacking && (
+        {!isPacking && !isPickingOrPicked && (
           <td className="whitespace-nowrap py-3 pr-3 align-middle">
             <span className="text-sm font-semibold tabular-nums">QAR {order.total.toFixed(2)}</span>
           </td>
@@ -404,7 +404,7 @@ export function OrderTableRow({
         </td>
 
         {/* Shopify Status */}
-        {!isPacking && (
+        {!isPacking && !isPickingOrPicked && (
           <td className="py-3 pr-3 align-middle">
             <ShopifyBadge status={order.status === "Delivered" ? "Fulfilled" : "Unfulfilled"} />
           </td>
@@ -422,16 +422,16 @@ export function OrderTableRow({
                 </div>
                 <ul className="mt-2 space-y-2">
                   <li className="flex items-center gap-2 font-medium">
-                    <Truck className="h-4 w-4 text-muted-foreground" aria-hidden />
-                    Driver: {order.driver ?? "—"}
-                  </li>
-                  <li className="flex items-center gap-2 font-medium">
                     <User className="h-4 w-4 text-muted-foreground" aria-hidden />
                     Picker: {order.picker ?? "—"}
                   </li>
                   <li className="flex items-center gap-2 font-medium">
                     <Package className="h-4 w-4 text-muted-foreground" aria-hidden />
                     Packer: {order.packer ?? "—"}
+                  </li>
+                  <li className="flex items-center gap-2 font-medium">
+                    <Truck className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    Driver: {order.driver ?? "—"}
                   </li>
                 </ul>
               </div>

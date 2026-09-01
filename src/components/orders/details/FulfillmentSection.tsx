@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { Barcode, Building2, CheckCircle2, Clock, Package, Truck, X } from "lucide-react";
+import { AlertTriangle, Barcode, Building2, CheckCircle2, Clock, Package, Truck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -63,6 +63,26 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [itemToCancel, setItemToCancel] = useState<EnrichedOrder["itemsList"][number] | null>(null);
 
+  // Order-level flagged condition
+  const isOrderFlagged =
+    order.status === "Flagged" ||
+    order.status === "Delivery Failed" ||
+    Boolean(order.returns && order.returns.count > 0);
+
+  const isItemFlagged = (item: EnrichedOrder["itemsList"][number]) => {
+    const statusStr = String(item.status || "");
+    const rawStatus = (item as any).custom_status || (item as any).is_flagged || (item as any).flagged;
+    return (
+      statusStr === "Flagged" ||
+      statusStr === "Delivery Failed" ||
+      Boolean((item as any).isFlagged) ||
+      Boolean((item as any).flaggedReason) ||
+      Boolean((item as any).reason) ||
+      rawStatus === "Flagged" ||
+      rawStatus === true
+    );
+  };
+
   const handleScheduleClick = (item: EnrichedOrder["itemsList"][number]) => {
     setPendingItem(item);
     setConfirmOpen(true);
@@ -112,15 +132,27 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
             flow: "Warehouse Direct Flow",
           };
 
+          const isFcFlagged = isOrderFlagged || items.some(isItemFlagged);
+
           return (
             <div
               key={fcId}
-              className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+              className={cn(
+                "overflow-hidden rounded-xl border transition-all shadow-sm",
+                isFcFlagged
+                  ? "border-red-500/60 dark:border-red-500/50 bg-red-500/[0.02] dark:bg-red-950/20 ring-1 ring-red-500/30 shadow-red-500/10"
+                  : "border-border bg-card"
+              )}
             >
-              <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div
+                className={cn(
+                  "flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 transition-colors",
+                  isFcFlagged ? "border-red-500/30 bg-red-500/10 dark:bg-red-950/40" : "border-border bg-muted/30"
+                )}
+              >
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <Building2 className={cn("h-4 w-4", isFcFlagged ? "text-red-600 dark:text-red-400" : "text-muted-foreground")} />
                     <h3 className="text-sm font-semibold text-foreground">
                       {fcId} - {info.name}
                     </h3>
@@ -134,6 +166,12 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
+                  {isFcFlagged && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold bg-red-100 text-red-800 border-red-300 dark:bg-red-950/80 dark:text-red-300 dark:border-red-500/40 shadow-sm animate-pulse">
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                      Flagged Exception
+                    </span>
+                  )}
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border",
@@ -147,7 +185,7 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                   <StatusPill
                     label="Delivery"
                     value={order.driverStatus ?? order.status}
-                    tone="blue"
+                    tone={isFcFlagged ? "red" : "blue"}
                   />
                 </div>
               </div>
@@ -155,13 +193,25 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
               <div className="divide-y divide-border">
                 {items.map((item) => {
                   const itemIsScheduled = isItemScheduled(order.id, item.sku);
+                  const itemHasFlag = isItemFlagged(item);
+                  const flagReason = (item as any).flaggedReason || (item as any).reason || (item as any).flag_reason;
 
                   return (
                     <article
                       key={item.id}
-                      className="grid gap-4 p-4 transition-colors hover:bg-muted/10 sm:grid-cols-[72px_1fr_auto] sm:p-5"
+                      className={cn(
+                        "grid gap-4 p-4 transition-colors sm:grid-cols-[72px_1fr_auto] sm:p-5 border-l-4",
+                        itemHasFlag
+                          ? "bg-red-500/[0.05] dark:bg-red-950/25 hover:bg-red-500/[0.09] border-l-red-500 border-b border-b-red-200/40 dark:border-b-red-950/40"
+                          : "hover:bg-muted/10 border-l-transparent"
+                      )}
                     >
-                      <div className="h-20 w-20 overflow-hidden rounded-lg border border-border bg-muted/30 sm:h-[72px] sm:w-[72px]">
+                      <div
+                        className={cn(
+                          "h-20 w-20 overflow-hidden rounded-lg border bg-muted/30 sm:h-[72px] sm:w-[72px]",
+                          itemHasFlag ? "border-red-400/60 dark:border-red-500/40 ring-2 ring-red-500/20" : "border-border"
+                        )}
+                      >
                         <img
                           src={item.image}
                           alt={item.name}
@@ -183,11 +233,17 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                           {item.barcode && (
                             <p className="text-xs text-muted-foreground">Barcode: {item.barcode}</p>
                           )}
+                          {flagReason && (
+                            <p className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1 mt-0.5">
+                              <AlertTriangle className="h-3 w-3 shrink-0" />
+                              <span>Reason: {flagReason}</span>
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 pt-1">
                           {/* Fulfillment status — always visible */}
-                          <ItemStatus status={item.status} />
+                          <ItemStatus status={item.status} isFlagged={itemHasFlag} />
 
                           {/* Installation status — shown alongside fulfillment */}
                           {itemIsScheduled ? (
@@ -348,7 +404,7 @@ function StatusPill({
 }: {
   label: string;
   value: string;
-  tone: "blue" | "emerald";
+  tone: "blue" | "emerald" | "red";
 }) {
   return (
     <span
@@ -358,6 +414,8 @@ function StatusPill({
           "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400",
         tone === "emerald" &&
           "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400",
+        tone === "red" &&
+          "border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400",
       )}
     >
       <span className="text-muted-foreground">{label}:</span>
@@ -366,22 +424,26 @@ function StatusPill({
   );
 }
 
-function ItemStatus({ status }: { status: EnrichedOrder["itemsList"][number]["status"] }) {
+function ItemStatus({ status, isFlagged }: { status: EnrichedOrder["itemsList"][number]["status"] | string; isFlagged?: boolean }) {
+  const displayStatus = isFlagged ? "Flagged" : status;
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
-        status === "Prepared" &&
+        displayStatus === "Flagged" &&
+          "border-red-300 bg-red-100 text-red-800 dark:border-red-500/40 dark:bg-red-950/70 dark:text-red-300 shadow-sm",
+        displayStatus === "Prepared" &&
           "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400",
-        status === "Allocated" &&
+        displayStatus === "Allocated" &&
           "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400",
-        status === "Accepted" &&
+        displayStatus === "Accepted" &&
           "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400",
-        status === "Pending" && "border-border bg-muted text-muted-foreground",
+        displayStatus === "Pending" && "border-border bg-muted text-muted-foreground",
       )}
     >
-      {status === "Prepared" ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
-      {status}
+      {displayStatus === "Flagged" ? <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" /> : null}
+      {displayStatus === "Prepared" ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+      {displayStatus}
     </span>
   );
 }

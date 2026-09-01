@@ -102,23 +102,23 @@ export function OrderTable({
             </th>
             <th className="py-3 pr-3 font-semibold">
               <button
-                onClick={() => onSort?.("tat")}
-                className="flex items-center gap-1 hover:text-foreground font-semibold uppercase tracking-wide focus:outline-none"
-              >
-                TAT
-                <span className="text-muted-foreground/50 text-[10px]">
-                  {sortColumn === "tat" ? (sortDirection === "asc" ? "▲" : "▼") : "↕"}
-                </span>
-              </button>
-            </th>
-            <th className="py-3 pr-3 font-semibold">
-              <button
                 onClick={() => onSort?.("date")}
                 className="flex items-center gap-1 hover:text-foreground font-semibold uppercase tracking-wide focus:outline-none"
               >
                 Date & Time
                 <span className="text-muted-foreground/50 text-[10px]">
                   {sortColumn === "date" ? (sortDirection === "asc" ? "▲" : "▼") : "↕"}
+                </span>
+              </button>
+            </th>
+            <th className="py-3 pr-3 font-semibold">
+              <button
+                onClick={() => onSort?.("tat")}
+                className="flex items-center gap-1 hover:text-foreground font-semibold uppercase tracking-wide focus:outline-none"
+              >
+                TAT
+                <span className="text-muted-foreground/50 text-[10px]">
+                  {sortColumn === "tat" ? (sortDirection === "asc" ? "▲" : "▼") : "↕"}
                 </span>
               </button>
             </th>
@@ -162,7 +162,7 @@ export function OrderTable({
             {dynamicLabel && (
               <th className="py-3 pr-3 font-semibold">{dynamicLabel}</th>
             )}
-            {!isPacking && (
+            {!isPacking && !isPickingOrPicked && (
               <th className="py-3 pr-3 font-semibold">
                 <button
                   onClick={() => onSort?.("total")}
@@ -176,7 +176,7 @@ export function OrderTable({
               </th>
             )}
             <th className="py-3 pr-3 font-semibold">Actions</th>
-            {!isPacking && (
+            {!isPacking && !isPickingOrPicked && (
               <th className="py-3 pr-3 font-semibold">Shopify Status</th>
             )}
           </tr>
