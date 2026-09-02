@@ -219,16 +219,7 @@ export function OrderTableRow({
           <span className="text-xs font-medium">{getOrderItemsCount(order)} items</span>
         </td>
 
-        {/* Returns */}
-        {!isPickingOrPicked && !isPacking && activeTab !== "Ready to Assign" && (
-          <td className="py-3 pr-3 align-middle">
-            {(order.returns || (order.returnItems && order.returnItems.length > 0)) ? (
-              <ReturnBadge order={order} />
-            ) : (
-              <span className="text-xs text-muted-foreground">—</span>
-            )}
-          </td>
-        )}
+
 
         {/* Picking Status & Assigned Picker */}
         {(activeTab === "Picking" || activeTab === "Picked") && (
@@ -345,19 +336,7 @@ export function OrderTableRow({
 
 
 
-        {/* City */}
-        {!isPacking && !isPickingOrPicked && (
-          <td className="py-3 pr-3 align-middle">
-            <span className="text-xs font-medium">{order.city}</span>
-          </td>
-        )}
 
-        {/* Coordinator */}
-        {!isPickingOrPicked && !isPacking && (
-          <td className="py-3 pr-3 align-middle">
-            <span className="text-xs text-muted-foreground">{order.coordinator}</span>
-          </td>
-        )}
 
         {/* Dynamic Column: Driver / Picker / Packer */}
         {dynamicCol === "driver" && (
@@ -383,6 +362,13 @@ export function OrderTableRow({
           </td>
         )}
 
+        {/* Shopify Status */}
+        {!isPacking && !isPickingOrPicked && (
+          <td className="py-3 pr-3 align-middle">
+            <ShopifyBadge status={order.status === "Delivered" ? "Fulfilled" : "Unfulfilled"} />
+          </td>
+        )}
+
         {/* Actions */}
         <td className="py-3 pr-3 align-middle">
           <div className="inline-flex items-center gap-1" data-row-ignore>
@@ -402,13 +388,6 @@ export function OrderTableRow({
             </Button>
           </div>
         </td>
-
-        {/* Shopify Status */}
-        {!isPacking && !isPickingOrPicked && (
-          <td className="py-3 pr-3 align-middle">
-            <ShopifyBadge status={order.status === "Delivered" ? "Fulfilled" : "Unfulfilled"} />
-          </td>
-        )}
       </tr>
 
       {/* Expanded detail row */}
