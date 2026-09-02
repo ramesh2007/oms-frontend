@@ -137,9 +137,6 @@ export function OrderTable({
               <th className="py-3 pr-3 font-semibold">Channel</th>
             )}
             <th className="py-3 pr-3 font-semibold">Items</th>
-            {!isPickingOrPicked && !isPacking && activeTab !== "Ready to Assign" && (
-              <th className="py-3 pr-3 font-semibold">Returns</th>
-            )}
             {isPickingOrPicked && (
               <>
                 <th className="py-3 pr-3 font-semibold">Picking Status</th>
@@ -152,12 +149,6 @@ export function OrderTable({
                 <th className="py-3 pr-3 font-semibold">Assigned Packer</th>
                 <th className="py-3 pr-3 font-semibold">Bags</th>
               </>
-            )}
-            {!isPacking && !isPickingOrPicked && (
-              <th className="py-3 pr-3 font-semibold">City</th>
-            )}
-            {!isPickingOrPicked && !isPacking && (
-              <th className="py-3 pr-3 font-semibold">Coordinator</th>
             )}
             {dynamicLabel && (
               <th className="py-3 pr-3 font-semibold">{dynamicLabel}</th>
@@ -175,10 +166,10 @@ export function OrderTable({
                 </button>
               </th>
             )}
-            <th className="py-3 pr-3 font-semibold">Actions</th>
             {!isPacking && !isPickingOrPicked && (
               <th className="py-3 pr-3 font-semibold">Shopify Status</th>
             )}
+            <th className="py-3 pr-3 font-semibold">Actions</th>
           </tr>
         </thead>
         <tbody>

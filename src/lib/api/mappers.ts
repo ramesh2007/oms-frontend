@@ -348,12 +348,12 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
   const date = dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const time = dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
 
-  const rawStatus = (raw.status || "pending").toLowerCase();
+  const rawDriver = raw.driver_user?.name || raw.assigned_user_name || raw.driver_name;
   const hasDriverAssigned = Boolean(
     raw.driver_user ||
     raw.driver_assignment ||
     raw.assigned_driver_user_id ||
-    raw.driver_name
+    (typeof rawDriver === "string" && rawDriver.trim().toLowerCase() !== "unassigned" && rawDriver.trim() !== "")
   );
 
   let status: OrderStatus = "New";
@@ -441,8 +441,16 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     status,
     city: raw.customer?.delivery_address || "—",
     coordinator: "-",
-    driver: raw.driver_user?.name || raw.assigned_user_name || raw.driver_name || null,
-    driverStatus: (raw.driver_user || raw.assigned_user_name || raw.driver_name) ? "Assigned" : null,
+    driver: (() => {
+      const d = raw.driver_user?.name || raw.assigned_user_name || raw.driver_name;
+      if (!d || typeof d !== "string" || d.trim().toLowerCase() === "unassigned") return null;
+      return d.trim();
+    })(),
+    driverStatus: (() => {
+      const d = raw.driver_user?.name || raw.assigned_user_name || raw.driver_name;
+      if (!d || typeof d !== "string" || d.trim().toLowerCase() === "unassigned") return null;
+      return "Assigned";
+    })(),
     picker: pickerName,
     packer: packerName,
     total: raw.summary?.total_amount ?? (raw.total_amount || 0),

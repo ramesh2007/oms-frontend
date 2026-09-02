@@ -144,51 +144,7 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                   : "border-border bg-card"
               )}
             >
-              <div
-                className={cn(
-                  "flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 transition-colors",
-                  isFcFlagged ? "border-red-500/30 bg-red-500/10 dark:bg-red-950/40" : "border-border bg-muted/30"
-                )}
-              >
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <Building2 className={cn("h-4 w-4", isFcFlagged ? "text-red-600 dark:text-red-400" : "text-muted-foreground")} />
-                    <h3 className="text-sm font-semibold text-foreground">
-                      {fcId} - {info.name}
-                    </h3>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground italic pl-6 flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span>{info.address}</span>
-                    <span className="hidden sm:inline text-muted-foreground/40">•</span>
-                    <span className="font-medium text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-border">
-                      Method: {info.method}
-                    </span>
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  {isFcFlagged && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold bg-red-100 text-red-800 border-red-300 dark:bg-red-950/80 dark:text-red-300 dark:border-red-500/40 shadow-sm animate-pulse">
-                      <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-                      Flagged Exception
-                    </span>
-                  )}
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border",
-                      info.flow === "Picker App Flow"
-                        ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900"
-                        : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700",
-                    )}
-                  >
-                    {info.flow}
-                  </span>
-                  <StatusPill
-                    label="Delivery"
-                    value={order.driverStatus ?? order.status}
-                    tone={isFcFlagged ? "red" : "blue"}
-                  />
-                </div>
-              </div>
+
 
               <div className="divide-y divide-border">
                 {items.map((item) => {
