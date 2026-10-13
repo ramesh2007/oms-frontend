@@ -89,8 +89,11 @@ export function ReturnsTable({
                 className="border-b border-border/70 transition-colors hover:bg-muted/35"
               >
                 <td className="py-3 pl-4 pr-3 align-middle">
-                  <span className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer">
-                    {order.id}
+                  <span
+                    onClick={() => onViewOrder(order)}
+                    className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer"
+                  >
+                    {order.orderNumber || order.id}
                   </span>
                 </td>
                 <td className="whitespace-nowrap py-3 pr-3 align-middle">

@@ -14,6 +14,8 @@ export interface ScheduledItem {
   id: string;
   /** The order this item belongs to */
   orderId: string;
+  /** The backend order item id */
+  orderItemId?: number | string;
   /** Product name */
   productName: string;
   /** SKU */

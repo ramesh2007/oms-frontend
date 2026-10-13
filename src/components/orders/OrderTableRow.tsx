@@ -1,9 +1,9 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { tatColorClass, getOrderItemsCount, type Order } from "@/lib/orders";
+import { tatColorClass, getOrderItemsCount, isExpressOrder, type Order } from "@/lib/orders";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, Package, Truck, User, Eye } from "lucide-react";
+import { ChevronDown, ChevronRight, Package, Truck, User, Eye, Zap } from "lucide-react";
 import { CrewTag } from "./CrewTag";
 import { DriverStatusBadge } from "./DriverStatusBadge";
 
@@ -172,10 +172,24 @@ export function OrderTableRow({
         </td>
 
         {/* Order ID */}
-        <td className="py-3 pr-3 align-middle">
-          <span className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer">
-            {order.id}
-          </span>
+        <td className="py-3 pr-3 align-middle" data-row-ignore>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewOrder(order);
+              }}
+            >
+              {order.orderNumber || order.id}
+            </span>
+            {isExpressOrder(order) && (
+              <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/25">
+                <Zap className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
+                EXPRESS
+              </span>
+            )}
+          </div>
         </td>
 
         {/* Date & Time */}

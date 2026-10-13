@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { QrCode, Mail, Phone } from "lucide-react";
+import { QrCode, Mail, Phone, Printer } from "lucide-react";
 import { getDeliveryDate, type EnrichedOrder } from "@/lib/orders";
 
 /** Map fulfillment center code to short display label */
@@ -65,7 +65,7 @@ export function InvoicePrintLayout({
                 {!isGift && (
                   <>
                     <div className="text-left sm:text-right">Payment</div>
-                    <div className="text-left font-medium capitalize">{order.payment.balance > 0 ? "voided" : "paid"}</div>
+                    <div className="text-left font-medium capitalize">{(order.payment?.balance ?? 0) > 0 ? "voided" : "paid"}</div>
                   </>
                 )}
               </div>
@@ -78,22 +78,22 @@ export function InvoicePrintLayout({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 mb-6 text-sm">
             <div>
               <h3 className="font-bold mb-3">Billing Address <span className="font-normal" dir="rtl">عنوان الفاتورة</span></h3>
-              <div className="font-bold mb-2">{order.customer.name}</div>
+              <div className="font-bold mb-2">{order.customer?.name || "Customer"}</div>
               <div className="text-slate-600 leading-relaxed">
-                {order.shippingAddress.line1}<br />
-                {order.shippingAddress.line2}<br />
-                {order.shippingAddress.city}, {order.shippingAddress.country}<br />
-                <div className="mt-2">{order.customer.phone}</div>
+                {order.shippingAddress?.line1 || "—"}<br />
+                {order.shippingAddress?.line2 && <>{order.shippingAddress.line2}<br /></>}
+                {order.shippingAddress?.city || "Doha"}, {order.shippingAddress?.country || "Qatar"}<br />
+                <div className="mt-2">{order.customer?.phone || ""}</div>
               </div>
             </div>
             <div>
               <h3 className="font-bold mb-3">Shipping Address <span className="font-normal" dir="rtl">عنوان الشحن</span></h3>
-              <div className="font-bold mb-2">{order.customer.name}</div>
+              <div className="font-bold mb-2">{order.customer?.name || "Customer"}</div>
               <div className="text-slate-600 leading-relaxed">
-                {order.shippingAddress.line1}<br />
-                {order.shippingAddress.line2}<br />
-                {order.shippingAddress.city}, {order.shippingAddress.country}<br />
-                <div className="mt-2">{order.customer.phone}</div>
+                {order.shippingAddress?.line1 || "—"}<br />
+                {order.shippingAddress?.line2 && <>{order.shippingAddress.line2}<br /></>}
+                {order.shippingAddress?.city || "Doha"}, {order.shippingAddress?.country || "Qatar"}<br />
+                <div className="mt-2">{order.customer?.phone || ""}</div>
               </div>
             </div>
           </div>
@@ -242,7 +242,7 @@ export function InvoicePrintLayout({
                 <div className="border border-slate-200 rounded w-full sm:w-[300px] print:w-[300px]">
                   <div className="grid grid-cols-2 p-2 border-b border-slate-200 text-sm">
                     <div className="text-slate-600">Paid by Customer<br/><span className="text-xs">(المدفوع من قبل العميل)</span></div>
-                    <div className="text-right font-medium mt-auto">QAR {order.payment.totalPaid.toFixed(2)}</div>
+                    <div className="text-right font-medium mt-auto">QAR {(order.payment?.totalPaid ?? 0).toFixed(2)}</div>
                   </div>
                   <div className="grid grid-cols-2 p-2 border-b border-slate-200 text-sm">
                     <div className="text-slate-600">Refunded <span className="text-xs ml-1">(تم رد المبلغ)</span></div>
@@ -250,7 +250,7 @@ export function InvoicePrintLayout({
                   </div>
                   <div className="grid grid-cols-2 p-2 border-b border-slate-200 text-sm">
                     <div className="text-slate-600">Outstanding Amount<br/><span className="text-xs">(المبلغ المستحق)</span></div>
-                    <div className="text-right font-medium mt-auto">QAR {order.payment.balance.toFixed(2)}</div>
+                    <div className="text-right font-medium mt-auto">QAR {(order.payment?.balance ?? 0).toFixed(2)}</div>
                   </div>
                   <div className="grid grid-cols-2 p-2 text-sm">
                     <div className="text-slate-600">Balance <span className="text-xs ml-1">(توازن)</span></div>
@@ -262,19 +262,19 @@ export function InvoicePrintLayout({
                 <div className="border border-slate-200 rounded w-full sm:w-[300px] print:w-[300px]">
                   <div className="grid grid-cols-2 p-2 border-b border-slate-200 text-sm">
                     <div className="text-slate-600">Subtotal <span className="text-xs ml-1">(المجموع الفرعي)</span></div>
-                    <div className="text-right font-medium">QAR {order.payment.subtotal.toFixed(2)}</div>
+                    <div className="text-right font-medium">QAR {(order.payment?.subtotal ?? 0).toFixed(2)}</div>
                   </div>
                   <div className="grid grid-cols-2 p-2 border-b border-slate-200 text-sm">
                     <div className="text-slate-600">Discount <span className="text-xs ml-1">(الخصم)</span></div>
-                    <div className="text-right font-medium">-QAR {order.payment.discount.toFixed(2)}</div>
+                    <div className="text-right font-medium">-QAR {(order.payment?.discount ?? 0).toFixed(2)}</div>
                   </div>
                   <div className="grid grid-cols-2 p-2 border-b border-slate-200 text-sm">
                     <div className="text-slate-600">Shipping <span className="text-xs ml-1">(الشحن)</span></div>
-                    <div className="text-right font-medium">QAR {order.payment.shipping.toFixed(2)}</div>
+                    <div className="text-right font-medium">QAR {(order.payment?.shipping ?? 0).toFixed(2)}</div>
                   </div>
                   <div className="grid grid-cols-2 p-2 text-sm font-bold bg-slate-50">
                     <div>Grand Total <span className="text-xs font-normal ml-1">(المجموع الكلي)</span></div>
-                    <div className="text-right">QAR {order.payment.total.toFixed(2)}</div>
+                    <div className="text-right">QAR {(order.payment?.total ?? order.total ?? 0).toFixed(2)}</div>
                   </div>
                 </div>
               </div>
@@ -346,7 +346,8 @@ export function PrintInvoiceDialog({
   orders: EnrichedOrder[];
   isGift?: boolean;
 }) {
-  if (!orders || orders.length === 0) return null;
+  const safeOrders = orders || [];
+  if (!open) return null;
 
   return (
     <>
@@ -354,20 +355,36 @@ export function PrintInvoiceDialog({
         <DialogContent className="w-[95vw] sm:w-full sm:max-w-4xl p-0 overflow-hidden bg-background max-h-[90vh] flex flex-col print:hidden">
           <div className="p-6 pb-4 border-b border-border flex-shrink-0 print:hidden">
             <DialogHeader>
-              <DialogTitle className="text-xl">
+              <DialogTitle className="text-xl flex items-center gap-2">
+                <Printer className="h-5 w-5 text-primary" />
                 {isGift ? "Print Gift Invoice" : "Print Invoice"}
+                {safeOrders.length === 1
+                  ? ` — Order #${safeOrders[0]?.id}`
+                  : safeOrders.length > 1
+                    ? ` (${safeOrders.length} orders)`
+                    : ""}
               </DialogTitle>
               <DialogDescription>
-                You are about to print an invoice. Use the print button below to generate the receipt.
+                {safeOrders.length > 0
+                  ? `Preview and print ${safeOrders.length} ${isGift ? "gift receipt(s)" : "invoice(s)"}. Use the print button below to generate the document.`
+                  : "No orders selected to print."}
               </DialogDescription>
             </DialogHeader>
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 bg-muted/5">
-            {/* Invoice Paper Box */}
-            <div className="border border-border rounded-lg bg-white text-slate-900 p-4 sm:p-8 relative print:max-h-none print:overflow-visible print:border-none print:p-0" id="invoice-print-area">
-              <InvoicePrintLayout orders={orders} isGift={isGift} />
-            </div>
+            {safeOrders.length > 0 ? (
+              <div
+                className="border border-border rounded-lg bg-white text-slate-900 p-4 sm:p-8 relative print:max-h-none print:overflow-visible print:border-none print:p-0 shadow-sm"
+                id="invoice-print-area"
+              >
+                <InvoicePrintLayout orders={safeOrders} isGift={isGift} />
+              </div>
+            ) : (
+              <div className="p-8 text-center text-muted-foreground">
+                No order data available to print. Please select at least one order.
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-3 p-6 pt-4 border-t border-border flex-shrink-0 bg-muted/20 print:hidden">
@@ -375,24 +392,25 @@ export function PrintInvoiceDialog({
               Close
             </Button>
             <Button
+              disabled={safeOrders.length === 0}
               onClick={(e) => {
                 e.stopPropagation();
                 window.print();
-                onOpenChange(false);
               }}
-              className="bg-[#14a0a0] hover:bg-[#108585] text-white px-6"
+              className="bg-[#14a0a0] hover:bg-[#108585] text-white px-6 font-semibold gap-2 shadow-sm"
             >
-              Print
+              <Printer className="h-4 w-4" />
+              Print {isGift ? "Gift Receipt" : "Invoice"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Dedicated print portal directly appended to document.body outside #root and dialog overlays */}
-      {open && createPortal(
+      {open && safeOrders.length > 0 && createPortal(
         <div className="print-only">
           <div className="bg-white text-slate-900 p-8 w-full">
-            <InvoicePrintLayout orders={orders} isGift={isGift} />
+            <InvoicePrintLayout orders={safeOrders} isGift={isGift} />
           </div>
         </div>,
         document.body

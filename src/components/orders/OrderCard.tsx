@@ -4,6 +4,7 @@ import {
   getOrderItemsCount,
   parseTatHours,
   statusDotClass,
+  isExpressOrder,
   type Order,
   type OrderStatus,
 } from "@/lib/orders";
@@ -22,6 +23,7 @@ import {
   Package,
   Timer,
   ShoppingBag,
+  Zap,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -129,9 +131,21 @@ export function OrderCard({
               aria-label={`Select order ${order.id}`}
               className="shrink-0"
             />
-            <span className="font-mono text-[15px] font-bold tracking-tight text-foreground">
-              #{order.id}
+            <span
+              className="font-mono text-[15px] font-bold tracking-tight text-foreground hover:text-primary hover:underline cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewOrder(order);
+              }}
+            >
+              #{String(order.orderNumber || order.id).replace(/^#+/, "")}
             </span>
+            {isExpressOrder(order) && (
+              <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/25">
+                <Zap className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
+                EXPRESS
+              </span>
+            )}
           </div>
           <span
             className={cn(

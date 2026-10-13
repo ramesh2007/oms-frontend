@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: "/",
+    appType: "spa",
     server: {
       proxy: {
         "/api": {

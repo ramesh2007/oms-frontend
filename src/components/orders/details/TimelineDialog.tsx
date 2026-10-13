@@ -138,7 +138,8 @@ export function TimelineDialog({
             Order Timeline
           </DialogTitle>
           <p className="text-center text-xs text-muted-foreground mt-1">
-            Order #{String(order.shopifyOrderId || order.orderNumber || order.id).replace(/^#+/, "")}
+            Order #
+            {String(order.orderNumber || order.id || order.shopifyOrderId).replace(/^#+/, "")}
           </p>
         </DialogHeader>
 
@@ -152,7 +153,10 @@ export function TimelineDialog({
               <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                 <User className="h-3 w-3 text-emerald-600" /> Picker
               </span>
-              <span className="font-semibold truncate text-foreground" title={order.picker ?? "Not assigned"}>
+              <span
+                className="font-semibold truncate text-foreground"
+                title={order.picker ?? "Not assigned"}
+              >
                 {order.picker ?? "Not assigned"}
               </span>
             </div>
@@ -160,7 +164,10 @@ export function TimelineDialog({
               <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                 <Package className="h-3 w-3 text-indigo-600" /> Packer
               </span>
-              <span className="font-semibold truncate text-foreground" title={order.packer ?? "Not assigned"}>
+              <span
+                className="font-semibold truncate text-foreground"
+                title={order.packer ?? "Not assigned"}
+              >
                 {order.packer ?? "Not assigned"}
               </span>
             </div>
@@ -168,7 +175,10 @@ export function TimelineDialog({
               <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                 <Truck className="h-3 w-3 text-blue-600" /> Driver
               </span>
-              <span className="font-semibold truncate text-foreground" title={order.driver ?? "Not assigned"}>
+              <span
+                className="font-semibold truncate text-foreground"
+                title={order.driver ?? "Not assigned"}
+              >
                 {order.driver ?? "Not assigned"}
               </span>
             </div>
@@ -177,6 +187,7 @@ export function TimelineDialog({
 
         <div className="flex-1 overflow-y-auto px-2 py-6 sm:px-6">
           <div className="space-y-0 relative z-10 mx-auto max-w-lg">
+            <ItemFulfillmentTimeline order={order} />
             {(() => {
               const mainTimeline = order.timeline.filter(
                 (event) =>
@@ -190,13 +201,13 @@ export function TimelineDialog({
                     "order_created",
                     "item_picked",
                     "item_packed",
-                  ].includes(event.type)
+                  ].includes(event.type),
               );
               return mainTimeline.map((event, index) => (
-                <TimelineEventRow 
-                  key={event.id} 
-                  event={event} 
-                  isLast={index === mainTimeline.length - 1} 
+                <TimelineEventRow
+                  key={event.id}
+                  event={event}
+                  isLast={index === mainTimeline.length - 1}
                 />
               ));
             })()}
@@ -216,6 +227,110 @@ export function TimelineDialog({
   );
 }
 
+function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
+  const itemEvents = order.itemsList.flatMap((item) => {
+    const events: OrderTimelineEvent[] = [];
+    const addItemEvent = (
+      id: string,
+      title: string,
+      actor: string | null | undefined,
+      timestamp: string | null | undefined,
+      type: OrderTimelineEvent["type"],
+    ) => {
+      const date = timestamp ? new Date(timestamp) : null;
+      events.push({
+        id,
+        title,
+        date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : order.date,
+        time:
+          date && !Number.isNaN(date.getTime())
+            ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+            : order.time,
+        description: actor ? `By: ${actor}` : "",
+        actor: actor || undefined,
+        actorRole:
+          type === "picker_assigned" || type === "item_picked"
+            ? "picker"
+            : type === "item_packed"
+              ? "packer"
+              : "driver",
+        type,
+      });
+    };
+
+    if (
+      item.assigned_user_name ||
+      item.assigned_to ||
+      String(item.status).toLowerCase() === "picker_assigned"
+    ) {
+      addItemEvent(
+        `${item.id}-picker-assigned`,
+        `Picker assigned: ${item.name}`,
+        item.assigned_user_name || String(item.assigned_to || "Picker"),
+        item.assigned_at,
+        "picker_assigned",
+      );
+    }
+    if (
+      item.picked_at ||
+      item.picked_user_name ||
+      ["picked", "packed", "delivered"].includes(String(item.status).toLowerCase())
+    ) {
+      addItemEvent(
+        `${item.id}-picked`,
+        `Item picked: ${item.name}`,
+        item.picked_user_name || item.assigned_user_name,
+        item.picked_at,
+        "item_picked",
+      );
+    }
+    if (
+      item.packed_at ||
+      item.packed_user_name ||
+      ["packed", "delivered"].includes(String(item.status).toLowerCase())
+    ) {
+      addItemEvent(
+        `${item.id}-packed`,
+        `Item packed: ${item.name}`,
+        item.packed_user_name,
+        item.packed_at,
+        "item_packed",
+      );
+    }
+    if (
+      item.delivered_at ||
+      item.delivered_user_name ||
+      String(item.status).toLowerCase() === "delivered"
+    ) {
+      addItemEvent(
+        `${item.id}-delivered`,
+        `Item delivered: ${item.name}`,
+        item.delivered_user_name || order.driver,
+        item.delivered_at,
+        "delivered",
+      );
+    }
+    return events;
+  });
+
+  if (itemEvents.length === 0) return null;
+
+  return (
+    <section className="mb-8 border-b border-border/50 pb-5">
+      <h3 className="mb-3 px-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+        Item Fulfillment Timeline
+      </h3>
+      {itemEvents.map((event, index) => (
+        <TimelineEventRow
+          key={`${event.id}-${index}`}
+          event={event}
+          isLast={index === itemEvents.length - 1}
+        />
+      ))}
+    </section>
+  );
+}
+
 function TimelineEventRow({ event, isLast }: { event: OrderTimelineEvent; isLast: boolean }) {
   const descLines = event.description ? event.description.split("\n").filter(Boolean) : [];
   const eventColorClass = colourForEvent(event.type);
@@ -224,17 +339,20 @@ function TimelineEventRow({ event, isLast }: { event: OrderTimelineEvent; isLast
     <div className="relative pl-12 sm:pl-14 py-4 group">
       {/* Connecting Line */}
       {!isLast && (
-        <div 
+        <div
           className="absolute left-[23px] sm:left-[31px] top-[2.25rem] bottom-[-1rem] w-0.5 bg-border dark:bg-border/80 group-hover:bg-foreground/20 transition-colors"
           aria-hidden="true"
         />
       )}
 
       {/* Node Circle */}
-      <div 
-        className="absolute left-2 sm:left-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-background shadow-sm ring-[3px] ring-background"
-      >
-        <div className={cn("flex h-full w-full items-center justify-center rounded-full", eventColorClass)}>
+      <div className="absolute left-2 sm:left-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-background shadow-sm ring-[3px] ring-background">
+        <div
+          className={cn(
+            "flex h-full w-full items-center justify-center rounded-full",
+            eventColorClass,
+          )}
+        >
           {getIcon(event.type)}
         </div>
       </div>
@@ -257,7 +375,9 @@ function TimelineEventRow({ event, isLast }: { event: OrderTimelineEvent; isLast
             {event.facility && (
               <>
                 <span className="text-border/50">•</span>
-                <span className="truncate max-w-[200px]" title={event.facility}>{event.facility}</span>
+                <span className="truncate max-w-[200px]" title={event.facility}>
+                  {event.facility}
+                </span>
               </>
             )}
           </div>

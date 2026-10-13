@@ -41,7 +41,7 @@ export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
         "order_created",
         "item_picked",
         "item_packed",
-      ].includes(event.type)
+      ].includes(event.type),
   );
   const latestEvent = mainTimeline.length > 0 ? mainTimeline[mainTimeline.length - 1] : null;
 
@@ -74,7 +74,10 @@ export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
               <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                 <User className="h-3 w-3 text-emerald-600" /> Picker
               </span>
-              <span className="font-semibold truncate text-foreground" title={order.picker ?? "Not assigned"}>
+              <span
+                className="font-semibold truncate text-foreground"
+                title={order.picker ?? "Not assigned"}
+              >
                 {order.picker ?? "Not assigned"}
               </span>
             </div>
@@ -82,7 +85,10 @@ export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
               <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                 <Package className="h-3 w-3 text-indigo-600" /> Packer
               </span>
-              <span className="font-semibold truncate text-foreground" title={order.packer ?? "Not assigned"}>
+              <span
+                className="font-semibold truncate text-foreground"
+                title={order.packer ?? "Not assigned"}
+              >
                 {order.packer ?? "Not assigned"}
               </span>
             </div>
@@ -90,27 +96,26 @@ export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
               <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                 <Truck className="h-3 w-3 text-blue-600" /> Driver
               </span>
-              <span className="font-semibold truncate text-foreground" title={order.driver ?? "Not assigned"}>
+              <span
+                className="font-semibold truncate text-foreground"
+                title={order.driver ?? "Not assigned"}
+              >
                 {order.driver ?? "Not assigned"}
               </span>
             </div>
           </div>
         </div>
 
-        <div className="px-4 py-4">
+        {/* <div className="px-4 py-4">
           {latestEvent ? (
             <TimelineEvent event={latestEvent} />
           ) : (
             <p className="text-sm text-muted-foreground">No activity recorded.</p>
           )}
-        </div>
+        </div> */}
       </section>
 
-      <TimelineDialog
-        order={order}
-        open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
-      />
+      <TimelineDialog order={order} open={isDialogOpen} onOpenChange={setIsDialogOpen} />
     </>
   );
 }
@@ -216,10 +221,13 @@ function TimelineEvent({ event }: { event: OrderTimelineEvent }) {
   return (
     <div className="relative pl-12 group py-1">
       {/* Node Circle */}
-      <div 
-        className="absolute left-2 top-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-background shadow-sm ring-[3px] ring-background"
-      >
-        <div className={cn("flex h-full w-full items-center justify-center rounded-full", eventColorClass)}>
+      <div className="absolute left-2 top-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-background shadow-sm ring-[3px] ring-background">
+        <div
+          className={cn(
+            "flex h-full w-full items-center justify-center rounded-full",
+            eventColorClass,
+          )}
+        >
           <Icon className="h-4 w-4 text-white" />
         </div>
       </div>
@@ -242,7 +250,9 @@ function TimelineEvent({ event }: { event: OrderTimelineEvent }) {
             {event.facility && (
               <>
                 <span className="text-border/50">•</span>
-                <span className="truncate max-w-[200px]" title={event.facility}>{event.facility}</span>
+                <span className="truncate max-w-[200px]" title={event.facility}>
+                  {event.facility}
+                </span>
               </>
             )}
           </div>

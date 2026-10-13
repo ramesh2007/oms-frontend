@@ -101,7 +101,9 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
               return match ? match[0] : null;
             };
 
-            const paymentLink = extractUrl(order.notes) || `https://halamama.myshopify.com/checkouts/pay-later/${order.id.toLowerCase()}`;
+            const paymentLink =
+              extractUrl(order.notes) ||
+              `https://halamama.myshopify.com/checkouts/pay-later/${order.id.toLowerCase()}`;
 
             return (
               <div className="mt-4 rounded-lg border border-purple-100 bg-purple-50/50 p-3.5 dark:border-purple-900/30 dark:bg-purple-950/10">
@@ -137,7 +139,7 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
                       "shrink-0 text-[10px] font-bold uppercase tracking-wider transition-colors duration-200 cursor-pointer",
                       copied
                         ? "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
-                        : "text-purple-700 hover:text-purple-800 dark:text-purple-400"
+                        : "text-purple-700 hover:text-purple-800 dark:text-purple-400",
                     )}
                   >
                     {copied ? "Copied ✓" : "Copy"}
@@ -166,9 +168,7 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
         </div>
         <div className="space-y-5 p-5">
           <div>
-            <div className="text-base font-semibold text-primary">
-              {order.customer.name}
-            </div>
+            <div className="text-base font-semibold text-primary">{order.customer.name}</div>
           </div>
 
           <div>
@@ -189,16 +189,20 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
               </div>
             </div>
           </div>
-
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Shipping address
             </p>
+
             <div className="space-y-1 rounded-lg border border-border bg-muted/20 p-3">
               <p className="text-sm font-medium text-foreground">{order.customer.name}</p>
+
               <p className="text-sm text-muted-foreground">{order.shippingAddress.line1}</p>
+
               <p className="text-sm text-muted-foreground">{order.shippingAddress.line2}</p>
+
               <p className="text-sm text-muted-foreground">{order.shippingAddress.city}</p>
+
               <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-[11px] text-muted-foreground">
                 <div>
                   <span className="block font-sans text-xs font-medium text-foreground">
@@ -206,11 +210,30 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
                   </span>
                   {order.shippingAddress.lat}
                 </div>
+
                 <div>
                   <span className="block font-sans text-xs font-medium text-foreground">
                     Longitude
                   </span>
                   {order.shippingAddress.lng}
+                </div>
+              </div>
+
+              {/* Building, Unit, Zone */}
+              <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
+                <div>
+                  <span className="block text-xs font-medium text-foreground">Building</span>
+                  {order.shippingAddress.building}
+                </div>
+
+                <div>
+                  <span className="block text-xs font-medium text-foreground">Unit</span>
+                  {order.shippingAddress.unit}
+                </div>
+
+                <div>
+                  <span className="block text-xs font-medium text-foreground">Zone</span>
+                  {order.shippingAddress.zone}
                 </div>
               </div>
             </div>
@@ -248,8 +271,8 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
                     isPayLaterTag
                       ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900"
                       : isSentTag
-                      ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900"
-                      : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                        ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900"
+                        : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700",
                   )}
                 >
                   {tag}
@@ -257,9 +280,7 @@ export function CustomerSidebar({ order, onNotesUpdate }: CustomerSidebarProps) 
               );
             })
           ) : (
-            <p className="text-sm text-muted-foreground italic opacity-70">
-              No tags on this order
-            </p>
+            <p className="text-sm text-muted-foreground italic opacity-70">No tags on this order</p>
           )}
         </div>
       </section>

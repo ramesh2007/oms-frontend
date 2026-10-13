@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Search, ChevronDown, LogOut, Settings, User, X, Package, Truck, Loader2, Tag, RefreshCw } from "lucide-react";
+import { Search, ChevronDown, LogOut, Settings, User, X, Package, Truck, Loader2, Tag, RefreshCw, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/lib/auth";
 import { MobileSidebar } from "./AppSidebar";
+import { useSidebarCollapse } from "@/hooks/useSidebarCollapse";
 import { useOrders } from "@/hooks/useOrders";
 import { useSystemStatus } from "@/hooks/useSystemStatus";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -42,6 +43,7 @@ const HALAMAMA_LOGO_URL = "https://halamama.com/cdn/shop/files/halamama_green.sv
 
 export function TopBar() {
   const { user, logout } = useAuth();
+  const { collapsed, toggle: toggleSidebar } = useSidebarCollapse();
   const navigate = useNavigate();
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [showProfileDialog, setShowProfileDialog] = useState(false);
@@ -221,6 +223,19 @@ export function TopBar() {
       {/* Left: Sidebar trigger & Mobile logo */}
       <div className="flex items-center gap-2 shrink-0">
         <MobileSidebar />
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="hidden lg:grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground shadow-soft transition-colors hover:bg-muted cursor-pointer select-none"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
+        >
+          {collapsed ? (
+            <PanelLeftOpen className="h-4.5 w-4.5 text-muted-foreground" />
+          ) : (
+            <PanelLeftClose className="h-4.5 w-4.5 text-muted-foreground" />
+          )}
+        </button>
         <div className="flex sm:hidden items-center">
           <img src={HALAMAMA_LOGO_URL} alt="Halamama" className="h-5.5 w-auto object-contain" />
         </div>

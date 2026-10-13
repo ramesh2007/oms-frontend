@@ -1,5 +1,16 @@
-import { useState, useSyncExternalStore } from "react";
-import { AlertTriangle, Barcode, Building2, CheckCircle2, Clock, Package, Truck, X } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  AlertTriangle,
+  Barcode,
+  Building2,
+  CheckCircle2,
+  Clock,
+  Package,
+  Truck,
+  X,
+  UserPlus,
+  UserMinus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,7 +28,16 @@ import {
   getSnapshot,
   subscribe,
 } from "@/lib/scheduled-installations";
+import { assignItemSchedule, assignItemToPicker, unassignItemFromPicker } from "@/lib/api/services";
 import { toast } from "sonner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { getPickers, type ManagedUser } from "@/lib/sync";
 
 const LOCATION_INFO: Record<
   string,
@@ -51,6 +71,9 @@ const LOCATION_INFO: Record<
 
 export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
   const fcs = Array.from(new Set(order.itemsList.map((item) => item.fc)));
+  const itemIndexMap = new Map<string, number>(
+    order.itemsList.map((item, idx) => [item.id, idx + 1]),
+  );
 
   // Subscribe to scheduled installations store for reactivity
   const scheduled = useSyncExternalStore(subscribe, getSnapshot);
@@ -58,10 +81,20 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
   // Dialog state
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingItem, setPendingItem] = useState<EnrichedOrder["itemsList"][number] | null>(null);
+  const [isScheduling, setIsScheduling] = useState(false);
 
   // Cancel Dialog state
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [itemToCancel, setItemToCancel] = useState<EnrichedOrder["itemsList"][number] | null>(null);
+  const [pickers, setPickers] = useState<ManagedUser[]>([]);
+  const [selectedPickers, setSelectedPickers] = useState<Record<string, string>>({});
+  const [itemStatuses, setItemStatuses] = useState<Record<string, string>>({});
+  const [unassignedItems, setUnassignedItems] = useState<Record<string, boolean>>({});
+  const [assigningItemId, setAssigningItemId] = useState<string | null>(null);
+
+  useEffect(() => {
+    getPickers().then((data) => setPickers(Array.isArray(data) ? data : []));
+  }, []);
 
   // Order-level flagged condition
   const isOrderFlagged =
@@ -71,7 +104,8 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
 
   const isItemFlagged = (item: EnrichedOrder["itemsList"][number]) => {
     const statusStr = String(item.status || "");
-    const rawStatus = (item as any).custom_status || (item as any).is_flagged || (item as any).flagged;
+    const rawStatus =
+      (item as any).custom_status || (item as any).is_flagged || (item as any).flagged;
     return (
       statusStr === "Flagged" ||
       statusStr === "Delivery Failed" ||
@@ -88,8 +122,26 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
     setConfirmOpen(true);
   };
 
-  const handleConfirmSchedule = () => {
+  const handleConfirmSchedule = async () => {
     if (!pendingItem) return;
+    setIsScheduling(true);
+
+    const rawItemId = (pendingItem as any).order_item_id ?? pendingItem.id;
+    const resolvedId = !isNaN(Number(rawItemId))
+      ? Number(rawItemId)
+      : typeof rawItemId === "string" && rawItemId.match(/\d+/)
+        ? Number(rawItemId.match(/\d+/)![0])
+        : rawItemId;
+
+    try {
+      // POST /api/admin/schedule/assign/{order_item_id?} with { order_item_id, is_scheduled_assigned: true }
+      await assignItemSchedule(resolvedId, true);
+    } catch (apiErr) {
+      console.warn("[FulfillmentSection] assignItemSchedule API error:", apiErr);
+    } finally {
+      setIsScheduling(false);
+    }
+
     const info = LOCATION_INFO[pendingItem.fc] || { method: "Standard Assembly (Hilal Team)" };
     scheduleItem({
       orderId: order.id,
@@ -98,6 +150,7 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
       image: pendingItem.image,
       customerName: order.customer.name,
       installationMethod: info.method,
+      orderItemId: resolvedId,
     });
     toast.success(`Installation scheduled for ${pendingItem.name}`);
     setConfirmOpen(false);
@@ -109,15 +162,83 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
     setCancelConfirmOpen(true);
   };
 
-  const handleConfirmCancel = () => {
+  const handleConfirmCancel = async () => {
     if (!itemToCancel) return;
     const entry = scheduled.find((s) => s.orderId === order.id && s.sku === itemToCancel.sku);
     if (entry) {
+      const rawItemId = (itemToCancel as any).order_item_id ?? entry.orderItemId ?? itemToCancel.id;
+      const resolvedId = !isNaN(Number(rawItemId))
+        ? Number(rawItemId)
+        : typeof rawItemId === "string" && rawItemId.match(/\d+/)
+          ? Number(rawItemId.match(/\d+/)![0])
+          : rawItemId;
+
+      try {
+        await assignItemSchedule(resolvedId, false);
+      } catch (err) {
+        console.warn("[FulfillmentSection] Unassign schedule API warning:", err);
+      }
+
       removeItem(entry.id);
       toast.info("Installation schedule removed");
     }
     setCancelConfirmOpen(false);
     setItemToCancel(null);
+  };
+
+  const handleAssignPicker = async (
+    item: EnrichedOrder["itemsList"][number],
+    pickerValue: string,
+  ) => {
+    const picker = pickers.find(
+      (candidate) => candidate.id === pickerValue || candidate.email === pickerValue,
+    );
+    if (!picker) return;
+
+    setSelectedPickers((current) => ({ ...current, [item.id]: pickerValue }));
+    setAssigningItemId(item.id);
+    try {
+      const orderLineItemId = item.id;
+      const pickerId = !isNaN(Number(picker.id)) ? Number(picker.id) : picker.id;
+
+      const response = await assignItemToPicker(orderLineItemId, pickerId);
+      setUnassignedItems((current) => ({ ...current, [item.id]: false }));
+      const assignedStatus = response?.data?.status;
+      if (String(assignedStatus || "").toLowerCase() === "picker_assigned") {
+        setItemStatuses((current) => ({ ...current, [item.id]: assignedStatus }));
+      }
+      toast.success(`${picker.name} assigned to ${item.name}`);
+    } catch (error) {
+      console.error("[FulfillmentSection] picker assignment failed:", error);
+      setSelectedPickers((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      toast.error("Unable to assign picker");
+    } finally {
+      setAssigningItemId(null);
+    }
+  };
+
+  const handleUnassignPicker = async (item: EnrichedOrder["itemsList"][number]) => {
+    setAssigningItemId(item.id);
+    try {
+      await unassignItemFromPicker(item.id);
+      setUnassignedItems((current) => ({ ...current, [item.id]: true }));
+      setItemStatuses((current) => ({ ...current, [item.id]: "Pending" }));
+      setSelectedPickers((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      toast.success(`Picker unassigned from ${item.name}`);
+    } catch (error) {
+      console.error("[FulfillmentSection] picker unassignment failed:", error);
+      toast.error("Unable to unassign picker");
+    } finally {
+      setAssigningItemId(null);
+    }
   };
 
   return (
@@ -141,31 +262,69 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                 "overflow-hidden rounded-xl border transition-all shadow-sm",
                 isFcFlagged
                   ? "border-red-500/60 dark:border-red-500/50 bg-red-500/[0.02] dark:bg-red-950/20 ring-1 ring-red-500/30 shadow-red-500/10"
-                  : "border-border bg-card"
+                  : "border-border bg-card",
               )}
             >
-
-
               <div className="divide-y divide-border">
                 {items.map((item) => {
                   const itemIsScheduled = isItemScheduled(order.id, item.sku);
                   const itemHasFlag = isItemFlagged(item);
-                  const flagReason = (item as any).flaggedReason || (item as any).reason || (item as any).flag_reason;
+                  const itemStatus = itemStatuses[item.id] || item.status;
+                  const selectedPicker = pickers.find(
+                    (picker) =>
+                      picker.id === selectedPickers[item.id] ||
+                      picker.email === selectedPickers[item.id],
+                  );
+                  const hasAssignedPicker =
+                    !unassignedItems[item.id] &&
+                    Boolean(item.assigned_to || selectedPickers[item.id]);
+                  const flagReason =
+                    (item as any).flaggedReason ||
+                    (item as any).reason ||
+                    (item as any).flag_reason;
+
+                  const isInstallable = Boolean(
+                    item.is_installable === true ||
+                    (item as any).is_installable === 1 ||
+                    (item as any).is_installable === "1" ||
+                    (item as any).is_installable === "true" ||
+                    item.isInstallable === true ||
+                    (item as any).isInstallable === 1 ||
+                    (item as any).isInstallable === "1" ||
+                    (item as any).isInstallable === "true" ||
+                    (item as any).custom_is_installable === 1 ||
+                    (item as any).custom_is_installable === true ||
+                    (item as any).custom_is_installable === "1" ||
+                    (item as any).custom_is_installable === "true" ||
+                    (item as any).requires_installation === true ||
+                    (item as any).requires_installation === 1 ||
+                    (item as any).requires_installation === "1" ||
+                    (item as any).requires_installation === "true" ||
+                    item.itemType === "MWH" ||
+                    item.itemType === "VL_SUPPLIER",
+                  );
 
                   return (
                     <article
                       key={item.id}
                       className={cn(
-                        "grid gap-4 p-4 transition-colors sm:grid-cols-[72px_1fr_auto] sm:p-5 border-l-4",
+                        "grid gap-4 p-4 transition-colors sm:grid-cols-[72px_72px_1fr_auto] sm:p-5 border-l-4",
                         itemHasFlag
                           ? "bg-red-500/[0.05] dark:bg-red-950/25 hover:bg-red-500/[0.09] border-l-red-500 border-b border-b-red-200/40 dark:border-b-red-950/40"
-                          : "hover:bg-muted/10 border-l-transparent"
+                          : "hover:bg-muted/10 border-l-transparent",
                       )}
                     >
+                      {/* SL No. */}
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-xs font-bold text-white shadow-xs dark:bg-slate-100 dark:text-slate-950 shrink-0 self-center">
+                        #{itemIndexMap.get(item.id) ?? 1}
+                      </div>
+
                       <div
                         className={cn(
                           "h-20 w-20 overflow-hidden rounded-lg border bg-muted/30 sm:h-[72px] sm:w-[72px]",
-                          itemHasFlag ? "border-red-400/60 dark:border-red-500/40 ring-2 ring-red-500/20" : "border-border"
+                          itemHasFlag
+                            ? "border-red-400/60 dark:border-red-500/40 ring-2 ring-red-500/20"
+                            : "border-border",
                         )}
                       >
                         <img
@@ -199,9 +358,55 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
 
                         <div className="flex flex-wrap items-center gap-2 pt-1">
                           {/* Fulfillment status — always visible */}
-                          <ItemStatus status={item.status} isFlagged={itemHasFlag} />
+                          <ItemStatus
+                            status={itemStatus}
+                            assignedUserName={
+                              hasAssignedPicker
+                                ? item.assigned_user_name || selectedPicker?.name
+                                : null
+                            }
+                            isFlagged={itemHasFlag}
+                          />
 
-                          {/* Installation status — shown alongside fulfillment */}
+                          {hasAssignedPicker ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUnassignPicker(item)}
+                              disabled={assigningItemId === item.id}
+                              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-orange-300 bg-orange-50/70 px-3 text-xs font-semibold text-orange-700 shadow-sm transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-orange-800 dark:bg-orange-950/20 dark:text-orange-400"
+                            >
+                              <UserMinus className="h-3.5 w-3.5" />
+                              Unassign
+                            </button>
+                          ) : (
+                            String(itemStatus || "").toLowerCase() === "pending" && (
+                              <Select
+                                value={selectedPickers[item.id] || ""}
+                                onValueChange={(value) => handleAssignPicker(item, value)}
+                                disabled={assigningItemId === item.id}
+                              >
+                                <SelectTrigger className="inline-flex h-7 w-auto shrink-0 gap-1.5 rounded-full border border-rose-300 bg-rose-50/70 px-3 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-400">
+                                  <UserPlus className="h-3.5 w-3.5" />
+                                  <SelectValue placeholder="Assign to Picker" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {pickers.length === 0 ? (
+                                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                      No pickers available
+                                    </div>
+                                  ) : (
+                                    pickers.map((picker) => (
+                                      <SelectItem key={picker.id} value={picker.email || picker.id}>
+                                        {picker.name}
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            )
+                          )}
+
+                          {/* Installation status — shown only if item is installable or already scheduled */}
                           {itemIsScheduled ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400">
                               <CheckCircle2 className="h-3.5 w-3.5" />
@@ -215,7 +420,7 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                                 <X className="h-3 w-3" />
                               </button>
                             </span>
-                          ) : (
+                          ) : isInstallable ? (
                             <button
                               type="button"
                               onClick={() => handleScheduleClick(item)}
@@ -224,7 +429,7 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                               Schedule
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </div>
 
@@ -290,9 +495,10 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
             </Button>
             <Button
               onClick={handleConfirmSchedule}
-              className="w-full sm:w-auto rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:hover:bg-emerald-600 shadow-md font-semibold h-10 sm:h-11 text-xs sm:text-sm px-8 transition-all"
+              disabled={isScheduling}
+              className="w-full sm:w-auto rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:hover:bg-emerald-600 shadow-md font-semibold h-10 sm:h-11 text-xs sm:text-sm px-8 transition-all disabled:opacity-50"
             >
-              Confirm Schedule
+              {isScheduling ? "Scheduling..." : "Confirm Schedule"}
             </Button>
           </div>
         </DialogContent>
@@ -380,8 +586,22 @@ function StatusPill({
   );
 }
 
-function ItemStatus({ status, isFlagged }: { status: EnrichedOrder["itemsList"][number]["status"] | string; isFlagged?: boolean }) {
-  const displayStatus = isFlagged ? "Flagged" : status;
+function ItemStatus({
+  status,
+  assignedUserName,
+  isFlagged,
+}: {
+  status: EnrichedOrder["itemsList"][number]["status"] | string;
+  assignedUserName?: string | null;
+  isFlagged?: boolean;
+}) {
+  const displayStatus = isFlagged
+    ? "Flagged"
+    : assignedUserName && String(status).toLowerCase() === "picker assigned"
+      ? assignedUserName
+      : String(status).toLowerCase() === "picker_assigned"
+        ? "Picker Assigned"
+        : status;
   return (
     <span
       className={cn(
@@ -395,9 +615,13 @@ function ItemStatus({ status, isFlagged }: { status: EnrichedOrder["itemsList"][
         displayStatus === "Accepted" &&
           "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400",
         displayStatus === "Pending" && "border-border bg-muted text-muted-foreground",
+        displayStatus === "Picker Assigned" &&
+          "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-400",
       )}
     >
-      {displayStatus === "Flagged" ? <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" /> : null}
+      {displayStatus === "Flagged" ? (
+        <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+      ) : null}
       {displayStatus === "Prepared" ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
       {displayStatus}
     </span>

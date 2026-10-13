@@ -230,22 +230,43 @@ export function useSystemStatus() {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
         
-        // Laravel standard health check or ping route (e.g., /api/ping or /up)
-        const url = `${apiConfig.baseUrl.replace(/\/$/, "")}/api/ping`;
-        
-        const response = await fetch(url, {
-          method: "GET",
-          signal: controller.signal,
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-        });
+        // Laravel standard health check or ping route (e.g., /api/admin/ping or /api/ping)
+        const baseUrl = apiConfig.baseUrl.replace(/\/$/, "");
+        let response: Response | null = null;
+
+        try {
+          response = await fetch(`${baseUrl}/api/admin/ping`, {
+            method: "GET",
+            signal: controller.signal,
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+          });
+        } catch {
+          // fallback if admin ping fetch fails
+        }
+
+        if (!response || !response.ok) {
+          try {
+            response = await fetch(`${baseUrl}/api/ping`, {
+              method: "GET",
+              signal: controller.signal,
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+            });
+          } catch {
+            // let outer catch block handle if needed
+          }
+        }
+
         clearTimeout(timeout);
 
         const latency = Math.round(performance.now() - startSystem);
 
-        if (response.ok) {
+        if (response && response.ok) {
           setSystemStatus({
             status: "healthy",
             label: "All Systems Live",
@@ -257,7 +278,7 @@ export function useSystemStatus() {
           setSystemStatus({
             status: "warning",
             label: "System Issues Detected",
-            details: `Intermittent connection or API issues. Server returned status code ${response.status}.`,
+            details: `Intermittent connection or API issues. Server returned status code ${response?.status || "unknown"}.`,
             latency,
             lastChecked: new Date().toLocaleTimeString(),
           });

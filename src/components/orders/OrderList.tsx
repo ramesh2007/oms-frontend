@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Filter } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
@@ -13,12 +14,21 @@ import {
   matchesSearch,
   LEGACY_TABS,
   parseTatHours,
+  toEnrichedOrder,
+  getEnrichedOrder,
+  MOCK_ORDERS,
   type LegacyTabId,
   type Order,
   type EnrichedOrder,
 } from "@/lib/orders";
-import { getEnrichedOrder } from "@/lib/orders";
-import { useOrders, useOrdersByStatus, useFlaggedOrders } from "@/hooks/useOrders";
+import {
+  useOrders,
+  useOrdersByStatus,
+  useFlaggedOrders,
+  orderKeys,
+  type OrdersByStatusResult,
+  type PaginationMeta,
+} from "@/hooks/useOrders";
 import { PrintInvoiceDialog } from "./PrintInvoiceDialog";
 import { ViewExportDialog } from "./ViewExportDialog";
 import { BulkActionBar } from "./BulkActionBar";
@@ -31,8 +41,11 @@ import { AssignZoneDialog } from "./AssignZoneDialog";
 import { PaginationControls } from "./PaginationControls";
 import { toast } from "sonner";
 
+const EMPTY_ORDERS: Order[] = [];
+
 export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<LegacyTabId>(initialTab || "New");
 
   const statusSlug = useMemo(() => {
@@ -40,6 +53,8 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
       case "New":
       case "Unfulfilled":
         return "new";
+      case "Express":
+        return "express";
       case "Ready to Assign":
         return "ready-to-assign";
       case "Picking":
@@ -52,6 +67,10 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         return "in-delivery";
       case "Delivered":
         return "delivered";
+      case "Cancelled":
+        return "cancelled-delivery";
+      case "Installation":
+        return "installation";
       case "Flags & Exceptions":
         return "flagged";
       default:
@@ -60,16 +79,14 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   }, [activeTab]);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const { data: allOrders = [] } = useOrders();
-  const { data: statusResult, refetch, isLoading: isStatusLoading } = useOrdersByStatus(statusSlug, currentPage, 15);
+  const { data: allOrders = EMPTY_ORDERS } = useOrders();
+  const { data: statusResult, refetch, isLoading: isStatusLoading, isFetching: isStatusFetching } = useOrdersByStatus(statusSlug, currentPage, 15);
   const { data: flaggedResult } = useFlaggedOrders(1, 1);
-  const statusOrders = statusResult?.orders || [];
-  const pagination = statusResult?.pagination;
+  const statusOrders = statusResult?.orders;
 
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [zoneDialogOpen, setZoneDialogOpen] = useState(false);
@@ -77,7 +94,8 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const [giftPrintDialogOpen, setGiftPrintDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [orders, setOrders] = useState<Order[]>(statusOrders);
+  const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<Order>>>({});
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [days, setDays] = useState("30");
   const [filters, setFilters] = useState({
     status: "All",
@@ -101,20 +119,6 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const [singleActionOrder, setSingleActionOrder] = useState<Order | null>(null);
 
   useEffect(() => {
-    setLoading(isStatusLoading);
-  }, [isStatusLoading]);
-
-  // Sync orders whenever statusOrders changes
-  useEffect(() => {
-    if (Array.isArray(statusOrders)) {
-      setOrders(statusOrders);
-    } else if (Array.isArray(allOrders)) {
-      setOrders(allOrders);
-    }
-  }, [statusOrders, allOrders]);
-
-
-  useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
     }
@@ -125,8 +129,83 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     setSelectedIds(new Set());
   }, [activeTab]);
 
+  // Prime status queries into queryClient so that clicking any tab has instantaneous data
+  useEffect(() => {
+    if (!allOrders || allOrders.length === 0) return;
+
+    const tabsToPrime: { slug: string; tab: LegacyTabId }[] = [
+      { slug: "all", tab: "All" },
+      { slug: "new", tab: "New" },
+      { slug: "express", tab: "Express" },
+      { slug: "picking", tab: "Picking" },
+      { slug: "picked", tab: "Picked" },
+      { slug: "packing", tab: "Packing" },
+      { slug: "ready-to-assign", tab: "Ready to Assign" },
+      { slug: "in-delivery", tab: "In Delivery" },
+      { slug: "delivered", tab: "Delivered" },
+      { slug: "cancelled-delivery", tab: "Cancelled" },
+      { slug: "cancelled", tab: "Cancelled" },
+      { slug: "installation", tab: "Installation" },
+    ];
+
+    for (const { slug, tab } of tabsToPrime) {
+      const queryKey = orderKeys.status(slug, 1);
+      const existing = queryClient.getQueryData<OrdersByStatusResult>(queryKey);
+      if (!existing) {
+        const filteredOrders = tab === "All" ? allOrders : allOrders.filter((o) => matchesLegacyTab(o, tab));
+        const total = filteredOrders.length;
+        queryClient.setQueryData<OrdersByStatusResult>(queryKey, {
+          orders: filteredOrders.slice(0, 15),
+          pagination: {
+            current_page: 1,
+            per_page: 15,
+            total,
+            last_page: Math.max(1, Math.ceil(total / 15)),
+            from: total > 0 ? 1 : 0,
+            to: Math.min(15, total),
+            has_more_pages: total > 15,
+            next_page_url: null,
+            prev_page_url: null,
+          },
+          statusFilter: slug,
+        });
+      }
+    }
+  }, [allOrders, queryClient]);
+
+  // 1. Instantly available orders from client in-memory cache for 0ms tab switching
+  const instantTabOrders = useMemo(() => {
+    if (!allOrders || allOrders.length === 0) return EMPTY_ORDERS;
+    if (activeTab === "All") return allOrders;
+    if (activeTab === "Flags & Exceptions") {
+      return allOrders.filter((o) => o.status === "Flagged" || o.status === "Delivery Failed");
+    }
+    return allOrders.filter((o) => matchesLegacyTab(o, activeTab));
+  }, [allOrders, activeTab]);
+
+  const hasFreshServerDataForTab = Boolean(
+    statusResult &&
+    statusResult.orders &&
+    (!statusResult.statusFilter ||
+     statusResult.statusFilter.replace(/[-_]/g, "").toLowerCase() === statusSlug.replace(/[-_]/g, "").toLowerCase() ||
+     (statusSlug === "cancelled-delivery" && (statusResult.statusFilter === "cancelled" || statusResult.statusFilter === "cancelled_delivery")) ||
+     (statusSlug === "installation" && (statusResult.statusFilter === "installation" || statusResult.statusFilter === "installation_orders")) ||
+     (statusSlug === "express" && (statusResult.statusFilter === "express" || statusResult.statusFilter === "express_orders")))
+  );
+
+  const rawTabOrders = hasFreshServerDataForTab ? (statusOrders ?? EMPTY_ORDERS) : instantTabOrders;
+
+  // Apply any optimistic manual overrides (driver, zone)
+  const tabOrders = useMemo(() => {
+    if (Object.keys(localOverrides).length === 0) return rawTabOrders;
+    return rawTabOrders.map((o) => {
+      const override = localOverrides[o.id];
+      return override ? { ...o, ...override } : o;
+    });
+  }, [rawTabOrders, localOverrides]);
+
   const baseOrders = useMemo(() => {
-    let result = orders.length > 0 ? [...orders] : [...allOrders];
+    let result = tabOrders;
 
     if (search.trim()) {
       result = result.filter((o) => matchesSearch(o, search));
@@ -143,11 +222,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     }
 
     return result;
-  }, [orders, allOrders, search, filters.customer, days]);
+  }, [tabOrders, search, filters.customer, days]);
 
   const filtered = useMemo(() => {
     let result = baseOrders;
-    if (activeTab !== "All" && activeTab !== "Flags & Exceptions") {
+    // Only filter with matchesLegacyTab if we fell back to instantTabOrders (server endpoint is already pre-filtered)
+    if (!hasFreshServerDataForTab && activeTab !== "All" && activeTab !== "Flags & Exceptions") {
       result = result.filter((o) => matchesLegacyTab(o, activeTab));
     }
 
@@ -160,7 +240,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     }
     
     return result;
-  }, [baseOrders, activeTab, filters.status]);
+  }, [baseOrders, hasFreshServerDataForTab, activeTab, filters.status]);
 
   const sortedFiltered = useMemo(() => {
     const result = [...filtered];
@@ -197,20 +277,37 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     return result;
   }, [filtered, sortColumn, sortDirection]);
 
+  const activePagination = useMemo<PaginationMeta>(() => {
+    if (hasFreshServerDataForTab && statusResult?.pagination) {
+      return statusResult.pagination;
+    }
+    const total = instantTabOrders.length;
+    return {
+      current_page: currentPage,
+      per_page: 15,
+      total,
+      last_page: Math.max(1, Math.ceil(total / 15)),
+      from: total > 0 ? (currentPage - 1) * 15 + 1 : 0,
+      to: Math.min(currentPage * 15, total),
+      has_more_pages: total > currentPage * 15,
+      next_page_url: null,
+      prev_page_url: null,
+    };
+  }, [hasFreshServerDataForTab, statusResult?.pagination, instantTabOrders.length, currentPage]);
+
   const tabCounts = useMemo(() => {
     const counts = {} as Record<LegacyTabId, number>;
-    const dataset = allOrders.length > 0 ? allOrders : orders;
     for (const tab of LEGACY_TABS) {
       if (tab.id === "Flags & Exceptions" && flaggedResult?.pagination?.total !== undefined) {
         counts[tab.id] = flaggedResult.pagination.total;
-      } else if (tab.id === activeTab && pagination?.total !== undefined && activeTab !== "All") {
-        counts[tab.id] = pagination.total;
+      } else if (tab.id === activeTab && hasFreshServerDataForTab && statusResult?.pagination?.total !== undefined && activeTab !== "All") {
+        counts[tab.id] = statusResult.pagination.total;
       } else {
-        counts[tab.id] = countForLegacyTab(dataset, tab.id);
+        counts[tab.id] = countForLegacyTab(allOrders, tab.id);
       }
     }
     return counts;
-  }, [allOrders, orders, flaggedResult, activeTab, pagination]);
+  }, [allOrders, flaggedResult, activeTab, hasFreshServerDataForTab, statusResult?.pagination?.total]);
 
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
@@ -242,36 +339,36 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   };
 
   const handleRefresh = () => {
-    setLoading(true);
+    setManualRefreshing(true);
     toast.info("Refreshing orders...");
-    refetch().then(() => {
-      setLoading(false);
+    refetch().finally(() => {
+      setManualRefreshing(false);
       toast.success("Orders refreshed");
     });
   };
 
   const handlePullRecent = () => {
-    setLoading(true);
+    setManualRefreshing(true);
     toast.info("Fetching recent orders...");
-    refetch().then(() => {
-      setLoading(false);
+    refetch().finally(() => {
+      setManualRefreshing(false);
       toast.success("Orders refreshed");
     });
   };
 
   // Get current state values in enriched format
   const getEnrichedOrderFromState = (id: string): EnrichedOrder | undefined => {
-    const baseEnriched = getEnrichedOrder(id);
-    if (!baseEnriched) return undefined;
-    const currentStateOrder = orders.find((o) => o.id === id);
-    if (!currentStateOrder) return baseEnriched;
-    return {
-      ...baseEnriched,
-      status: currentStateOrder.status,
-      driver: currentStateOrder.driver,
-      city: currentStateOrder.city,
-      zone: currentStateOrder.city,
-    };
+    const currentStateOrder =
+      sortedFiltered.find((o) => o.id === id) ||
+      baseOrders.find((o) => o.id === id) ||
+      tabOrders.find((o) => o.id === id) ||
+      allOrders.find((o) => o.id === id) ||
+      MOCK_ORDERS.find((o) => o.id === id);
+
+    if (currentStateOrder) {
+      return toEnrichedOrder(currentStateOrder);
+    }
+    return getEnrichedOrder(id);
   };
 
   // Handle single action card triggers
@@ -286,6 +383,8 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     else if (action === "giftPrint") setGiftPrintDialogOpen(true);
     else if (action === "export") setExportDialogOpen(true);
   };
+
+  const showSkeleton = (isStatusLoading && filtered.length === 0 && allOrders.length === 0) || manualRefreshing;
 
   return (
     <div className="space-y-4">
@@ -317,13 +416,19 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>
-          Showing <span className="font-medium text-foreground">{pagination?.from ?? 1}</span> to{" "}
-          <span className="font-medium text-foreground">{pagination?.to ?? filtered.length}</span> of{" "}
-          {pagination?.total ?? orders.length} orders
+          Showing <span className="font-medium text-foreground">{activePagination.from ?? 1}</span> to{" "}
+          <span className="font-medium text-foreground">{activePagination.to ?? filtered.length}</span> of{" "}
+          {activePagination.total ?? filtered.length} orders
         </span>
+        {isStatusFetching && !showSkeleton && (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary animate-pulse">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
+            Updating...
+          </span>
+        )}
       </div>
 
-      {loading ? (
+      {showSkeleton ? (
         <>
           <div className="rounded-lg border border-border bg-card p-4 md:hidden">
             <div className="space-y-3">
@@ -420,23 +525,47 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         </>
       )}
 
-      {!loading && (
+      {!showSkeleton && (
         <PaginationControls
-          pagination={pagination}
+          pagination={activePagination}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          isLoading={loading}
+          isLoading={isStatusLoading}
         />
       )}
 
       <BulkActionBar
         count={selectedCount}
         onClear={() => setSelectedIds(new Set())}
-        onAssignZone={() => setZoneDialogOpen(true)}
+        onAssignZone={() => {
+          if (selectedCount === 0) {
+            toast.error("Please select at least one order to assign zone");
+            return;
+          }
+          setZoneDialogOpen(true);
+        }}
         onAssignDriver={activeTab === "Ready to Assign" ? () => setDriverDialogOpen(true) : undefined}
-        onPrintInvoices={() => setPrintDialogOpen(true)}
-        onPrintGiftInvoices={() => setGiftPrintDialogOpen(true)}
-        onViewExport={() => setExportDialogOpen(true)}
+        onPrintInvoices={() => {
+          if (selectedCount === 0) {
+            toast.error("Please select at least one order to print");
+            return;
+          }
+          setPrintDialogOpen(true);
+        }}
+        onPrintGiftInvoices={() => {
+          if (selectedCount === 0) {
+            toast.error("Please select at least one order to print gift invoice");
+            return;
+          }
+          setGiftPrintDialogOpen(true);
+        }}
+        onViewExport={() => {
+          if (selectedCount === 0) {
+            toast.error("Please select at least one order to export");
+            return;
+          }
+          setExportDialogOpen(true);
+        }}
       />
 
       <AssignZoneDialog
@@ -448,9 +577,13 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         selectedCount={singleActionOrder ? 1 : selectedCount}
         onAssign={(zone, zoneName, overrideExisting) => {
           const targetIds = singleActionOrder ? [singleActionOrder.id] : Array.from(selectedIds);
-          setOrders((prev) =>
-            prev.map((o) => (targetIds.includes(o.id) ? { ...o, city: zoneName } : o))
-          );
+          setLocalOverrides((prev) => {
+            const next = { ...prev };
+            for (const id of targetIds) {
+              next[id] = { ...next[id], city: zoneName };
+            }
+            return next;
+          });
           toast.success(
             `Assigned zone "${zoneName}" to ${targetIds.length} order(s)${
               overrideExisting ? " (Override)" : ""
@@ -470,17 +603,17 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         selectedOrders={
           singleActionOrder
             ? [singleActionOrder]
-            : orders.filter((o) => selectedIds.has(o.id))
+            : baseOrders.filter((o) => selectedIds.has(o.id))
         }
         onAssign={(driver) => {
           const targetIds = singleActionOrder ? [singleActionOrder.id] : Array.from(selectedIds);
-          setOrders((prev) =>
-            prev.map((o) =>
-              targetIds.includes(o.id)
-                ? { ...o, driver: driver, status: "Driver Accepted" as const }
-                : o
-            )
-          );
+          setLocalOverrides((prev) => {
+            const next = { ...prev };
+            for (const id of targetIds) {
+              next[id] = { ...next[id], driver: driver, status: "Driver Accepted" as const };
+            }
+            return next;
+          });
           toast.success(
             `Assigned driver ${driver} to ${targetIds.length} order(s)`
           );
@@ -496,10 +629,10 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         }}
         orders={
           singleActionOrder
-            ? ([getEnrichedOrderFromState(singleActionOrder.id)].filter(Boolean) as any)
+            ? [toEnrichedOrder(singleActionOrder)]
             : (Array.from(selectedIds)
                 .map((id) => getEnrichedOrderFromState(id))
-                .filter(Boolean) as any)
+                .filter(Boolean) as EnrichedOrder[])
         }
       />
       <PrintInvoiceDialog
@@ -510,10 +643,10 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         }}
         orders={
           singleActionOrder
-            ? ([getEnrichedOrderFromState(singleActionOrder.id)].filter(Boolean) as any)
+            ? [toEnrichedOrder(singleActionOrder)]
             : (Array.from(selectedIds)
                 .map((id) => getEnrichedOrderFromState(id))
-                .filter(Boolean) as any)
+                .filter(Boolean) as EnrichedOrder[])
         }
         isGift
       />
@@ -525,10 +658,10 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         }}
         orders={
           singleActionOrder
-            ? ([getEnrichedOrderFromState(singleActionOrder.id)].filter(Boolean) as any)
+            ? [toEnrichedOrder(singleActionOrder)]
             : (Array.from(selectedIds)
                 .map((id) => getEnrichedOrderFromState(id))
-                .filter(Boolean) as any)
+                .filter(Boolean) as EnrichedOrder[])
         }
         activeTab={activeTab}
       />

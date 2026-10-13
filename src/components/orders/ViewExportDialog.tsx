@@ -2,6 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { FileText, Download } from "lucide-react";
 import type { EnrichedOrder, OrderTimelineEvent } from "@/lib/orders";
+import { toast } from "sonner";
 
 export function ViewExportDialog({
   open,
@@ -14,16 +15,18 @@ export function ViewExportDialog({
   orders: EnrichedOrder[];
   activeTab: string;
 }) {
-  if (!orders || orders.length === 0) return null;
+  const safeOrders = orders || [];
+  if (!open) return null;
 
   // Helper to render timeline stages
-  const renderTimeline = (timeline: OrderTimelineEvent[]) => {
-    const placed = timeline.find((e) => e.type === "placed");
-    const picking = timeline.find((e) => e.type === "picking_started" || e.type === "picking_completed" || e.type === "picker_assigned");
-    const packing = timeline.find((e) => e.type === "packing_started" || e.type === "packing_completed" || e.type === "packer_assigned");
-    const assigned = timeline.find((e) => e.type === "driver_assigned");
-    const started = timeline.find((e) => e.type === "started");
-    const delivered = timeline.find((e) => e.type === "delivered" || e.type === "delivery_failed");
+  const renderTimeline = (timeline?: OrderTimelineEvent[]) => {
+    const safeTimeline = Array.isArray(timeline) ? timeline : [];
+    const placed = safeTimeline.find((e) => e.type === "placed");
+    const picking = safeTimeline.find((e) => e.type === "picking_started" || e.type === "picking_completed" || e.type === "picker_assigned");
+    const packing = safeTimeline.find((e) => e.type === "packing_started" || e.type === "packing_completed" || e.type === "packer_assigned");
+    const assigned = safeTimeline.find((e) => e.type === "driver_assigned");
+    const started = safeTimeline.find((e) => e.type === "started");
+    const delivered = safeTimeline.find((e) => e.type === "delivered" || e.type === "delivery_failed");
 
     const steps = [
       { id: 'placed', label: 'PLACED', event: placed, icon: "activity", color: "text-blue-500" },
@@ -58,6 +61,74 @@ export function ViewExportDialog({
     );
   };
 
+  const handleExportCsv = () => {
+    if (safeOrders.length === 0) {
+      toast.error("No orders to export");
+      return;
+    }
+
+    const headers = [
+      "Order ID",
+      "Shopify Order ID",
+      "Date",
+      "Time",
+      "Customer Name",
+      "Customer Phone",
+      "Customer Email",
+      "Delivery Address",
+      "Status",
+      "City / Zone",
+      "Driver",
+      "Items Count",
+      "Total (QAR)",
+      "Total Paid (QAR)",
+      "Balance (QAR)",
+      "Payment Method",
+      "Payment Status",
+      "Notes",
+    ];
+
+    const escapeCsv = (val: any) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = safeOrders.map((o) => [
+      escapeCsv(o.id),
+      escapeCsv(o.shopifyOrderId || o.orderNumber || o.id),
+      escapeCsv(o.date),
+      escapeCsv(o.time),
+      escapeCsv(o.customer?.name || ""),
+      escapeCsv(o.customer?.phone || ""),
+      escapeCsv(o.customer?.email || ""),
+      escapeCsv(o.shippingAddress?.line1 ? `${o.shippingAddress.line1}, ${o.shippingAddress.city || ""}` : o.city || ""),
+      escapeCsv(o.status),
+      escapeCsv(o.zone || o.city || ""),
+      escapeCsv(o.driver || "Unassigned"),
+      escapeCsv(o.itemsList?.length || o.items || 0),
+      escapeCsv((o.total || 0).toFixed(2)),
+      escapeCsv((o.payment?.totalPaid ?? 0).toFixed(2)),
+      escapeCsv((o.payment?.balance ?? 0).toFixed(2)),
+      escapeCsv(o.payment?.method || ""),
+      escapeCsv(o.payment?.status || ""),
+      escapeCsv(o.notes || ""),
+    ]);
+
+    const csvString = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `orders_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${safeOrders.length} order(s) successfully`);
+    onOpenChange(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] sm:w-full sm:max-w-5xl p-0 overflow-hidden bg-slate-50/50 max-h-[90vh] flex flex-col">
@@ -68,7 +139,9 @@ export function ViewExportDialog({
               <DialogTitle className="text-xl sm:text-2xl font-semibold">Review Export Data</DialogTitle>
             </div>
             <DialogDescription className="text-sm sm:text-base text-slate-500 mt-2">
-              You are about to export {orders.length} order(s) matching your current criteria.
+              {safeOrders.length > 0
+                ? `You are about to export ${safeOrders.length} order(s) matching your selection.`
+                : "No orders selected to export."}
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -81,31 +154,31 @@ export function ViewExportDialog({
               <div className="font-medium text-slate-900">{activeTab}</div>
             </div>
             <div>
-              <div className="text-[10px] sm:text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Zone</div>
-              <div className="font-medium text-slate-900">All Zones</div>
+              <div className="text-[10px] sm:text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Selected Count</div>
+              <div className="font-medium text-slate-900">{safeOrders.length} order{safeOrders.length === 1 ? "" : "s"}</div>
             </div>
             <div>
-              <div className="text-[10px] sm:text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Date Range</div>
-              <div className="font-medium text-slate-900">Default Range</div>
+              <div className="text-[10px] sm:text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Export Format</div>
+              <div className="font-medium text-slate-900">CSV (Excel-Compatible UTF-8)</div>
             </div>
           </div>
 
           {/* Orders List */}
           <div className="space-y-4">
-            {orders.map((order) => (
+            {safeOrders.map((order) => (
               <div key={order.id} className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm">
                 
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border-b border-slate-100 gap-3 sm:gap-0">
                   <div className="flex items-center gap-4">
-                    <span className="text-orange-600 font-bold text-base sm:text-lg underline decoration-orange-200 underline-offset-4 cursor-pointer hover:text-orange-700">Order {order.id}</span>
+                    <span className="text-orange-600 font-bold text-base sm:text-lg underline decoration-orange-200 underline-offset-4 cursor-pointer hover:text-orange-700">Order #{order.id}</span>
                     <span className="px-3 py-1 rounded-full border border-slate-200 text-xs font-bold bg-white text-slate-900 shadow-sm">
-                      QAR {order.total.toFixed(2)}
+                      QAR {(order.total || 0).toFixed(2)}
                     </span>
                   </div>
                   <div className="text-left sm:text-right text-sm">
-                    <div className="font-bold text-slate-900 uppercase">{order.customer.name}</div>
-                    <div className="text-slate-500 text-xs sm:text-sm">{order.customer.email}</div>
+                    <div className="font-bold text-slate-900 uppercase">{order.customer?.name || "Customer"}</div>
+                    <div className="text-slate-500 text-xs sm:text-sm">{order.customer?.email || order.customer?.phone || ""}</div>
                   </div>
                 </div>
                 
@@ -143,7 +216,7 @@ export function ViewExportDialog({
                         </tr>
                       </thead>
                       <tbody>
-                        {order.itemsList.map((item) => (
+                        {(order.itemsList || []).map((item) => (
                           <tr key={item.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
                             <td className="p-3 border-r border-slate-200">
                               <div className="flex items-center gap-3">
@@ -154,12 +227,12 @@ export function ViewExportDialog({
                               </div>
                             </td>
                             <td className="p-3 border-r border-slate-200 text-center font-medium">{item.qty}</td>
-                            <td className="p-3 border-r border-slate-200 text-right text-slate-600">QAR {item.price.toFixed(2)}</td>
+                            <td className="p-3 border-r border-slate-200 text-right text-slate-600">QAR {(item.price || 0).toFixed(2)}</td>
                             <td className="p-3 border-r border-slate-200 text-center text-slate-400">00</td>
-                            <td className="p-3 text-right font-medium text-slate-800">QAR {(item.price * item.qty).toFixed(2)}</td>
+                            <td className="p-3 text-right font-medium text-slate-800">QAR {((item.price || 0) * (item.qty || 1)).toFixed(2)}</td>
                           </tr>
                         ))}
-                        {order.itemsList.length === 0 && (
+                        {(!order.itemsList || order.itemsList.length === 0) && (
                           <tr>
                             <td colSpan={5} className="p-4 text-center text-slate-500">No items found.</td>
                           </tr>
@@ -173,7 +246,7 @@ export function ViewExportDialog({
                 <div className="p-4 bg-slate-50 flex items-center flex-wrap gap-x-8 gap-y-2 text-xs font-bold">
                   <div className="flex items-center gap-2">
                     <span className="text-slate-400 uppercase tracking-wider">Payment:</span> 
-                    <span className="text-slate-900">{order.payment.method.toLowerCase()}</span>
+                    <span className="text-slate-900">{(order.payment?.method || "Cash on Delivery").toLowerCase()}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-slate-400 uppercase tracking-wider">Status:</span> 
@@ -183,7 +256,7 @@ export function ViewExportDialog({
                   </div>
                   <div className="flex items-center gap-2 ml-auto">
                     <span className="text-slate-500 uppercase tracking-wider">Collected:</span> 
-                    <span className="text-green-600 text-sm">QAR {order.payment.totalPaid.toFixed(2)}</span>
+                    <span className="text-green-600 text-sm">QAR {(order.payment?.totalPaid ?? 0).toFixed(2)}</span>
                   </div>
                 </div>
 
@@ -197,19 +270,9 @@ export function ViewExportDialog({
             Cancel
           </Button>
           <Button 
+            disabled={safeOrders.length === 0}
             className="w-full sm:w-auto bg-[#ea580c] hover:bg-[#c2410c] text-white px-6 h-10 sm:h-11 gap-2 shadow-sm font-semibold text-xs sm:text-sm"
-            onClick={() => {
-              // Real export logic here
-              const csvContent = "data:text/csv;charset=utf-8,ID,Customer,Total\n" + orders.map(o => `${o.id},${o.customer.name},${o.total}`).join("\n");
-              const encodedUri = encodeURI(csvContent);
-              const link = document.createElement("a");
-              link.setAttribute("href", encodedUri);
-              link.setAttribute("download", "orders_export.csv");
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              onOpenChange(false);
-            }}
+            onClick={handleExportCsv}
           >
             <Download className="w-4 h-4" />
             Confirm & Export CSV

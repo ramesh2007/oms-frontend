@@ -11,6 +11,7 @@ function getDynamicColumn(activeTab: LegacyTabId): "driver" | "picker" | "packer
     case "Delivered":
     case "Delivery Failed":
     case "Installation":
+    case "Cancelled":
     case "All":
       return "driver";
     case "Ready to Assign":

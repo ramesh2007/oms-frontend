@@ -34,6 +34,7 @@ export type OrderStatus =
 
 export type LegacyTabId =
   | "New"
+  | "Express"
   | "Installation"
   | "Unfulfilled"
   | "Picking"
@@ -60,6 +61,7 @@ export interface LegacyTab {
 
 export const LEGACY_TABS: LegacyTab[] = [
   { id: "New", label: "New", color: "text-sky-600 dark:text-sky-400", activeColor: "bg-sky-500" },
+  { id: "Express", label: "Express", color: "text-amber-600 dark:text-amber-400", activeColor: "bg-amber-500" },
   { id: "All", label: "All", color: "text-foreground", activeColor: "bg-primary" },
   {
     id: "Picking",
@@ -191,6 +193,26 @@ export interface Order {
   itemsList?: OrderItemType[];
   line_items?: any[];
   zone?: string;
+  hasInstallation?: boolean;
+  installationItemsCount?: number;
+  installationStatus?: string;
+  shippingMethod?: string;
+  isExpress?: boolean;
+  deliveryType?: string;
+  timeline?: OrderTimelineEvent[];
+  flags?: string[];
+  shippingAddress?: {
+    line1: string;
+    line2: string;
+    city: string;
+    country: string;
+    lat: number;
+    lng: number;
+    building?: string;
+    unit?: string;
+    zone?: string;
+    street?: string;
+  };
 }
 
 export type ItemFulfillmentType = "FC" | "MWH" | "VL_SUPPLIER" | "VL_HMA";
@@ -206,7 +228,7 @@ export interface OrderItemType {
   fc: string;
   fcName: string;
   bin: string;
-  status: "Prepared" | "Accepted" | "Allocated" | "Pending";
+  status: "Prepared" | "Accepted" | "Allocated" | "Pending" | "Picker Assigned";
   /**
    * Fulfillment type for this item:
    * - FC: standard fulfillment center item (normal delivery flow)
@@ -223,6 +245,29 @@ export interface OrderItemType {
   installationDriver?: string | null;
   /** Location ID for vendor/warehouse */
   locationId?: string;
+  /** Whether this item requires or supports installation scheduling */
+  is_installable?: boolean;
+  isInstallable?: boolean;
+  /** Backend Order Item ID */
+  order_item_id?: number | string;
+  assigned_to?: number | string | null;
+  assigned_user_name?: string | null;
+  assigned_at?: string | null;
+  picked_by?: number | string | null;
+  picked_user_name?: string | null;
+  packed_by?: number | string | null;
+  packed_user_name?: string | null;
+  delivered_by?: number | string | null;
+  delivered_user_name?: string | null;
+  picked_at?: string | null;
+  packed_at?: string | null;
+  delivered_at?: string | null;
+  /** Whether the schedule has been assigned */
+  is_scheduled_assigned?: boolean;
+  /** Installation classification metadata */
+  installation_type?: string | null;
+  installation_level?: string | null;
+  installation?: any;
 }
 
 export type ReturnStatus = "pending" | "picked up" | "completed";
@@ -325,6 +370,10 @@ export interface EnrichedOrder extends Order {
     country: string;
     lat: number;
     lng: number;
+    building?: string;
+    unit?: string;
+    zone?: string;
+    street?: string;
   };
   matrix: {
     fc: string;
@@ -1183,81 +1232,161 @@ export function getMockOrderTotal(id: string, totalItems: number, payment?: any)
   return subtotal + shipping - discount;
 }
 
-/** Mock enriched order for the details page */
-export function getEnrichedOrder(id: string): EnrichedOrder | undefined {
-  const baseOrder = MOCK_ORDERS.find((o) => o.id === id);
-  if (!baseOrder) return undefined;
+/** Converts any Order into an EnrichedOrder, ensuring all nested properties exist safely */
+export function toEnrichedOrder(order: Order): EnrichedOrder {
+  const rawId = String(order.id || "");
+  const baseOrder = MOCK_ORDERS.find((o) => o.id === rawId);
 
-  const itemsList = getMockOrderItems(id, baseOrder.items);
-  const calculatedTotal = getMockOrderTotal(id, baseOrder.items, baseOrder.payment);
+  // 1. Items List
+  let itemsList: OrderItemType[] = [];
+  if (Array.isArray(order.itemsList) && order.itemsList.length > 0) {
+    itemsList = order.itemsList;
+  } else if (Array.isArray(order.line_items) && order.line_items.length > 0) {
+    itemsList = order.line_items.map((rawItem: any, idx: number) => {
+      const orderItemId =
+        rawItem.order_item_id ??
+        rawItem.id ??
+        rawItem.item_id ??
+        rawItem.line_item_id ??
+        `item-${rawId}-${idx + 1}`;
+      const qty = Number(rawItem.quantity ?? rawItem.qty ?? 1) || 1;
+      const price = Number(rawItem.unit_price ?? rawItem.price ?? rawItem.rate ?? 0) || 0;
+      return {
+        id: String(orderItemId),
+        order_item_id: orderItemId,
+        name: rawItem.product_name ?? rawItem.item_name ?? rawItem.name ?? `Item ${idx + 1}`,
+        sku: rawItem.product_code ?? rawItem.item_code ?? rawItem.sku ?? "N/A",
+        barcode: rawItem.barcode ?? rawItem.custom_barcode ?? "",
+        image: rawItem.image ?? rawItem.image_url ?? "",
+        qty,
+        price,
+        fc: rawItem.warehouse_code ?? rawItem.fc ?? "F01",
+        fcName: rawItem.warehouse ?? rawItem.fcName ?? "Fulfillment Center Hilal",
+        bin: rawItem.bin ?? rawItem.custom_bin ?? "—",
+        status: (rawItem.status as any) || "Prepared",
+      };
+    });
+  } else {
+    itemsList = getMockOrderItems(rawId, Math.max(1, order.items || 1));
+  }
+
+  // 2. Calculated total & payment
+  const calculatedTotal =
+    typeof order.total === "number" && order.total > 0
+      ? order.total
+      : getMockOrderTotal(
+          rawId,
+          itemsList.reduce((sum, i) => sum + i.qty, 0),
+          order.payment || baseOrder?.payment
+        );
+
+  const rawPayment = order.payment || baseOrder?.payment;
+  const shipping = typeof rawPayment?.shipping === "number" ? rawPayment.shipping : 10;
+  const discount = typeof rawPayment?.discount === "number" ? rawPayment.discount : 0;
+  const subtotal =
+    typeof rawPayment?.subtotal === "number"
+      ? rawPayment.subtotal
+      : Math.max(0, calculatedTotal - shipping + discount);
+  const paymentMethod =
+    rawPayment?.method ||
+    rawPayment?.payment_method ||
+    (order as any).paymentMethod ||
+    baseOrder?.payment?.method ||
+    "Cash on Delivery";
+  const paymentStatus =
+    rawPayment?.status ||
+    rawPayment?.payment_status ||
+    ((order as any).paymentBalance === 0 ? "paid" : "pending");
+  const totalPaid =
+    typeof rawPayment?.totalPaid === "number"
+      ? rawPayment.totalPaid
+      : typeof rawPayment?.paid_amount === "number"
+        ? rawPayment.paid_amount
+        : paymentStatus === "paid" || order.status === "Delivered"
+          ? calculatedTotal
+          : 0;
+  const balance =
+    typeof rawPayment?.balance === "number"
+      ? rawPayment.balance
+      : typeof rawPayment?.total_outstanding === "number"
+        ? rawPayment.total_outstanding
+        : typeof (order as any).paymentBalance === "number"
+          ? (order as any).paymentBalance
+          : Math.max(0, calculatedTotal - totalPaid);
+
+  const payment = {
+    method: paymentMethod,
+    status: paymentStatus,
+    totalPaid,
+    cash: paymentMethod.toLowerCase().includes("card") ? 0 : totalPaid,
+    card: paymentMethod.toLowerCase().includes("card") ? totalPaid : 0,
+    subtotal,
+    discount,
+    shipping,
+    total: calculatedTotal,
+    balance,
+    shippingMethod: rawPayment?.shippingMethod || "Standard Delivery",
+    id: rawPayment?.id,
+    shopifyOrderId: rawPayment?.shopifyOrderId || order.shopifyOrderId,
+    processedAt: rawPayment?.processedAt,
+  };
+
+  // 3. Shipping Address
+  const rawAddr = (order as any).shippingAddress || (baseOrder as any)?.shippingAddress;
+  const city = order.city && order.city !== "—" ? order.city : (rawAddr?.city || "Doha");
+  const shippingAddress = {
+    line1: rawAddr?.line1 || (order as any).customer?.delivery_address || `${city} Main Street`,
+    line2: rawAddr?.line2 || city,
+    city: city,
+    country: rawAddr?.country || "Qatar",
+    lat: order.lat ?? rawAddr?.lat ?? 25.2854,
+    lng: order.lng ?? rawAddr?.lng ?? 51.5310,
+    building: rawAddr?.building || (order as any).building || "—",
+    unit: rawAddr?.unit || (order as any).unit || "—",
+    zone: rawAddr?.zone || order.zone || (order as any).customer?.zone || "—",
+    street: rawAddr?.street || (order as any).street || "—",
+  };
+
+  // 4. Returns
+  const returnsList: OrderReturn[] =
+    order.returnItems && order.returnItems.length > 0
+      ? order.returnItems
+      : baseOrder?.returnItems && baseOrder.returnItems.length > 0
+        ? baseOrder.returnItems
+        : order.returns
+          ? [
+              {
+                id: `ret-${rawId}-1`,
+                itemName: itemsList[0]?.name || "Returned Item",
+                type: "return",
+                qty: order.returns.count || 1,
+                status: "pending",
+                source: "Shopify",
+              },
+            ]
+          : [];
+
+  // 5. Timeline
+  const timeline: OrderTimelineEvent[] =
+    order.timeline && order.timeline.length > 0
+      ? order.timeline
+      : buildTimelineFor(order, itemsList);
 
   return {
-    ...baseOrder,
-    zone: "No Zone",
+    ...order,
+    total: calculatedTotal,
+    zone: order.zone || order.city || "No Zone",
+    customer: {
+      name: order.customer?.name || "Customer",
+      email: order.customer?.email || "",
+      phone: order.customer?.phone || "—",
+    },
     itemsList,
-    returnsList:
-      baseOrder.returnItems && baseOrder.returnItems.length > 0 ? baseOrder.returnItems : [],
-    timeline: buildTimelineFor(baseOrder, itemsList),
-    payment: baseOrder.payment
-      ? {
-          ...baseOrder.payment,
-          method: baseOrder.payment.payment_method || baseOrder.payment.method || ((baseOrder as any).paymentMethod as any) || "Cash",
-          status: baseOrder.payment.payment_status || baseOrder.payment.status || ((baseOrder as any).paymentBalance > 0 ? "pending" : "paid"),
-          subtotal:
-            calculatedTotal - (baseOrder.payment.shipping ?? 0) + (baseOrder.payment.discount ?? 0),
-          total: calculatedTotal,
-          balance:
-            baseOrder.payment.total_outstanding !== undefined
-              ? baseOrder.payment.total_outstanding
-              : (baseOrder as any).paymentBalance !== undefined
-              ? (baseOrder as any).paymentBalance
-              : calculatedTotal - (baseOrder.payment.totalPaid ?? baseOrder.payment.paid_amount ?? 0),
-          totalPaid:
-            baseOrder.payment.paid_amount !== undefined
-              ? baseOrder.payment.paid_amount
-              : calculatedTotal -
-                ((baseOrder as any).paymentBalance !== undefined
-                  ? (baseOrder as any).paymentBalance
-                  : (baseOrder.payment.balance ?? 0)),
-        }
-      : {
-          method: ((baseOrder as any).paymentMethod as any) || "Cash",
-          status: ((baseOrder as any).paymentBalance ?? 0) > 0 ? "pending" : "paid",
-          totalPaid: calculatedTotal - ((baseOrder as any).paymentBalance ?? 0),
-          cash:
-            ((baseOrder as any).paymentMethod || "Cash") === "Cash"
-              ? calculatedTotal - ((baseOrder as any).paymentBalance ?? 0)
-              : 0,
-          card:
-            ((baseOrder as any).paymentMethod || "Cash") === "Card"
-              ? calculatedTotal - ((baseOrder as any).paymentBalance ?? 0)
-              : 0,
-          subtotal: calculatedTotal - 10,
-          discount: 0,
-          shipping: 10,
-          total: calculatedTotal,
-          balance: (baseOrder as any).paymentBalance ?? 0,
-          shippingMethod: "Standard Delivery",
-        },
-    notes: baseOrder.notes || "Please leave at the door if no one answers.",
-    shippingAddress:
-      id === "HM99005"
-        ? {
-            line1: "Al Waab St",
-            line2: "Doha",
-            city: "Qatar",
-            country: "Qatar",
-            lat: 25.2638,
-            lng: 51.4822,
-          }
-        : {
-            line1: "Al rayyan al azizya, Home number 20",
-            line2: "Al azizya",
-            city: "Qatar",
-            country: "Qatar",
-            lat: 25.24127,
-            lng: 51.444699,
-          },
+    returnsList,
+    timeline,
+    payment,
+    notes: order.notes || baseOrder?.notes || "Standard delivery order.",
+    shippingAddress,
     matrix: [
       {
         fc: "F01",
@@ -1274,8 +1403,7 @@ export function getEnrichedOrder(id: string): EnrichedOrder | undefined {
         items: itemsList.map((item) => ({
           sku: item.sku,
           req: item.qty,
-          available:
-            item.fc === "MWO" ? item.qty : item.sku === "561KC" || item.sku === "26790" ? 10 : 0,
+          available: item.fc === "MWO" ? item.qty : 0,
         })),
       },
       {
@@ -1284,21 +1412,57 @@ export function getEnrichedOrder(id: string): EnrichedOrder | undefined {
         items: itemsList.map((item) => ({
           sku: item.sku,
           req: item.qty,
-          available:
-            item.fc === "VS" ? item.qty : item.sku === "820304" || item.sku === "58034" ? 15 : 0,
-        })),
-      },
-      {
-        fc: "F02",
-        fcName: "Main Warehouse - Safety Stock",
-        items: itemsList.map((item) => ({
-          sku: item.sku,
-          req: item.qty,
-          available: item.fc === "F02" ? item.qty : 5,
+          available: item.fc === "VS" ? item.qty : 0,
         })),
       },
     ],
   };
+}
+
+/** Mock enriched order for the details page */
+export function getEnrichedOrder(id: string, fallbackOrder?: Order): EnrichedOrder | undefined {
+  if (fallbackOrder) {
+    return toEnrichedOrder(fallbackOrder);
+  }
+  const baseOrder = MOCK_ORDERS.find((o) => o.id === id);
+  if (baseOrder) {
+    return toEnrichedOrder(baseOrder);
+  }
+  if (typeof window !== "undefined") {
+    try {
+      const shared = localStorage.getItem("hm_shared_orders");
+      if (shared) {
+        const parsed: Order[] = JSON.parse(shared);
+        const found = parsed.find((o) => o.id === id);
+        if (found) return toEnrichedOrder(found);
+      }
+    } catch {}
+  }
+
+  // Graceful fallback order so print and export operations never drop an order
+  const fallback: Order = {
+    id,
+    shopifyOrderId: id,
+    orderNumber: id,
+    customerId: `cust-${id}`,
+    channel: "web",
+    coordinator: "Operations",
+    driver: null,
+    picker: null,
+    packer: null,
+    shopify: "Unfulfilled",
+    date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }),
+    customer: { name: `Customer #${id}`, email: "", phone: "—" },
+    status: "New",
+    items: 1,
+    total: 0,
+    city: "Doha",
+    tat: "12h left",
+    flags: [],
+    returns: { type: "Return", count: 0 },
+  };
+  return toEnrichedOrder(fallback);
 }
 
 export type SegmentId = "all" | "active" | "delivered" | "issues";
@@ -1335,13 +1499,16 @@ export const MOCK_ORDERS: Order[] = [
     pickingStatus: "0/3 Picked",
     packingStatus: "0/3 Packed",
     bags: 0,
+    isExpress: true,
+    shippingMethod: "Express Delivery",
+    tags: ["express"],
     lat: 25.2638,
     lng: 51.4822,
     payment: {
       subtotal: 3197,
       discount: 0,
-      shipping: 0,
-      shippingMethod: "Standard Delivery",
+      shipping: 25,
+      shippingMethod: "Express Delivery",
       total: 3197,
       balance: 3197,
       method: "Cash on Delivery",
@@ -2036,6 +2203,74 @@ export function matchesSearch(order: Order, query: string): boolean {
   return blob.includes(q);
 }
 
+/**
+ * Checks whether an order is an express delivery order.
+ * Inspects explicit flags, shipping method titles, delivery type, tags, and shipping lines.
+ */
+export function isExpressOrder(order: any): boolean {
+  if (!order) return false;
+
+  if (
+    order.isExpress === true ||
+    order.is_express === true ||
+    order.is_express === 1 ||
+    order.is_express === "1" ||
+    order.is_express === "true" ||
+    order.express === true ||
+    order.express === 1 ||
+    order.express === "1" ||
+    order.express === "true"
+  ) {
+    return true;
+  }
+
+  const shippingMethod = (
+    order.shippingMethod ||
+    order.shipping_method ||
+    order.shipping_title ||
+    order.payment?.shippingMethod ||
+    order.delivery_method ||
+    order.deliveryMethod ||
+    order.delivery_type ||
+    order.deliveryType ||
+    order.order_type ||
+    ""
+  ).toString().toLowerCase();
+
+  if (shippingMethod.includes("express")) {
+    return true;
+  }
+
+  if (Array.isArray(order.shipping_lines)) {
+    const hasExpressShippingLine = order.shipping_lines.some((line: any) => {
+      const title = (line?.title || line?.code || "").toString().toLowerCase();
+      return title.includes("express");
+    });
+    if (hasExpressShippingLine) return true;
+  }
+
+  if (Array.isArray(order.tags)) {
+    if (order.tags.some((t: any) => typeof t === "string" && t.toLowerCase().includes("express"))) {
+      return true;
+    }
+  } else if (typeof order.tags === "string" && order.tags.toLowerCase().includes("express")) {
+    return true;
+  }
+
+  if (typeof order.custom_tags === "string" && order.custom_tags.toLowerCase().includes("express")) {
+    return true;
+  }
+
+  if (
+    typeof order.payment?.shippingMethod === "string" &&
+    order.payment.shippingMethod.toLowerCase().includes("express")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
   const isPayLater = isUnpaidPayLaterOrder(order);
   if (isPayLater) {
@@ -2046,8 +2281,54 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
 
   if (tab === "All") return true;
   if (tab === "New") return order.status === "New" || order.status === "Unfulfilled";
-  if (tab === "Unfulfilled") return order.status !== "Delivered";
-  if (tab === "Installation") return order.status === "Installation";
+  if (tab === "Express") {
+    return (
+      (order.status as string) === "Express" ||
+      (isExpressOrder(order) && (order.status === "New" || order.status === "Unfulfilled"))
+    );
+  }
+  if (tab === "Unfulfilled") return order.status !== "Delivered" && order.status !== "Cancelled";
+  if (tab === "Picking") return order.status === "Picking";
+  if (tab === "Picked") return order.status === "Picked";
+  if (tab === "Packing") return order.status === "Packing";
+  if (tab === "Ready to Assign") return order.status === "Ready to Assign";
+  if (tab === "In Delivery") {
+    if (order.status === "Driver Accepted" || order.status === "Started") return true;
+    if (Boolean(order.driver)) {
+      const nonDeliveryStatuses = [
+        "New",
+        "Unfulfilled",
+        "Picking",
+        "Picked",
+        "Packing",
+        "Delivered",
+        "Cancelled",
+      ];
+      return !nonDeliveryStatuses.includes(order.status);
+    }
+    return false;
+  }
+  if (tab === "Delivered") return order.status === "Delivered";
+  if (tab === "Cancelled")
+    return order.status === "Cancelled" || order.status === "Delivery Failed";
+  if (tab === "Installation") {
+    return (
+      order.status === "Installation" ||
+      Boolean(order.hasInstallation) ||
+      (typeof order.installationItemsCount === "number" && order.installationItemsCount > 0) ||
+      Boolean(
+        order.itemsList?.some(
+          (i) =>
+            i.is_installable ||
+            i.isInstallable ||
+            Boolean(i.installation) ||
+            Boolean(i.installation_type) ||
+            i.itemType === "MWH" ||
+            i.itemType === "VL_SUPPLIER",
+        ),
+      )
+    );
+  }
   if (tab === "Returns & Replacements")
     return Boolean(order.returns) || order.status === "Replacement" || order.status === "Exchange";
   if (tab === "Flags & Exceptions") {
@@ -2055,10 +2336,6 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
   }
   if (tab === "Replacement") return order.status === "Replacement";
   if (tab === "Exchange") return order.status === "Exchange";
-  if (tab === "In Delivery")
-    return order.status === "Driver Accepted" || order.status === "Started" || Boolean(order.driver);
-  if (tab === "Ready to Assign")
-    return order.status === "Ready to Assign" && !order.driver;
   return order.status === tab;
 }
 
@@ -2202,4 +2479,22 @@ export function getOrdersForCustomerId(customerId: string): Order[] {
 export function getCustomerById(customerId: string): Order | undefined {
   const list = getOrdersForCustomerId(customerId);
   return list[0];
+}
+
+/** Format the delivery address for an order into a clean single string */
+export function formatOrderAddress(order?: Order | null): string {
+  if (!order) return "—";
+  if ((order as any).shippingAddress) {
+    const parts = [
+      (order as any).shippingAddress.line1,
+      (order as any).shippingAddress.line2,
+      (order as any).shippingAddress.city,
+      (order as any).shippingAddress.country,
+    ].filter(Boolean);
+    if (parts.length > 0) return parts.join(", ");
+  }
+  if ((order as any).delivery_address) return (order as any).delivery_address;
+  if ((order as any).customer?.delivery_address) return (order as any).customer.delivery_address;
+  if (order.city && order.city !== "—") return `${order.city}, Qatar`;
+  return "Doha, Qatar";
 }

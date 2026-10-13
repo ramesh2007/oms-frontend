@@ -344,7 +344,7 @@ export async function getDrivers(): Promise<ManagedUser[]> {
   }
 
   try {
-    const response = await erpNextClient.get<any>("/api/get-drivers-list");
+    const response = await erpNextClient.get<any>("/api/admin/get-drivers-list");
     const rawList = Array.isArray(response) ? response : (response?.data || response?.drivers || []);
     if (Array.isArray(rawList)) {
       return rawList.map((d: any) => ({
@@ -359,26 +359,61 @@ export async function getDrivers(): Promise<ManagedUser[]> {
       }));
     }
   } catch (err) {
-    console.warn("[Sync] /api/get-drivers-list request error, fallback to /api/drivers", err);
-  }
-
-  try {
-    const response = await erpNextClient.get<any>("/api/drivers");
-    const rawList = Array.isArray(response) ? response : (response?.data || response?.drivers || []);
-    if (Array.isArray(rawList)) {
-      return rawList.map((d: any) => ({
-        id: String(d.id),
-        name: d.name || d.username || d.email || `Driver #${d.id}`,
-        email: d.email || "",
-        role: d.role || "driver",
-        phone: d.phone || "",
-        status: d.status || "active",
-        password: "",
-        createdAt: d.created_at ? d.created_at.split("T")[0] : "",
-      }));
+    console.warn("[Sync] /api/admin/get-drivers-list request error, trying /api/admin/drivers", err);
+    try {
+      const response = await erpNextClient.get<any>("/api/admin/drivers");
+      const rawList = Array.isArray(response) ? response : (response?.data || response?.drivers || []);
+      if (Array.isArray(rawList)) {
+        return rawList.map((d: any) => ({
+          id: String(d.id),
+          name: d.name || d.username || d.email || `Driver #${d.id}`,
+          email: d.email || "",
+          role: d.role || "driver",
+          phone: d.phone || "",
+          status: d.status || "active",
+          password: "",
+          createdAt: d.created_at ? d.created_at.split("T")[0] : "",
+        }));
+      }
+    } catch (adminDriversErr) {
+      console.warn("[Sync] /api/admin/drivers failed, trying legacy /api/get-drivers-list", adminDriversErr);
+      try {
+        const response = await erpNextClient.get<any>("/api/get-drivers-list");
+        const rawList = Array.isArray(response) ? response : (response?.data || response?.drivers || []);
+        if (Array.isArray(rawList)) {
+          return rawList.map((d: any) => ({
+            id: String(d.id),
+            name: d.name || d.username || d.email || `Driver #${d.id}`,
+            email: d.email || "",
+            role: d.role || "driver",
+            phone: d.phone || "",
+            status: d.status || "active",
+            password: "",
+            createdAt: d.created_at ? d.created_at.split("T")[0] : "",
+          }));
+        }
+      } catch (legacyListErr) {
+        console.warn("[Sync] /api/get-drivers-list request error, fallback to /api/drivers", legacyListErr);
+        try {
+          const response = await erpNextClient.get<any>("/api/drivers");
+          const rawList = Array.isArray(response) ? response : (response?.data || response?.drivers || []);
+          if (Array.isArray(rawList)) {
+            return rawList.map((d: any) => ({
+              id: String(d.id),
+              name: d.name || d.username || d.email || `Driver #${d.id}`,
+              email: d.email || "",
+              role: d.role || "driver",
+              phone: d.phone || "",
+              status: d.status || "active",
+              password: "",
+              createdAt: d.created_at ? d.created_at.split("T")[0] : "",
+            }));
+          }
+        } catch (legacyDriversErr) {
+          console.warn("[Sync] /api/drivers request error, fallback to getUsers()", legacyDriversErr);
+        }
+      }
     }
-  } catch (err) {
-    console.warn("[Sync] /api/drivers request error, fallback to getUsers()", err);
   }
 
   // Fallback to getUsers()
@@ -390,6 +425,25 @@ export async function getPickers(): Promise<ManagedUser[]> {
   if (isDemoMode()) {
     const users = await getUsers();
     return users.filter((u) => u.role === "picker" && u.status === "active");
+  }
+
+  try {
+    const response = await erpNextClient.get<any>("/api/admin/get-pickers-list");
+    const rawList = Array.isArray(response) ? response : (response?.data || response?.pickers || []);
+    if (Array.isArray(rawList)) {
+      return rawList.map((p: any) => ({
+        id: String(p.id),
+        name: p.name || p.username || p.email || `Picker #${p.id}`,
+        email: p.email || "",
+        role: p.role || "picker",
+        phone: p.phone || "",
+        status: p.status || "active",
+        password: "",
+        createdAt: p.created_at ? p.created_at.split("T")[0] : "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[Sync] /api/admin/get-pickers-list request error, fallback to legacy routes", err);
   }
 
   try {
@@ -438,6 +492,25 @@ export async function getPackers(): Promise<ManagedUser[]> {
   if (isDemoMode()) {
     const users = await getUsers();
     return users.filter((u) => u.role === "packer" && u.status === "active");
+  }
+
+  try {
+    const response = await erpNextClient.get<any>("/api/admin/get-packers-list");
+    const rawList = Array.isArray(response) ? response : (response?.data || response?.packers || []);
+    if (Array.isArray(rawList)) {
+      return rawList.map((p: any) => ({
+        id: String(p.id),
+        name: p.name || p.username || p.email || `Packer #${p.id}`,
+        email: p.email || "",
+        role: p.role || "packer",
+        phone: p.phone || "",
+        status: p.status || "active",
+        password: "",
+        createdAt: p.created_at ? p.created_at.split("T")[0] : "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[Sync] /api/admin/get-packers-list request error, fallback to legacy routes", err);
   }
 
   try {
@@ -493,17 +566,28 @@ export async function assignDriverToOrder(payload: {
     return { status: "success", message: "Driver assigned (demo mode)" };
   }
 
+  const body = {
+    order_number: payload.order_number,
+    order_id: payload.order_id ? Number(payload.order_id) : undefined,
+    assigned_driver_user_id: Number(payload.assigned_driver_user_id),
+    zone: payload.zone || undefined,
+  };
+
   try {
-    const response = await erpNextClient.post<any>("/api/orders/assign-driver", {
-      order_number: payload.order_number,
-      order_id: payload.order_id ? Number(payload.order_id) : undefined,
-      assigned_driver_user_id: Number(payload.assigned_driver_user_id),
-      zone: payload.zone || undefined,
-    });
-    return response;
+    return await erpNextClient.post<any>("/api/admin/orders/assign-driver", body);
   } catch (err) {
-    console.error("[Sync] Failed to assign driver via API:", err);
-    throw err;
+    console.warn("[Sync] /api/admin/orders/assign-driver failed, trying /api/admin/driver/assign", err);
+    try {
+      return await erpNextClient.post<any>("/api/admin/driver/assign", body);
+    } catch (driverAssignErr) {
+      console.warn("[Sync] /api/admin/driver/assign failed, trying /api/orders/assign-driver", driverAssignErr);
+      try {
+        return await erpNextClient.post<any>("/api/orders/assign-driver", body);
+      } catch (finalErr) {
+        console.error("[Sync] Failed to assign driver via API:", finalErr);
+        throw finalErr;
+      }
+    }
   }
 }
 
@@ -550,6 +634,47 @@ export async function assignPickerItemsToOrder(payload: {
   }
 }
 
+export async function orderWisePickerUnassign(payload: {
+  order_id?: number | string;
+  order_number?: string;
+  order_items?: (number | string)[];
+  notes?: string;
+}) {
+  if (isDemoMode()) {
+    console.log("[Sync] Demo mode: orderWisePickerUnassign", payload);
+    const targetId = String(payload.order_id || payload.order_number || "");
+    if (targetId) {
+      updateSharedOrder(targetId, (o) => {
+        o.picker = null;
+        if (o.status === "Picking") {
+          o.status = "Unfulfilled";
+        }
+      });
+      broadcastChange();
+    }
+    return { status: "success", message: "Picker unassigned (demo mode)" };
+  }
+
+  const cleanId = payload.order_id ?? payload.order_number;
+  try {
+    const response = await erpNextClient.post<any>("/api/admin/orders/order-wise-picker-unassign", {
+      order_id: cleanId,
+      order_items: payload.order_items && payload.order_items.length > 0 ? payload.order_items : undefined,
+      notes: payload.notes,
+    });
+    if (response && response.success === false) {
+      throw new Error(response.message || "Failed to unassign picker");
+    }
+    return response;
+  } catch (err: any) {
+    console.error(
+      "[Sync] /api/admin/orders/order-wise-picker-unassign failed:",
+      err,
+    );
+    throw err;
+  }
+}
+
 export async function unassignPickerItemsFromOrder(payload: {
   order_id?: number | string;
   order_number?: string;
@@ -561,7 +686,7 @@ export async function unassignPickerItemsFromOrder(payload: {
   }
 
   try {
-    const response = await erpNextClient.post<any>("/api/orders/unassign-picker-items", {
+    const response = await erpNextClient.post<any>("/api/admin/orders/unassign-picker-items", {
       order_id: payload.order_id ? Number(payload.order_id) : undefined,
       order_number: payload.order_number,
       order: payload.order_id || payload.order_number,
@@ -583,6 +708,12 @@ export async function assignPackerItemsToOrder(payload: {
 }) {
   if (isDemoMode()) {
     console.log("[Sync] Demo mode: assignPackerItemsToOrder", payload);
+    const targetId = String(payload.order_id || payload.order_number || "");
+    updateSharedOrder(targetId, (o) => {
+      o.packer = payload.packer_name || (payload.packer_id ? String(payload.packer_id) : "Packer");
+      o.status = "Packing";
+    });
+    broadcastChange();
     return { status: "success", message: "Packer items assigned (demo mode)" };
   }
 
@@ -591,13 +722,16 @@ export async function assignPackerItemsToOrder(payload: {
       ? Number(payload.packer_id)
       : payload.packer_id;
 
-    const response = await erpNextClient.post<any>("/api/orders/assign-packer-items", {
+    const response = await erpNextClient.post<any>("/api/admin/orders/assign-packer-items", {
       order_id: payload.order_id,
       order_number: payload.order_number,
       packer_id: parsedPackerId,
       packer_name: payload.packer_name,
       order_items: payload.order_items,
     });
+    if (response && response.success === false) {
+      throw new Error(response.message || "Failed to assign packer items");
+    }
     return response;
   } catch (err) {
     console.error("[Sync] Failed to assign packer items via API:", err);
@@ -612,6 +746,12 @@ export async function unassignPackerItemsFromOrder(payload: {
 }) {
   if (isDemoMode()) {
     console.log("[Sync] Demo mode: unassignPackerItemsFromOrder", payload);
+    const targetId = String(payload.order_id || payload.order_number || "");
+    updateSharedOrder(targetId, (o) => {
+      o.packer = null;
+      o.status = "Picked";
+    });
+    broadcastChange();
     return { status: "success", message: "Packer items unassigned (demo mode)" };
   }
 
@@ -621,6 +761,9 @@ export async function unassignPackerItemsFromOrder(payload: {
       order_number: payload.order_number,
       order_items: payload.order_items,
     });
+    if (response && response.success === false) {
+      throw new Error(response.message || "Failed to unassign packer items");
+    }
     return response;
   } catch (err) {
     console.error("[Sync] Failed to unassign packer items via API:", err);

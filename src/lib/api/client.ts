@@ -93,6 +93,25 @@ function buildUrl(endpoint: string, params?: Record<string, string>): string {
  *   limit_page_length: "100",
  * });
  */
+function extractErrorMessage(response: Response, errorBody: any): string {
+  if (errorBody) {
+    if (typeof errorBody.message === "string" && errorBody.message.trim()) {
+      return errorBody.message;
+    }
+    if (errorBody.errors && typeof errorBody.errors === "object") {
+      const messages = Object.values(errorBody.errors)
+        .flat()
+        .filter(Boolean)
+        .join(", ");
+      if (messages) return messages;
+    }
+    if (typeof errorBody.error === "string" && errorBody.error.trim()) {
+      return errorBody.error;
+    }
+  }
+  return `ERPNext API Error (${response.status}): ${response.statusText}`;
+}
+
 async function get<T = unknown>(endpoint: string, params?: Record<string, string>): Promise<T> {
   const url = buildUrl(endpoint, params);
 
@@ -105,7 +124,7 @@ async function get<T = unknown>(endpoint: string, params?: Record<string, string
     const errorBody = await response.json().catch(() => null);
     throw new ApiError(
       response.status,
-      `ERPNext API Error (${response.status}): ${response.statusText}`,
+      extractErrorMessage(response, errorBody),
       errorBody,
     );
   }
@@ -136,7 +155,7 @@ async function post<T = unknown>(endpoint: string, body: unknown): Promise<T> {
     const errorBody = await response.json().catch(() => null);
     throw new ApiError(
       response.status,
-      `ERPNext API Error (${response.status}): ${response.statusText}`,
+      extractErrorMessage(response, errorBody),
       errorBody,
     );
   }
@@ -165,7 +184,7 @@ async function put<T = unknown>(endpoint: string, body: unknown): Promise<T> {
     const errorBody = await response.json().catch(() => null);
     throw new ApiError(
       response.status,
-      `ERPNext API Error (${response.status}): ${response.statusText}`,
+      extractErrorMessage(response, errorBody),
       errorBody,
     );
   }
@@ -191,7 +210,7 @@ async function del<T = unknown>(endpoint: string): Promise<T> {
     const errorBody = await response.json().catch(() => null);
     throw new ApiError(
       response.status,
-      `ERPNext API Error (${response.status}): ${response.statusText}`,
+      extractErrorMessage(response, errorBody),
       errorBody,
     );
   }

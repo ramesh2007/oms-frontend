@@ -24,9 +24,15 @@
  * ╚═══════════════════════════════════════════════════════════════════════════════╝
  */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { ordersApi } from "@/lib/api";
 import type { Order, EnrichedOrder } from "@/lib/orders";
+import type {
+  ScheduledOrderItem,
+  ScheduledItemsResponse,
+  ApiInstallationLocation,
+  ApiInstallationTeam,
+} from "@/lib/api/services";
 
 // ─── Query Keys ──────────────────────────────────────────────────────────
 // These are unique "labels" for each type of data.
@@ -82,6 +88,7 @@ export interface PaginationMeta {
 export interface OrdersByStatusResult {
   orders: Order[];
   pagination: PaginationMeta;
+  statusFilter?: string;
   rawData?: any;
 }
 
@@ -109,11 +116,20 @@ export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
       return {
         orders: mappedOrders,
         pagination,
+        statusFilter: statusName,
         rawData: res,
       };
     },
-    staleTime: 10 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    placeholderData: (previousData, previousQuery) => {
+      // Only keep previous data if we are paginating within the EXACT same status!
+      // If the user clicked a different tab (statusName changed), do NOT show previous status data!
+      if (previousQuery?.queryKey?.[2] === statusName) {
+        return previousData;
+      }
+      return undefined;
+    },
     refetchInterval: 15 * 1000,
     refetchOnWindowFocus: true,
   });
@@ -161,6 +177,72 @@ export function useFlaggedItems() {
     queryKey: [...orderKeys.all, "flagged-items"] as const,
     queryFn: () => ordersApi.fetchFlaggedItems(),
     staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Hook to fetch installation orders from /api/orders/status/installation or /api/orders/installation
+ */
+export function useInstallationOrders(page = 1, perPage = 15) {
+  return useOrdersByStatus("installation", page, perPage);
+}
+
+/**
+ * Hook to fetch installation items from /api/orders/status/installation-items or /api/orders/installation-items
+ */
+export function useInstallationItems() {
+  return useQuery<any, Error>({
+    queryKey: [...orderKeys.all, "installation-items"] as const,
+    queryFn: () => ordersApi.fetchInstallationItems(),
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Hook to fetch cancelled delivery orders from /api/orders/status/cancelled-delivery or /api/orders/cancelled-delivery
+ */
+export function useCancelledDeliveryOrders(page = 1, perPage = 15) {
+  return useOrdersByStatus("cancelled-delivery", page, perPage);
+}
+
+/**
+ * Hook to fetch scheduled order items from /api/admin/orders/scheduled-items
+ */
+export function useScheduledItems(params?: {
+  is_scheduled_assigned?: boolean | string | number;
+  page?: number;
+  per_page?: number;
+}) {
+  return useQuery<ScheduledItemsResponse, Error>({
+    queryKey: [...orderKeys.all, "scheduled-items", params] as const,
+    queryFn: () => ordersApi.fetchScheduledItems(params),
+    staleTime: 10 * 1000,
+  });
+}
+
+// ─── useInstallationLocations ───────────────────────────────────────────
+
+/**
+ * Hook to fetch installation locations from /api/admin/installation/locations
+ */
+export function useInstallationLocations() {
+  return useQuery<ApiInstallationLocation[], Error>({
+    queryKey: [...orderKeys.all, "installation", "locations"] as const,
+    queryFn: () => ordersApi.fetchInstallationLocations(),
+    staleTime: 60 * 1000,
+  });
+}
+
+// ─── useInstallationTeams ───────────────────────────────────────────────
+
+/**
+ * Hook to fetch installation teams/technicians from /api/admin/installation/teams/{locationId?}
+ */
+export function useInstallationTeams(locationId?: string | number | null) {
+  return useQuery<ApiInstallationTeam[], Error>({
+    queryKey: [...orderKeys.all, "installation", "teams", locationId ? String(locationId) : "all"] as const,
+    queryFn: () => ordersApi.fetchInstallationTeams(locationId),
+    staleTime: 60 * 1000,
   });
 }
 

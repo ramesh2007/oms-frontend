@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from "react";
+import { Zap } from "lucide-react";
 import { LEGACY_TABS, type LegacyTabId, type LegacyTab } from "@/lib/orders";
 import { cn } from "@/lib/utils";
 
@@ -114,6 +115,17 @@ export function OrdersTabs({
             {/* Active indicator dot */}
             {isActive && (
               <span className="absolute -top-0.5 left-1/2 h-0.5 w-4 -translate-x-1/2 rounded-full bg-primary-foreground/60" />
+            )}
+            {tab.id === "Express" && (
+              <Zap
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
+                  isActive
+                    ? "fill-primary-foreground text-primary-foreground"
+                    : "fill-amber-500 text-amber-500",
+                )}
+                aria-hidden
+              />
             )}
             <span>{tab.label}</span>
             <span

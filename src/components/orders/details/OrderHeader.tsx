@@ -66,6 +66,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { StatusBadge } from "@/components/orders/StatusBadge";
 import { PrintInvoiceDialog } from "../PrintInvoiceDialog";
 import { useState, useEffect } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { getOrderItemsCount, type EnrichedOrder, isUnpaidPayLaterOrder } from "@/lib/orders";
 import { useQueryClient } from "@tanstack/react-query";
 import { orderKeys } from "@/hooks/useOrders";
@@ -94,6 +95,7 @@ const INITIAL_CONFIRM: ConfirmState = {
 };
 
 export function OrderHeader({ order }: { order: EnrichedOrder }) {
+  const navigate = useNavigate();
   const [printOpen, setPrintOpen] = useState(false);
   const [giftPrintOpen, setGiftPrintOpen] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState>(INITIAL_CONFIRM);
@@ -181,8 +183,8 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
       await actionFn();
       toast.success(`${actionName} completed successfully`);
       queryClient.invalidateQueries({ queryKey: orderKeys.all });
-    } catch (err) {
-      toast.error(`Failed to perform action: ${actionName}`);
+    } catch (err: any) {
+      toast.error(err?.message || `Failed to perform action: ${actionName}`);
       console.error(err);
     } finally {
       setActionsLoading(false);
@@ -219,7 +221,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
           <div className="flex flex-col gap-3">
             <div>
               {(() => {
-                const rawNum = order.shopifyOrderId || order.orderNumber || order.id;
+                const rawNum = order.orderNumber || order.id || order.shopifyOrderId;
                 const cleanNum = String(rawNum).replace(/^#+/, "");
                 return (
                   <>
@@ -357,9 +359,12 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                                       "The currently assigned picker will be removed. The order will remain in its current status but become unassigned.",
                                       "Reset Assignment",
                                       () => handleAction("Reset Picker Assignment", async () => {
-                                        const allItemIds = order.itemsList.map((i) => i.id);
-                                        await ordersApi.unassignPickerItems(order.id, allItemIds);
-                                        await ordersApi.assignPicker(order.id, "");
+                                        const allItemIds = order.itemsList?.map((i) => i.id) || [];
+                                        const res = await ordersApi.orderWisePickerUnassign(order.id, allItemIds);
+                                        if (res && res.success === false) {
+                                          throw new Error(res.message || "Failed to unassign picker");
+                                        }
+                                        navigate({ to: "/orders", search: { tab: "New" } as any });
                                       })
                                     )
                                   }
@@ -406,8 +411,11 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                                       "Reset Assignment",
                                       () => handleAction("Reset Packer Assignment", async () => {
                                         const allItemIds = order.itemsList.map((i) => i.id);
-                                        await ordersApi.unassignPackerItems(order.id, allItemIds);
-                                        await ordersApi.assignPacker(order.id, "");
+                                        const res = await ordersApi.unassignPackerItems(order.id, allItemIds);
+                                        if (res && res.success === false) {
+                                          throw new Error(res.message || "Failed to unassign packer");
+                                        }
+                                        navigate({ to: "/orders", search: { tab: "Picked" } as any });
                                       })
                                     )
                                   }
@@ -428,9 +436,11 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                                       "Rollback",
                                       () => handleAction("Rollback to Picked", async () => {
                                         const allItemIds = order.itemsList.map((i) => i.id);
-                                        await ordersApi.unassignPackerItems(order.id, allItemIds);
-                                        await ordersApi.updateOrderStatus(order.id, "Picked");
-                                        await ordersApi.assignPacker(order.id, "");
+                                        const res = await ordersApi.unassignPackerItems(order.id, allItemIds);
+                                        if (res && res.success === false) {
+                                          throw new Error(res.message || "Failed to rollback order");
+                                        }
+                                        navigate({ to: "/orders", search: { tab: "Picked" } as any });
                                       })
                                     )
                                   }
@@ -738,6 +748,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   toast.error("Please select at least one item to assign");
                   return;
                 }
+                setOverrideOpen(false);
                 handleAction("Force to Picking", async () => {
                   const pickerObj = (pickersList.length > 0 ? pickersList : users).find(
                     (p) => p.id === selectedPicker || p.email === selectedPicker || p.name === selectedPicker
@@ -749,16 +760,17 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                     ? (pickerObj.email || pickerObj.name)
                     : selectedPicker;
 
-                  await ordersApi.assignPickerItems(
+                  const res = await ordersApi.assignPickerItems(
                     order.id,
                     pickerId !== null ? pickerId : selectedPicker,
                     selectedPickerItems,
                     pickerName
                   );
-                  await ordersApi.updateOrderStatus(order.id, "Picking");
-                  await ordersApi.assignPicker(order.id, selectedPicker);
+                  if (res && res.success === false) {
+                    throw new Error(res.message || "Failed to assign picker");
+                  }
+                  navigate({ to: "/orders", search: { tab: "Picking" } as any });
                 });
-                setOverrideOpen(false);
               }}
               disabled={!selectedPicker || selectedPickerItems.length === 0 || actionsLoading}
               className="rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/95 transition-all shadow-md"
@@ -880,16 +892,18 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   toast.error("Please select at least one item to assign");
                   return;
                 }
+                setPackingOverrideOpen(false);
                 handleAction("Force to Packing", async () => {
                   const packerObj = packersList.find((p) => p.id === selectedPacker || p.email === selectedPacker || p.name === selectedPacker);
                   const packerId = packerObj ? packerObj.id : selectedPacker;
                   const packerName = packerObj ? packerObj.name : selectedPacker;
 
-                  await ordersApi.assignPackerItems(order.id, packerId, selectedPackerItems, packerName);
-                  await ordersApi.updateOrderStatus(order.id, "Packing");
-                  await ordersApi.assignPacker(order.id, selectedPacker);
+                  const res = await ordersApi.assignPackerItems(order.id, packerId, selectedPackerItems, packerName);
+                  if (res && res.success === false) {
+                    throw new Error(res.message || "Failed to assign packer");
+                  }
+                  navigate({ to: "/orders", search: { tab: "Packing" } as any });
                 });
-                setPackingOverrideOpen(false);
               }}
               disabled={!selectedPacker || selectedPackerItems.length === 0 || actionsLoading}
               className="rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/95 transition-all shadow-md"
@@ -960,14 +974,23 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
             </Button>
             <Button
               onClick={() => {
+                setAdjustDriverOpen(false);
                 handleAction("Adjust Driver Status", async () => {
                   await ordersApi.assignDriver(order.id, driverNameInput);
                   await ordersApi.updateDriverStatus(order.id, selectedDriverStatus === "None" ? "" : selectedDriverStatus);
                   if (selectedDriverStatus !== "None" && selectedDriverStatus !== "Ready to Assign") {
                     await ordersApi.updateOrderStatus(order.id, selectedDriverStatus);
                   }
+                  const targetTab =
+                    selectedDriverStatus === "Delivered"
+                      ? "Delivered"
+                      : selectedDriverStatus === "Started" || selectedDriverStatus === "Driver Accepted"
+                      ? "In Delivery"
+                      : selectedDriverStatus === "Ready to Assign"
+                      ? "Ready to Assign"
+                      : "In Delivery";
+                  navigate({ to: "/orders", search: { tab: targetTab } as any });
                 });
-                setAdjustDriverOpen(false);
               }}
               disabled={actionsLoading}
               className="rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/95 transition-all shadow-md"
@@ -1126,14 +1149,15 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               }
               onClick={() => {
                 const reason = bypassReasonType === "Other" ? bypassReasonText.trim() : bypassReasonType;
+                setBypassOpen(false);
                 handleAction("Bypass Warehouse", async () => {
                   await ordersApi.updateOrderStatus(order.id, "Ready to Assign");
                   // Audit log entry
                   console.info(
                     `[AUDIT] Warehouse Bypassed | Order: ${order.id} | Reason Type: ${bypassReasonType} | Reason: ${reason} | Timestamp: ${new Date().toISOString()}`
                   );
+                  navigate({ to: "/orders", search: { tab: "Ready to Assign" } as any });
                 });
-                setBypassOpen(false);
               }}
               className="rounded-lg bg-amber-600 text-white font-semibold hover:bg-amber-700 transition-all shadow-md dark:bg-amber-600 dark:hover:bg-amber-700"
             >
@@ -1204,6 +1228,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
             <Button
               disabled={!selectedSendDriver || actionsLoading}
               onClick={() => {
+                setSendToDriverOpen(false);
                 handleAction("Send to Driver", async () => {
                   const timestamp = new Date().toISOString();
                   const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -1231,8 +1256,8 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                     type: "driver_assigned",
                   });
                   localStorage.setItem("hm_custom_timeline_events", JSON.stringify(customEvents));
+                  navigate({ to: "/orders", search: { tab: "In Delivery" } as any });
                 });
-                setSendToDriverOpen(false);
               }}
               className="rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-all shadow-md dark:bg-blue-600 dark:hover:bg-blue-700"
             >
@@ -1338,6 +1363,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               }
               onClick={() => {
                 const reason = cancelReason.trim();
+                setCancelAllocationOpen(false);
                 handleAction("Cancel Allocation", async () => {
                   const timestamp = new Date().toISOString();
                   const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -1379,8 +1405,8 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                     type: "cancelled",
                   });
                   localStorage.setItem("hm_custom_timeline_events", JSON.stringify(customEvents));
+                  navigate({ to: "/orders", search: { tab: "New" } as any });
                 });
-                setCancelAllocationOpen(false);
               }}
               className="rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold transition-all shadow-md"
             >

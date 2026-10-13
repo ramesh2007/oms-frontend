@@ -1,15 +1,23 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  
-  # Rule for RouteMyOrder App
-  RewriteCond %{REQUEST_URI} ^/demo/order-management/route-my-order/
-  RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^(.*)$ /demo/order-management/route-my-order/index.html [L]
+  RewriteBase /
 
-  # Rule for Admin Dashboard App
-  RewriteCond %{REQUEST_URI} ^/demo/order-management/
+  # 1. RouteMyOrder Sub-App (if present)
+  RewriteCond %{REQUEST_URI} ^/demo/order-management/route-my-order/ [NC,OR]
+  RewriteCond %{REQUEST_URI} ^/route-my-order/ [NC]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^(.*)$ /demo/order-management/index.html [L]
+  RewriteRule ^(.*)$ route-my-order/index.html [L]
+
+  # 2. Existing files and directories: serve directly
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # 3. Subfolder deployment under /demo/order-management/
+  RewriteCond %{REQUEST_URI} ^/demo/order-management/ [NC]
+  RewriteRule ^ /demo/order-management/index.html [L]
+
+  # 4. Universal SPA Fallback: Rewrite all other requests to index.html
+  RewriteRule ^ index.html [L]
 </IfModule>

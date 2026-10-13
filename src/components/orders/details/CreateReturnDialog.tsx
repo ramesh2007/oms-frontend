@@ -8,6 +8,7 @@ import type { EnrichedOrder, OrderReturn } from "@/lib/orders";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { updateSharedOrder, broadcastChange } from "@/lib/sync";
+import { createReturnReplacement } from "@/lib/api/services";
 import { toast } from "sonner";
 
 export function CreateReturnDialog({
@@ -59,6 +60,18 @@ export function CreateReturnDialog({
       o.returns = { type: "Return" as const, count: totalReturnCount };
     });
     broadcastChange();
+
+    // Trigger API in backend
+    createReturnReplacement({
+      order_id: order.id,
+      order_number: order.id,
+      type: actionType === "refund" ? "return" : "replacement",
+      items: newReturnItems,
+      reason: reason || undefined,
+      notes: notes || undefined,
+    }).catch((err) => {
+      console.warn("[CreateReturnDialog] Failed to persist return/replacement to backend:", err);
+    });
 
     toast.success(
       `${newReturnItems.length} return item${newReturnItems.length > 1 ? "s" : ""} created successfully.`,

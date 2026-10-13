@@ -105,7 +105,7 @@ export function mapErpNextItemToRmoItem(item) {
 /**
  * Translates one raw ERPNext Sales Order -> RouteMyOrder Order Object
  */
-export function mapErpNextToRmoOrder(raw: any) {
+export function mapErpNextToRmoOrder(raw) {
   console.log("========================================");
   console.log("RAW ERPNext ORDER");
   console.log(raw);
@@ -126,13 +126,13 @@ export function mapErpNextToRmoOrder(raw: any) {
     : "5/20/2026 • 08:11 AM";
 
   const tags = raw.custom_tags
-    ? raw.custom_tags.split(",").map((t: string) => t.trim())
+    ? raw.custom_tags.split(",").map((t) => t.trim())
     : [];
 
   // Calculate total quantity from Shopify line_items
   const itemCount = Array.isArray(raw.line_items)
     ? raw.line_items.reduce(
-        (sum: number, item: any) => sum + (item.quantity ?? item.qty ?? 0),
+        (sum, item) => sum + (item.quantity ?? item.qty ?? 0),
         0
       )
     : 0;

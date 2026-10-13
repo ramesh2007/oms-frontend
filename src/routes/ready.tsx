@@ -2,13 +2,15 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppSidebar } from "@/components/dashboard/AppSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
 import { OrderTable } from "@/components/orders/OrderTable";
-import { type Order } from "@/lib/orders";
+import { toEnrichedOrder, type Order } from "@/lib/orders";
 import { useOrdersByStatus } from "@/hooks/useOrders";
 import { PaginationControls } from "@/components/orders/PaginationControls";
 import { useState } from "react";
 import { BulkActionBar } from "@/components/orders/BulkActionBar";
 import { AssignDriverDialog } from "@/components/orders/AssignDriverDialog";
 import { AssignZoneDialog } from "@/components/orders/AssignZoneDialog";
+import { PrintInvoiceDialog } from "@/components/orders/PrintInvoiceDialog";
+import { ViewExportDialog } from "@/components/orders/ViewExportDialog";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/ready")({
@@ -26,6 +28,9 @@ function ReadyPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [zoneDialogOpen, setZoneDialogOpen] = useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [giftPrintDialogOpen, setGiftPrintDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const { data: statusResult, isLoading: loading } = useOrdersByStatus("ready-to-assign", currentPage, 15);
   const orders = statusResult?.orders || [];
@@ -90,6 +95,27 @@ function ReadyPage() {
             onClear={() => setSelectedIds(new Set())}
             onAssignZone={() => setZoneDialogOpen(true)}
             onAssignDriver={() => setDriverDialogOpen(true)}
+            onPrintInvoices={() => {
+              if (selectedIds.size === 0) {
+                toast.error("Please select at least one order to print");
+                return;
+              }
+              setPrintDialogOpen(true);
+            }}
+            onPrintGiftInvoices={() => {
+              if (selectedIds.size === 0) {
+                toast.error("Please select at least one order to print gift invoice");
+                return;
+              }
+              setGiftPrintDialogOpen(true);
+            }}
+            onViewExport={() => {
+              if (selectedIds.size === 0) {
+                toast.error("Please select at least one order to export");
+                return;
+              }
+              setExportDialogOpen(true);
+            }}
           />
 
           <AssignZoneDialog
@@ -110,6 +136,23 @@ function ReadyPage() {
               toast.success(`Assigned driver ${driver} to ${selectedIds.size} order(s)`);
               setSelectedIds(new Set());
             }}
+          />
+          <PrintInvoiceDialog
+            open={printDialogOpen}
+            onOpenChange={setPrintDialogOpen}
+            orders={orders.filter((o) => selectedIds.has(o.id)).map(toEnrichedOrder)}
+          />
+          <PrintInvoiceDialog
+            open={giftPrintDialogOpen}
+            onOpenChange={setGiftPrintDialogOpen}
+            orders={orders.filter((o) => selectedIds.has(o.id)).map(toEnrichedOrder)}
+            isGift
+          />
+          <ViewExportDialog
+            open={exportDialogOpen}
+            onOpenChange={setExportDialogOpen}
+            orders={orders.filter((o) => selectedIds.has(o.id)).map(toEnrichedOrder)}
+            activeTab="Ready to Assign"
           />
         </main>
       </div>
