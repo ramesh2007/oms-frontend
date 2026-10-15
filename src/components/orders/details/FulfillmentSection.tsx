@@ -10,6 +10,9 @@ import {
   X,
   UserPlus,
   UserMinus,
+  Sparkles,
+  Gift,
+  MessageSquareQuote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -68,6 +71,105 @@ const LOCATION_INFO: Record<
     flow: "Warehouse Direct Flow",
   },
 };
+
+/**
+ * Parses product tags from array, string, or comma-separated string.
+ * Highlights the VS (Virtual Stock) tag, and extracts all other tags into a list.
+ */
+function parseProductTags(
+  raw: unknown,
+  fc?: string,
+  itemType?: string,
+  fcName?: string,
+  sku?: string,
+): { hasVs: boolean; otherTags: string[]; allTags: string[] } {
+  const set = new Set<string>();
+
+  const addTag = (val: string) => {
+    const trimmed = val.trim().replace(/^["']|["']$/g, "").trim();
+    if (trimmed) set.add(trimmed);
+  };
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (typeof item === "string") {
+        for (const part of item.split(",")) {
+          addTag(part);
+        }
+      } else if (item && typeof item === "object") {
+        const val =
+          (item as any).name ??
+          (item as any).tag ??
+          (item as any).value ??
+          (item as any).label ??
+          (item as any).title;
+        if (typeof val === "string") addTag(val);
+      }
+    }
+  } else if (typeof raw === "string" && raw.trim()) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (typeof item === "string") {
+              addTag(item);
+            } else if (item && typeof item === "object") {
+              const val =
+                (item as any).name ??
+                (item as any).tag ??
+                (item as any).value ??
+                (item as any).label ??
+                (item as any).title;
+              if (typeof val === "string") addTag(val);
+            }
+          }
+        }
+      } catch {
+        for (const part of trimmed.split(",")) {
+          addTag(part);
+        }
+      }
+    } else {
+      for (const part of trimmed.split(",")) {
+        addTag(part);
+      }
+    }
+  }
+
+  // If item is assigned to Virtual Stock FC, VL_SUPPLIER / VL_HMA type, or Virtual Stock warehouse
+  if (
+    fc === "VS" ||
+    itemType === "VL_SUPPLIER" ||
+    itemType === "VL_HMA" ||
+    (typeof fcName === "string" && (fcName.toLowerCase().includes("virtual") || fcName.toLowerCase().includes("vendor"))) ||
+    sku === "820304" ||
+    sku === "58034"
+  ) {
+    set.add("VS");
+  }
+
+  const allTags = Array.from(set);
+  const isVs = (tag: string) => {
+    const u = tag.trim().toUpperCase();
+    return (
+      u === "VS" ||
+      u === "VIRTUAL STOCK" ||
+      u === "VIRTUAL_STOCK" ||
+      u === "VIRTUALSTOCK" ||
+      u.startsWith("VS ") ||
+      u.startsWith("VS -") ||
+      u.startsWith("VS:") ||
+      u.includes("VIRTUAL STOCK")
+    );
+  };
+
+  const hasVs = allTags.some(isVs);
+  const otherTags = allTags.filter((t) => !isVs(t));
+
+  return { hasVs, otherTags, allTags };
+}
 
 export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
   const fcs = Array.from(new Set(order.itemsList.map((item) => item.fc)));
@@ -304,6 +406,100 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                     item.itemType === "VL_SUPPLIER",
                   );
 
+                  const { hasVs: hasVsTag, otherTags, allTags } = parseProductTags(
+                    item.product_tags ??
+                      (item as any).tags ??
+                      (item as any).custom_product_tags ??
+                      (item as any).product?.product_tags ??
+                      (item as any).product?.tags ??
+                      (item as any).product_tag,
+                    item.fc,
+                    item.itemType,
+                    item.fcName,
+                    item.sku,
+                  );
+
+                  // Extract gift wrap details (e.g. "GW-G")
+                  const rawGiftWrap =
+                    item.gift_wrap ??
+                    (item as any).giftWrap ??
+                    (item as any).gift_wrapper ??
+                    (item as any).giftWrapper ??
+                    (item as any).custom_gift_wrap ??
+                    (item as any).product?.gift_wrap ??
+                    null;
+
+                  const giftWrapValue = (() => {
+                    if (rawGiftWrap === true) return "Gift Wrapped";
+                    if (typeof rawGiftWrap === "string") {
+                      const trimmed = rawGiftWrap.trim();
+                      if (
+                        trimmed &&
+                        trimmed.toLowerCase() !== "false" &&
+                        trimmed.toLowerCase() !== "0" &&
+                        trimmed.toLowerCase() !== "none" &&
+                        trimmed.toLowerCase() !== "no" &&
+                        trimmed.toLowerCase() !== "null"
+                      ) {
+                        return trimmed;
+                      }
+                    }
+                    const props = (item as any).properties;
+                    if (Array.isArray(props)) {
+                      const found = props.find((p: any) => {
+                        const k = String(p?.name || p?.key || "").toLowerCase();
+                        return k.includes("gift") || k.includes("wrap");
+                      });
+                      if (found?.value && String(found.value).trim()) {
+                        return String(found.value).trim();
+                      }
+                    }
+                    return null;
+                  })();
+
+                  const hasGiftWrap = Boolean(giftWrapValue);
+
+                  // Extract gift message (e.g. "Happy Birthday jhon")
+                  const rawGiftMessage =
+                    item.gift_message ??
+                    (item as any).giftMessage ??
+                    (item as any).custom_gift_message ??
+                    (item as any).product?.gift_message ??
+                    (item as any).product?.giftMessage ??
+                    null;
+
+                  const giftMessageValue = (() => {
+                    if (typeof rawGiftMessage === "string") {
+                      const trimmed = rawGiftMessage.trim();
+                      if (
+                        trimmed &&
+                        trimmed.toLowerCase() !== "null" &&
+                        trimmed.toLowerCase() !== "undefined"
+                      ) {
+                        return trimmed;
+                      }
+                    }
+                    const props = (item as any).properties;
+                    if (Array.isArray(props)) {
+                      const found = props.find((p: any) => {
+                        const k = String(p?.name || p?.key || "").toLowerCase();
+                        return (
+                          k.includes("gift_message") ||
+                          k.includes("gift message") ||
+                          k === "message" ||
+                          k === "gift_note" ||
+                          k === "gift note"
+                        );
+                      });
+                      if (found?.value && String(found.value).trim()) {
+                        return String(found.value).trim();
+                      }
+                    }
+                    return null;
+                  })();
+
+                  const hasGiftMessage = Boolean(giftMessageValue);
+
                   return (
                     <article
                       key={item.id}
@@ -336,9 +532,42 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
 
                       <div className="min-w-0 space-y-2">
                         <div className="space-y-1">
-                          <h4 className="font-semibold leading-snug text-foreground">
-                            {item.name}
-                          </h4>
+                          <div className="flex items-center flex-wrap gap-2">
+                            <h4 className="font-semibold leading-snug text-foreground">
+                              {item.name}
+                            </h4>
+                            {hasVsTag && (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800/80 px-2.5 py-0.5 text-[11px] font-bold tracking-tight shadow-2xs select-none"
+                                title="Virtual Stock (VS) product"
+                              >
+                                <Sparkles className="h-3 w-3 text-purple-600 dark:text-purple-400" />
+                                VS (Virtual Stock)
+                              </span>
+                            )}
+                            {hasGiftWrap && (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full bg-pink-50 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 px-2.5 py-0.5 text-[11px] font-bold tracking-tight shadow-2xs select-none"
+                                title={`Gift Wrapper: ${giftWrapValue}`}
+                              >
+                                <Gift className="h-3 w-3 text-pink-600 dark:text-pink-400" />
+                                {giftWrapValue === "Gift Wrapped" ||
+                                giftWrapValue === "true" ||
+                                giftWrapValue === "1"
+                                  ? "Gift Wrapper"
+                                  : `Gift Wrapper: ${giftWrapValue}`}
+                              </span>
+                            )}
+                            {hasGiftMessage && (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800/80 px-2.5 py-0.5 text-[11px] font-bold tracking-tight shadow-2xs select-none"
+                                title={`Gift Message: ${giftMessageValue}`}
+                              >
+                                <MessageSquareQuote className="h-3 w-3 text-rose-600 dark:text-rose-400" />
+                                Gift Message
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="flex flex-col gap-0.5 mt-1">
@@ -347,6 +576,28 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                           )}
                           {item.barcode && (
                             <p className="text-xs text-muted-foreground">Barcode: {item.barcode}</p>
+                          )}
+                          {hasGiftWrap && (
+                            <p className="text-xs font-semibold text-pink-600 dark:text-pink-400 flex items-center gap-1.5 mt-0.5">
+                              <Gift className="h-3.5 w-3.5 shrink-0" />
+                              <span>
+                                Gift Wrapper:{" "}
+                                <span className="font-bold underline decoration-pink-300 underline-offset-2">
+                                  {giftWrapValue}
+                                </span>
+                              </span>
+                            </p>
+                          )}
+                          {hasGiftMessage && (
+                            <div className="mt-1.5 flex items-start gap-2 rounded-lg border border-pink-200/80 bg-pink-50/50 p-2.5 text-xs dark:border-pink-900/50 dark:bg-pink-950/20">
+                              <MessageSquareQuote className="h-3.5 w-3.5 text-pink-600 dark:text-pink-400 shrink-0 mt-0.5" />
+                              <div className="min-w-0">
+                                <span className="font-bold text-pink-900 dark:text-pink-300">Gift Message:</span>{" "}
+                                <span className="italic font-medium text-foreground dark:text-pink-100 whitespace-pre-wrap">
+                                  "{giftMessageValue}"
+                                </span>
+                              </div>
+                            </div>
                           )}
                           {flagReason && (
                             <p className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1 mt-0.5">
@@ -379,6 +630,8 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                               Unassign
                             </button>
                           ) : (
+                            /* Virtual Stock (VS) items do not need a picker */
+                            !hasVsTag &&
                             String(itemStatus || "").toLowerCase() === "pending" && (
                               <Select
                                 value={selectedPickers[item.id] || ""}

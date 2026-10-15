@@ -37,12 +37,19 @@ function resolveDynamicRouting(itemsList: any[]): any[] {
     if (prod) {
       if (prod.fulfillmentType === "VS") {
         const vendor = vendorMap.get(prod.locationId);
+        const tags = Array.isArray(item.product_tags)
+          ? item.product_tags
+          : typeof item.product_tags === "string"
+            ? [item.product_tags]
+            : [];
+        const hasVs = tags.some((t: string) => String(t).toUpperCase().includes("VS"));
         return {
           ...item,
           fc: "VL_HMA",
           itemType: "VL_HMA",
           locationId: prod.locationId,
           fcName: vendor ? `${vendor.vendorName} - ${vendor.locationName}` : "Vendor Location",
+          product_tags: hasVs ? tags : ["VS", ...tags],
         };
       } else {
         return {
@@ -153,7 +160,24 @@ export function getSharedOrders(): Order[] {
       const orders = JSON.parse(raw) as Order[];
       return orders.map((order) => {
         const total = getMockOrderTotal(order.id, order.items, order.payment);
-        const rawItems = order.itemsList || getMockOrderItems(order.id, order.items);
+        const mockDefaults = getMockOrderItems(order.id, order.items);
+        const rawItems = (order.itemsList && order.itemsList.length > 0)
+          ? order.itemsList.map((item, idx) => {
+              const matchingMock = mockDefaults.find((m) => m.id === item.id || m.sku === item.sku) || mockDefaults[idx];
+              return {
+                ...item,
+                product_tags:
+                  item.product_tags ??
+                  (item as any).tags ??
+                  (item as any).custom_product_tags ??
+                  (item as any).product?.product_tags ??
+                  (item as any).product?.tags ??
+                  (item as any).product_tag ??
+                  matchingMock?.product_tags ??
+                  null,
+              };
+            })
+          : mockDefaults;
         return {
           ...order,
           total,

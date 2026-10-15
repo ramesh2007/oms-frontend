@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Filter } from "lucide-react";
+import { Filter, User, Search, AlertCircle, ArrowRight, CheckCircle2, X } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,10 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   countForLegacyTab,
   matchesLegacyTab,
   matchesSearch,
+  getOrderPrimaryTab,
+  getCustomerOrdersBreakdown,
   LEGACY_TABS,
   parseTatHours,
   toEnrichedOrder,
@@ -20,7 +24,10 @@ import {
   type LegacyTabId,
   type Order,
   type EnrichedOrder,
+  type CustomerStageSummary,
 } from "@/lib/orders";
+import { getSharedOrders } from "@/lib/sync";
+import { ordersApi } from "@/lib/api";
 import {
   useOrders,
   useOrdersByStatus,
@@ -101,7 +108,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     status: "All",
     paymentStatus: "All",
     customer: "",
+    orderId: "",
   });
+  const [showCrossTabOrders, setShowCrossTabOrders] = useState(false);
   
   const [sortColumn, setSortColumn] = useState<"id" | "date" | "customer" | "tat" | "total" | null>("tat");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
@@ -127,11 +136,13 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   useEffect(() => {
     setCurrentPage(1);
     setSelectedIds(new Set());
+    setShowCrossTabOrders(false);
   }, [activeTab]);
 
   // Prime status queries into queryClient so that clicking any tab has instantaneous data
   useEffect(() => {
-    if (!allOrders || allOrders.length === 0) return;
+    const sourceOrders = (allOrders && allOrders.length > 0) ? allOrders : getSharedOrders();
+    if (!sourceOrders || sourceOrders.length === 0) return;
 
     const tabsToPrime: { slug: string; tab: LegacyTabId }[] = [
       { slug: "all", tab: "All" },
@@ -151,8 +162,8 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     for (const { slug, tab } of tabsToPrime) {
       const queryKey = orderKeys.status(slug, 1);
       const existing = queryClient.getQueryData<OrdersByStatusResult>(queryKey);
-      if (!existing) {
-        const filteredOrders = tab === "All" ? allOrders : allOrders.filter((o) => matchesLegacyTab(o, tab));
+      if (!existing || !existing.orders || existing.orders.length === 0) {
+        const filteredOrders = tab === "All" ? sourceOrders : sourceOrders.filter((o) => matchesLegacyTab(o, tab));
         const total = filteredOrders.length;
         queryClient.setQueryData<OrdersByStatusResult>(queryKey, {
           orders: filteredOrders.slice(0, 15),
@@ -173,15 +184,89 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     }
   }, [allOrders, queryClient]);
 
+  // Background prefetch top tabs to ensure live server data is ready
+  useEffect(() => {
+    ["new", "picking", "ready-to-assign"].forEach((slug) => {
+      queryClient.prefetchQuery({
+        queryKey: orderKeys.status(slug, 1),
+        queryFn: () => ordersApi.fetchOrdersByStatus(slug, 1, 15),
+        staleTime: 30 * 1000,
+      });
+    });
+  }, [queryClient]);
+
+  const sourceOrders = useMemo(() => {
+    return (allOrders && allOrders.length > 0) ? allOrders : getSharedOrders();
+  }, [allOrders]);
+
+  const activeQuery = search.trim();
+  const activeCustomerFilter = filters.customer.trim();
+  const activeOrderIdFilter = filters.orderId.trim();
+  const isSearchActive = Boolean(activeQuery || activeCustomerFilter || activeOrderIdFilter);
+
+  // Global matching across all orders in the system regardless of tab
+  const globalMatchingOrders = useMemo(() => {
+    if (!isSearchActive) return EMPTY_ORDERS;
+    return sourceOrders.filter((o) => {
+      if (activeQuery && !matchesSearch(o, activeQuery)) return false;
+      if (activeOrderIdFilter) {
+        const cleanId = activeOrderIdFilter.replace(/^#/, "").toLowerCase();
+        const oId = (o.id || "").toLowerCase().replace(/^#/, "");
+        const oNum = (o.orderNumber || "").toLowerCase().replace(/^#/, "");
+        const idMatches = oId === cleanId || oNum === cleanId || oId.includes(cleanId) || oNum.includes(cleanId);
+        if (!idMatches) return false;
+      }
+      if (activeCustomerFilter) {
+        const cLower = activeCustomerFilter.toLowerCase();
+        const cMatches = (o.customer?.name || "").toLowerCase().includes(cLower) || (o.customer?.phone || "").includes(cLower);
+        if (!cMatches) return false;
+      }
+      return true;
+    });
+  }, [sourceOrders, isSearchActive, activeQuery, activeOrderIdFilter, activeCustomerFilter]);
+
+  // Breakdown of search matches per tab for smart tab badges
+  const searchTabCounts = useMemo(() => {
+    if (!isSearchActive) return null;
+    const counts = {} as Record<LegacyTabId, number>;
+    for (const tab of LEGACY_TABS) {
+      counts[tab.id] = globalMatchingOrders.filter((o) => matchesLegacyTab(o, tab.id)).length;
+    }
+    return counts;
+  }, [isSearchActive, globalMatchingOrders]);
+
+  // Orders matching search that exist outside the current activeTab
+  const otherStageOrders = useMemo(() => {
+    if (!isSearchActive) return EMPTY_ORDERS;
+    return globalMatchingOrders.filter((o) => !matchesLegacyTab(o, activeTab));
+  }, [isSearchActive, globalMatchingOrders, activeTab]);
+
+  // Multi-stage customer overview: breakdown of this customer's orders across each stage
+  const customerBreakdown = useMemo<CustomerStageSummary | null>(() => {
+    if (!isSearchActive) return null;
+    let custKey = activeCustomerFilter;
+    if (!custKey && globalMatchingOrders.length > 0) {
+      custKey = globalMatchingOrders[0].customer?.name || "";
+    }
+    if (!custKey && activeQuery) {
+      const directCust = sourceOrders.find((o) => (o.customer?.name || "").toLowerCase().includes(activeQuery.toLowerCase()));
+      if (directCust) {
+        custKey = directCust.customer.name;
+      }
+    }
+    if (!custKey) return null;
+    return getCustomerOrdersBreakdown(sourceOrders, custKey);
+  }, [isSearchActive, activeCustomerFilter, globalMatchingOrders, activeQuery, sourceOrders]);
+
   // 1. Instantly available orders from client in-memory cache for 0ms tab switching
   const instantTabOrders = useMemo(() => {
-    if (!allOrders || allOrders.length === 0) return EMPTY_ORDERS;
-    if (activeTab === "All") return allOrders;
+    if (!sourceOrders || sourceOrders.length === 0) return EMPTY_ORDERS;
+    if (activeTab === "All") return sourceOrders;
     if (activeTab === "Flags & Exceptions") {
-      return allOrders.filter((o) => o.status === "Flagged" || o.status === "Delivery Failed");
+      return sourceOrders.filter((o) => o.status === "Flagged" || o.status === "Delivery Failed");
     }
-    return allOrders.filter((o) => matchesLegacyTab(o, activeTab));
-  }, [allOrders, activeTab]);
+    return sourceOrders.filter((o) => matchesLegacyTab(o, activeTab));
+  }, [sourceOrders, activeTab]);
 
   const hasFreshServerDataForTab = Boolean(
     statusResult &&
@@ -193,7 +278,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
      (statusSlug === "express" && (statusResult.statusFilter === "express" || statusResult.statusFilter === "express_orders")))
   );
 
-  const rawTabOrders = hasFreshServerDataForTab ? (statusOrders ?? EMPTY_ORDERS) : instantTabOrders;
+  const rawTabOrders = (hasFreshServerDataForTab && statusOrders && statusOrders.length > 0)
+    ? statusOrders
+    : ((statusOrders && statusOrders.length > 0) ? statusOrders : instantTabOrders);
 
   // Apply any optimistic manual overrides (driver, zone)
   const tabOrders = useMemo(() => {
@@ -207,27 +294,43 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const baseOrders = useMemo(() => {
     let result = tabOrders;
 
-    if (search.trim()) {
-      result = result.filter((o) => matchesSearch(o, search));
+    if (activeQuery) {
+      result = result.filter((o) => matchesSearch(o, activeQuery));
     }
     
-    if (filters.customer.trim()) {
-      const cSearch = filters.customer.toLowerCase();
+    if (activeOrderIdFilter) {
+      const cleanId = activeOrderIdFilter.replace(/^#/, "").toLowerCase();
+      result = result.filter((o) => {
+        const oId = (o.id || "").toLowerCase().replace(/^#/, "");
+        const oNum = (o.orderNumber || "").toLowerCase().replace(/^#/, "");
+        return oId === cleanId || oNum === cleanId || oId.includes(cleanId) || oNum.includes(cleanId);
+      });
+    }
+
+    if (activeCustomerFilter) {
+      const cSearch = activeCustomerFilter.toLowerCase();
       result = result.filter((o) => o.customer.name.toLowerCase().includes(cSearch));
     }
 
+    // If 0 matches in current tab, but otherStageOrders exist and user wants to view them here:
+    if (result.length === 0 && otherStageOrders.length > 0 && showCrossTabOrders) {
+      result = otherStageOrders;
+    }
+
     const d = parseInt(days) || 1;
-    if (d < 30 && result.length > 2) {
+    if (d < 30 && result.length > 2 && !isSearchActive) {
        result = result.slice(0, Math.max(1, result.length - Math.floor((30 - d) / 2)));
     }
 
     return result;
-  }, [tabOrders, search, filters.customer, days]);
+  }, [tabOrders, activeQuery, activeOrderIdFilter, activeCustomerFilter, otherStageOrders, showCrossTabOrders, days, isSearchActive]);
+
+  const isShowingCrossTab = showCrossTabOrders && otherStageOrders.length > 0 && baseOrders === otherStageOrders;
 
   const filtered = useMemo(() => {
     let result = baseOrders;
-    // Only filter with matchesLegacyTab if we fell back to instantTabOrders (server endpoint is already pre-filtered)
-    if (!hasFreshServerDataForTab && activeTab !== "All" && activeTab !== "Flags & Exceptions") {
+    // Only filter with matchesLegacyTab if we fell back to instantTabOrders (and not showing cross-stage results)
+    if (!hasFreshServerDataForTab && activeTab !== "All" && activeTab !== "Flags & Exceptions" && !isShowingCrossTab) {
       result = result.filter((o) => matchesLegacyTab(o, activeTab));
     }
 
@@ -240,7 +343,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     }
     
     return result;
-  }, [baseOrders, hasFreshServerDataForTab, activeTab, filters.status]);
+  }, [baseOrders, hasFreshServerDataForTab, activeTab, filters.status, isShowingCrossTab]);
 
   const sortedFiltered = useMemo(() => {
     const result = [...filtered];
@@ -278,6 +381,20 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   }, [filtered, sortColumn, sortDirection]);
 
   const activePagination = useMemo<PaginationMeta>(() => {
+    if (isSearchActive) {
+      const total = filtered.length;
+      return {
+        current_page: 1,
+        per_page: 15,
+        total,
+        last_page: 1,
+        from: total > 0 ? 1 : 0,
+        to: total,
+        has_more_pages: false,
+        next_page_url: null,
+        prev_page_url: null,
+      };
+    }
     if (hasFreshServerDataForTab && statusResult?.pagination) {
       return statusResult.pagination;
     }
@@ -293,7 +410,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
       next_page_url: null,
       prev_page_url: null,
     };
-  }, [hasFreshServerDataForTab, statusResult?.pagination, instantTabOrders.length, currentPage]);
+  }, [isSearchActive, filtered.length, hasFreshServerDataForTab, statusResult?.pagination, instantTabOrders.length, currentPage]);
 
   const tabCounts = useMemo(() => {
     const counts = {} as Record<LegacyTabId, number>;
@@ -303,11 +420,27 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
       } else if (tab.id === activeTab && hasFreshServerDataForTab && statusResult?.pagination?.total !== undefined && activeTab !== "All") {
         counts[tab.id] = statusResult.pagination.total;
       } else {
-        counts[tab.id] = countForLegacyTab(allOrders, tab.id);
+        counts[tab.id] = countForLegacyTab(sourceOrders, tab.id);
       }
     }
     return counts;
-  }, [allOrders, flaggedResult, activeTab, hasFreshServerDataForTab, statusResult?.pagination?.total]);
+  }, [sourceOrders, flaggedResult, activeTab, hasFreshServerDataForTab, statusResult?.pagination?.total]);
+
+  const sheetMatchedOrder = useMemo(() => {
+    if (!filters.orderId?.trim()) return null;
+    const clean = filters.orderId.trim().replace(/^#/, "").toLowerCase();
+    return sourceOrders.find((o) => {
+      const oId = (o.id || "").toLowerCase().replace(/^#/, "");
+      const oNum = (o.orderNumber || "").toLowerCase().replace(/^#/, "");
+      return oId === clean || oNum === clean || oId.includes(clean) || oNum.includes(clean);
+    });
+  }, [filters.orderId, sourceOrders]);
+
+  const sheetCustomerBreakdown = useMemo(() => {
+    const custName = sheetMatchedOrder?.customer?.name || filters.customer?.trim();
+    if (!custName) return null;
+    return getCustomerOrdersBreakdown(sourceOrders, custName);
+  }, [sheetMatchedOrder, filters.customer, sourceOrders]);
 
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
@@ -384,7 +517,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     else if (action === "export") setExportDialogOpen(true);
   };
 
-  const showSkeleton = (isStatusLoading && filtered.length === 0 && allOrders.length === 0) || manualRefreshing;
+  const showSkeleton =
+    (isStatusLoading && filtered.length === 0 && allOrders.length === 0 && (!statusOrders || statusOrders.length === 0)) ||
+    manualRefreshing;
 
   return (
     <div className="space-y-4">
@@ -405,14 +540,175 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         <div className="min-w-0 flex-1 rounded-lg border border-border bg-card p-2">
           <OrdersTabs
             activeTab={activeTab}
-            onTabChange={setActiveTab}
+            onTabChange={(tab) => {
+              setActiveTab(tab);
+              setShowCrossTabOrders(false);
+            }}
             tabCounts={tabCounts}
+            searchActive={isSearchActive}
+            searchTabCounts={searchTabCounts}
           />
         </div>
         <div className="hidden shrink-0 md:block">
           <ViewToggle viewMode={viewMode} onViewModeChange={setViewMode} />
         </div>
       </div>
+
+      {/* Customer Multi-Stage Overview Ribbon */}
+      {customerBreakdown && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-3.5 shadow-soft transition-all animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-primary/10">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="h-7 w-7 rounded-lg bg-primary/15 grid place-items-center text-primary shrink-0">
+                <User className="h-4 w-4" />
+              </div>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-xs font-bold text-foreground">Customer:</span>
+                <span className="text-xs font-extrabold text-primary">{customerBreakdown.customerName}</span>
+                {customerBreakdown.customerPhone && (
+                  <span className="text-[11px] text-muted-foreground font-mono">({customerBreakdown.customerPhone})</span>
+                )}
+                <span className="text-xs text-muted-foreground ml-1">
+                  • <strong className="text-foreground">{customerBreakdown.totalOrders}</strong> total orders across stages:
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("All");
+                  setFilters((f) => ({ ...f, customer: customerBreakdown.customerName }));
+                  setShowCrossTabOrders(false);
+                }}
+                className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+              >
+                View all {customerBreakdown.totalOrders} in "All" Tab →
+              </button>
+              {filters.customer && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((f) => ({ ...f, customer: "" }))}
+                  className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-0.5 ml-2"
+                >
+                  <X className="h-3 w-3" /> Clear customer
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Stage Breakdown Chips */}
+          <div className="flex items-center gap-1.5 pt-2.5 overflow-x-auto scrollbar-none">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 mr-1">
+              Filter by Stage:
+            </span>
+            {customerBreakdown.stages.map((st) => {
+              const isCurrentActiveTab = activeTab === st.tab;
+              return (
+                <button
+                  key={st.tab}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(st.tab);
+                    if (!filters.customer) {
+                      setFilters((f) => ({ ...f, customer: customerBreakdown.customerName }));
+                    }
+                    setShowCrossTabOrders(false);
+                    toast.info(`Switched to "${st.label}" tab (${st.count} orders for ${customerBreakdown.customerName})`);
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-200 shrink-0 cursor-pointer shadow-xs",
+                    isCurrentActiveTab
+                      ? "bg-primary text-primary-foreground shadow-sm ring-2 ring-primary/20 scale-[1.02]"
+                      : "bg-background border border-border text-foreground hover:bg-muted hover:border-primary/40"
+                  )}
+                >
+                  <span>{st.label}</span>
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 py-0.2 text-[10px] font-bold tabular-nums",
+                      isCurrentActiveTab
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-muted text-foreground"
+                    )}
+                  >
+                    {st.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Cross-Tab Order Discovery Banner */}
+      {otherStageOrders.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 dark:bg-amber-500/15 p-4 shadow-soft transition-all animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <h4 className="text-xs sm:text-sm font-bold text-foreground">
+                  {otherStageOrders.length === 1 ? (
+                    <>
+                      Order <span className="font-mono text-primary font-bold">#{String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}</span> was found in the{" "}
+                      <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-extrabold bg-primary text-primary-foreground shadow-xs">
+                        {getOrderPrimaryTab(otherStageOrders[0])}
+                      </span>{" "}
+                      stage (not in active tab "{activeTab}")
+                    </>
+                  ) : (
+                    <>
+                      Found {otherStageOrders.length} matching order{otherStageOrders.length > 1 ? "s" : ""} in other stages ({Array.from(new Set(otherStageOrders.map((o) => getOrderPrimaryTab(o)))).join(", ")})
+                    </>
+                  )}
+                </h4>
+              </div>
+              <p className="text-xs text-muted-foreground ml-6">
+                {otherStageOrders.length === 1 ? (
+                  <>
+                    Customer: <strong className="text-foreground">{otherStageOrders[0].customer.name}</strong>
+                    {otherStageOrders[0].customer.phone && ` • Phone: ${otherStageOrders[0].customer.phone}`}
+                    {otherStageOrders[0].total && ` • Total: QAR ${otherStageOrders[0].total.toLocaleString()}`}
+                  </>
+                ) : (
+                  "Switch tabs or toggle below to view orders from other fulfillment stages."
+                )}
+              </p>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 shrink-0 ml-6 sm:ml-0">
+              {otherStageOrders.length === 1 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-primary hover:bg-primary/95 text-primary-foreground font-bold shadow-sm h-8 px-3 text-xs gap-1"
+                  onClick={() => {
+                    const target = getOrderPrimaryTab(otherStageOrders[0]);
+                    setActiveTab(target);
+                    setShowCrossTabOrders(false);
+                    toast.success(`Switched to "${target}" tab for order #${String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}`);
+                  }}
+                >
+                  <span>Switch to {getOrderPrimaryTab(otherStageOrders[0])} Tab</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCrossTabOrders((prev) => !prev)}
+                className="font-semibold text-xs h-8 px-3 border-border hover:bg-card"
+              >
+                {showCrossTabOrders ? "Hide Cross-Stage Orders" : `Show ${otherStageOrders.length} Order${otherStageOrders.length > 1 ? "s" : ""} Here`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>
@@ -460,10 +756,73 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
           </div>
         </>
       ) : filtered.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
-          <p className="text-sm font-medium text-foreground">No orders match your filters</p>
-          <p className="mt-1 text-sm text-muted-foreground">Try another status tab or clear search.</p>
-        </div>
+        otherStageOrders.length > 0 ? (
+          <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-6 py-12 text-center space-y-3">
+            <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 grid place-items-center text-primary">
+              <Search className="h-6 w-6" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-base font-bold text-foreground">
+                No matching orders in the "{activeTab}" tab
+              </p>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                {otherStageOrders.length === 1 ? (
+                  <>
+                    Order <strong className="text-foreground">#{String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}</strong> exists in the{" "}
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-primary text-primary-foreground shadow-xs">
+                      {getOrderPrimaryTab(otherStageOrders[0])}
+                    </span>{" "}
+                    stage.
+                  </>
+                ) : (
+                  `Found ${otherStageOrders.length} matching order(s) in other fulfillment stages.`
+                )}
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              {otherStageOrders.length === 1 ? (
+                <Button
+                  type="button"
+                  className="font-bold shadow-md bg-primary text-primary-foreground gap-1.5"
+                  onClick={() => {
+                    const target = getOrderPrimaryTab(otherStageOrders[0]);
+                    setActiveTab(target);
+                    setShowCrossTabOrders(false);
+                    toast.success(`Switched to "${target}" tab for order #${String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}`);
+                  }}
+                >
+                  <span>Open in {getOrderPrimaryTab(otherStageOrders[0])} Tab</span>
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className="font-bold shadow-md bg-primary text-primary-foreground gap-1.5"
+                  onClick={() => {
+                    setActiveTab("All");
+                    setShowCrossTabOrders(false);
+                  }}
+                >
+                  <span>View in "All" Tab</span>
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCrossTabOrders(true)}
+                className="font-semibold"
+              >
+                Show {otherStageOrders.length > 1 ? "Orders" : "Order"} Here
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
+            <p className="text-sm font-medium text-foreground">No orders match your filters</p>
+            <p className="mt-1 text-sm text-muted-foreground">Try another status tab or clear search.</p>
+          </div>
+        )
       ) : (
         <>
           <div className="md:hidden">
@@ -682,9 +1041,167 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
             </SheetHeader>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-6 space-y-7">
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Order ID / Number */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="orderId" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Order ID / Order #
+                </Label>
+                {filters.orderId && (
+                  <button
+                    type="button"
+                    onClick={() => setFilters(f => ({ ...f, orderId: "" }))}
+                    className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <Input 
+                id="orderId"
+                value={filters.orderId}
+                onChange={(e) => setFilters(f => ({ ...f, orderId: e.target.value }))}
+                placeholder="E.g. 1012 or #1012"
+                className="h-11 bg-muted/20 border-border rounded-xl shadow-sm focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono text-sm"
+              />
+            </div>
+
+            {/* Live Filter Order Match Intelligence Card */}
+            {sheetMatchedOrder && (
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-bold text-foreground text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <span>Order #{String(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id).replace(/^#+/, "")}</span>
+                  </div>
+                  <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-extrabold bg-primary text-primary-foreground shadow-xs">
+                    {getOrderPrimaryTab(sheetMatchedOrder)}
+                  </span>
+                </div>
+
+                <div className="space-y-1 text-xs text-muted-foreground border-y border-primary/10 py-2">
+                  <div className="flex justify-between">
+                    <span>Customer:</span>
+                    <strong className="text-foreground">{sheetMatchedOrder.customer.name}</strong>
+                  </div>
+                  {sheetMatchedOrder.customer.phone && (
+                    <div className="flex justify-between">
+                      <span>Phone:</span>
+                      <span className="font-mono text-foreground">{sheetMatchedOrder.customer.phone}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>Total Amount:</span>
+                    <strong className="text-foreground">QAR {sheetMatchedOrder.total?.toLocaleString()}</strong>
+                  </div>
+                </div>
+
+                {sheetCustomerBreakdown && sheetCustomerBreakdown.stages.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                      Customer Orders Across Stages ({sheetCustomerBreakdown.totalOrders} total):
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {sheetCustomerBreakdown.stages.map((st) => (
+                        <button
+                          key={st.tab}
+                          type="button"
+                          onClick={() => {
+                            setActiveTab(st.tab);
+                            setFilters(f => ({ ...f, customer: sheetCustomerBreakdown.customerName }));
+                            setFiltersOpen(false);
+                            toast.info(`Switched to "${st.label}" tab for ${sheetCustomerBreakdown.customerName}`);
+                          }}
+                          className="px-2 py-1 rounded-md text-xs font-semibold bg-background border border-border hover:border-primary text-foreground flex items-center gap-1.5 shadow-xs transition-colors"
+                        >
+                          <span>{st.label}</span>
+                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-muted">{st.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full h-9 rounded-lg font-bold bg-primary text-primary-foreground shadow-sm gap-1.5"
+                    onClick={() => {
+                      const target = getOrderPrimaryTab(sheetMatchedOrder);
+                      setActiveTab(target);
+                      setSearch(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id);
+                      setFiltersOpen(false);
+                      toast.success(`Switched to "${target}" tab for order #${String(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id).replace(/^#+/, "")}`);
+                    }}
+                  >
+                    <span>Jump to {getOrderPrimaryTab(sheetMatchedOrder)} Tab</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Customer Name */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="customer" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Customer Name
+                </Label>
+                {filters.customer && (
+                  <button
+                    type="button"
+                    onClick={() => setFilters(f => ({ ...f, customer: "" }))}
+                    className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <Input 
+                id="customer"
+                value={filters.customer}
+                onChange={(e) => setFilters(f => ({ ...f, customer: e.target.value }))}
+                placeholder="E.g. Rakonex Dev"
+                className="h-11 bg-muted/20 border-border rounded-xl shadow-sm focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all text-sm"
+              />
+            </div>
+
+            {/* When searching customer in filter sheet, show their stage breakdown */}
+            {!sheetMatchedOrder && sheetCustomerBreakdown && sheetCustomerBreakdown.stages.length > 0 && (
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2.5 animate-in fade-in duration-200">
+                <div className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-bold text-foreground">
+                    {sheetCustomerBreakdown.customerName} ({sheetCustomerBreakdown.totalOrders} total orders)
+                  </span>
+                </div>
+                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Select stage to view:
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {sheetCustomerBreakdown.stages.map((st) => (
+                    <button
+                      key={st.tab}
+                      type="button"
+                      onClick={() => {
+                        setActiveTab(st.tab);
+                        setFiltersOpen(false);
+                        toast.info(`Showing "${st.label}" orders for ${sheetCustomerBreakdown.customerName}`);
+                      }}
+                      className="px-2.5 py-1 rounded-md text-xs font-semibold bg-background border border-border hover:border-primary text-foreground flex items-center gap-1.5 shadow-xs"
+                    >
+                      <span>{st.label}</span>
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-muted">{st.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Order Status */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               <Label htmlFor="status" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Order Status
               </Label>
@@ -702,7 +1219,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
             </div>
 
             {/* Payment Status */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               <Label htmlFor="paymentStatus" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Payment Status
               </Label>
@@ -717,20 +1234,6 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                 </SelectContent>
               </Select>
             </div>
-            
-            {/* Customer Name */}
-            <div className="space-y-3">
-              <Label htmlFor="customer" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Customer Name
-              </Label>
-              <Input 
-                id="customer"
-                value={filters.customer}
-                onChange={(e) => setFilters(f => ({ ...f, customer: e.target.value }))}
-                placeholder="E.g. John Doe"
-                className="h-11 bg-muted/20 border-border rounded-xl shadow-sm focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-            </div>
           </div>
           
           <div className="p-6 border-t border-border bg-muted/10 backdrop-blur-sm">
@@ -738,7 +1241,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
               <Button 
                 variant="outline" 
                 className="flex-1 rounded-xl h-11 font-semibold text-slate-800 dark:text-slate-200 border-border shadow-sm hover:bg-muted/50 transition-colors"
-                onClick={() => setFilters({ status: "All", paymentStatus: "All", customer: "" })}
+                onClick={() => setFilters({ status: "All", paymentStatus: "All", customer: "", orderId: "" })}
               >
                 Clear All
               </Button>

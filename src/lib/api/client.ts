@@ -112,25 +112,34 @@ function extractErrorMessage(response: Response, errorBody: any): string {
   return `ERPNext API Error (${response.status}): ${response.statusText}`;
 }
 
-async function get<T = unknown>(endpoint: string, params?: Record<string, string>): Promise<T> {
+async function get<T = unknown>(endpoint: string, params?: Record<string, string>, timeoutMs = 8000): Promise<T> {
   const url = buildUrl(endpoint, params);
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: getHeaders(),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(response, errorBody),
-      errorBody,
-    );
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: getHeaders(),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      throw new ApiError(
+        response.status,
+        extractErrorMessage(response, errorBody),
+        errorBody,
+      );
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return response.json();
 }
+
 
 /**
  * Make a POST request to ERPNext (create new records).

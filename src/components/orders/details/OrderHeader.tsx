@@ -211,6 +211,54 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
     });
   };
 
+  const isReadyToAssignAvailable = Boolean(
+    order.ready_to_assign ||
+    order.is_ready_to_assign ||
+    (order as any).ready_assign ||
+    order.summary?.ready_to_assign ||
+    order.summary?.ready_assign ||
+    order.all_items_vs ||
+    order.summary?.all_items_vs ||
+    (order as any).rawOrder?.ready_to_assign ||
+    (order as any).rawOrder?.is_ready_to_assign ||
+    (order as any).rawOrder?.summary?.ready_to_assign
+  );
+
+  const normalizedOrderStatus = (order.status || "").toLowerCase().replace(/[\s_-]+/g, "_");
+  const normalizedRawStatus = (
+    (order as any).rawOrder?.status ||
+    (order as any).rawOrder?.order_status ||
+    ""
+  )
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "_");
+
+  const isReadyToAssignStatus =
+    normalizedOrderStatus === "ready_to_assign" ||
+    normalizedRawStatus === "ready_to_assign" ||
+    order.status === "Ready to Assign" ||
+    order.status?.toLowerCase() === "ready to assign" ||
+    (order as any).rawOrder?.status === "Ready to assign" ||
+    (order as any).rawOrder?.status === "Ready to Assign" ||
+    String(order.status || "").replace(/[\s_-]+/g, "").toLowerCase() === "readytoassign";
+
+  const showForceReadyToAssign = isReadyToAssignAvailable && !isReadyToAssignStatus;
+
+  const handleForceReadyToAssign = () => {
+    showConfirm(
+      "Force Ready to Assign",
+      "This order is marked as ready to assign (all items are Virtual Stock or prepared). Do you want to force this order to 'Ready to Assign' status?",
+      "Force Ready to Assign",
+      () =>
+        handleAction("Force Ready to Assign", async () => {
+          const targetId = order.order_id || order.id;
+          await ordersApi.updateOrderStatus(String(targetId), "ready_to_assign");
+          queryClient.invalidateQueries({ queryKey: orderKeys.all });
+          toast.success("Order status changed to Ready to Assign");
+        })
+    );
+  };
+
   return (
     <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
       <div className="flex flex-col gap-6 p-4 sm:p-5">
@@ -265,6 +313,18 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
 
           {/* Right Block: Actions */}
           <div className="flex flex-wrap items-center lg:items-start lg:justify-end gap-3 self-center">
+            {showForceReadyToAssign && (
+              <Button
+                variant="outline"
+                className="gap-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-700 dark:hover:bg-emerald-900/50 font-semibold shrink-0 whitespace-nowrap shadow-sm"
+                disabled={actionsLoading}
+                onClick={handleForceReadyToAssign}
+              >
+                <Zap className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                Force Ready to Assign
+              </Button>
+            )}
+
             <Button variant="outline" className="gap-2 bg-background shrink-0 whitespace-nowrap" onClick={() => setPrintOpen(true)}>
               <Printer className="h-4 w-4" />
               Print Invoice
@@ -307,6 +367,27 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64 p-1.5">
+                  {/* ── Ready to Assign Action ── */}
+                  {showForceReadyToAssign && (
+                    <>
+                      <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                        Assignment
+                      </DropdownMenuLabel>
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 cursor-pointer"
+                          onClick={handleForceReadyToAssign}
+                        >
+                          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                            <Zap className="h-3.5 w-3.5" />
+                          </div>
+                          Force Ready to Assign
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator className="my-1.5" />
+                    </>
+                  )}
+
                   {/* ── Determine active stage for contextual actions ── */}
                   {(() => {
                     const isNewStage = ["New", "Unfulfilled"].includes(order.status);

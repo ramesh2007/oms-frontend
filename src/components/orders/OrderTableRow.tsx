@@ -1,7 +1,7 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { tatColorClass, getOrderItemsCount, isExpressOrder, type Order } from "@/lib/orders";
+import { tatColorClass, getOrderItemsCount, isExpressOrder, getOrderPrimaryTab, type Order } from "@/lib/orders";
 import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronRight, Package, Truck, User, Eye, Zap } from "lucide-react";
 import { CrewTag } from "./CrewTag";
@@ -187,6 +187,11 @@ export function OrderTableRow({
               <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/25">
                 <Zap className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
                 EXPRESS
+              </span>
+            )}
+            {activeTab && activeTab !== "All" && getOrderPrimaryTab(order) !== activeTab && (
+              <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
+                {getOrderPrimaryTab(order)}
               </span>
             )}
           </div>
