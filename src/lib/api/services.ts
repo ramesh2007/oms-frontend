@@ -150,38 +150,24 @@ const getCleanOrderId = (id: string): string => String(id || "").replace(/^#/, "
  * Fetch a single order with full details (items, timeline, etc.)
  */
 export async function fetchOrderDetails(orderId: string): Promise<EnrichedOrder | undefined> {
-  // ── Demo mode: read from shared store, then enrich ──
-  if (isDemoMode()) {
-    await new Promise((r) => setTimeout(r, 100));
-    const orders = getSharedOrders();
-    const base = orders.find((o) => o.id === orderId || o.id === getCleanOrderId(orderId));
-    if (!base) return undefined;
-    const idx = MOCK_ORDERS.findIndex((o) => o.id === orderId || o.id === getCleanOrderId(orderId));
-    if (idx >= 0) Object.assign(MOCK_ORDERS[idx], base);
-    return getMockEnrichedOrder(base.id);
-  }
-
-  // ── Live mode: Call Laravel salesOrderDetail endpoint ──
   const cleanId = getCleanOrderId(orderId);
+  const isMockOrder = MOCK_ORDERS.some((o) => o.id === orderId || o.id === cleanId);
 
-  // 1. Try public salesOrderDetail endpoints (/api/demo/order-management/orders/{cleanId} or /api/admin/order/{cleanId})
-  try {
-    // const response: any = await erpNextClient.get(`/api/demo/order-management/orders/${cleanId}`);
-    const response: any = await erpNextClient.get(`/api/admin/order-details/${cleanId}`);
-    if (
-      response &&
-      response.data &&
-      (response.data.name || response.data.customer_name || response.data.line_items)
-    ) {
-      return mapErpNextToEnrichedOrder(response.data);
+  // ── Demo mode or Mock order ID: return mock enriched order immediately ──
+  if (isDemoMode() || isMockOrder) {
+    const orders = getSharedOrders();
+    const base = orders.find((o) => o.id === orderId || o.id === cleanId) || MOCK_ORDERS.find((o) => o.id === orderId || o.id === cleanId);
+    if (base) {
+      const idx = MOCK_ORDERS.findIndex((o) => o.id === base.id);
+      if (idx >= 0) Object.assign(MOCK_ORDERS[idx], base);
+      return getMockEnrichedOrder(base.id);
     }
-  } catch (err) {
-    console.warn(
-      "[OrderDetails] /api/demo/order-management/orders failed, trying next fallback:",
-      err,
-    );
+    if (isMockOrder) {
+      return getMockEnrichedOrder(cleanId);
+    }
   }
 
+  // 1. Try public salesOrderDetail endpoints (/api/admin/order-details/{cleanId} or /api/order-details/{cleanId})
   try {
     const response: any = await erpNextClient.get(`/api/admin/order-details/${cleanId}`);
     if (
@@ -192,7 +178,7 @@ export async function fetchOrderDetails(orderId: string): Promise<EnrichedOrder 
       return mapErpNextToEnrichedOrder(response.data);
     }
   } catch (err) {
-    console.warn("[OrderDetails] /api/admin/order failed, trying next fallback:", err);
+    console.warn("[OrderDetails] /api/admin/order-details failed, trying next fallback:", err);
   }
 
   try {
@@ -244,7 +230,7 @@ export async function fetchOrderDetails(orderId: string): Promise<EnrichedOrder 
           balance: 0,
           shippingMethod: "Standard Delivery",
         },
-        notes: rawData.notes || "",
+        notes: rawData.notes || rawData.custom_notes || rawData.customer_notes || baseOrder.notes || "",
         shippingAddress: {
           line1: rawData.customer?.delivery_address || "",
           line2: "",
@@ -276,7 +262,7 @@ export async function fetchOrderDetails(orderId: string): Promise<EnrichedOrder 
           balance: 0,
           shippingMethod: "Standard Delivery",
         },
-        notes: rawData.notes || "",
+        notes: rawData.notes || rawData.custom_notes || rawData.customer_notes || baseOrder.notes || "",
         shippingAddress: {
           line1: rawData.customer?.delivery_address || "",
           line2: "",
@@ -292,7 +278,7 @@ export async function fetchOrderDetails(orderId: string): Promise<EnrichedOrder 
     // Ignore
   }
 
-  return undefined;
+  return getMockEnrichedOrder(cleanId);
 }
 
 /**
@@ -302,20 +288,64 @@ export async function fetchOrderDetails(orderId: string): Promise<EnrichedOrder 
  *   await ordersApi.updateOrderStatus("SO-00001", "Delivered");
  */
 export async function updateOrderStatus(orderId: string, newStatus: string): Promise<void> {
+  const cleanId = getCleanOrderId(orderId);
+  const normalized = newStatus.trim().toLowerCase().replace(/[\s-]+/g, "_");
+
   if (isDemoMode()) {
     updateSharedOrder(orderId, (o) => {
-      o.status = newStatus as any;
+      o.status = (normalized === "ready_to_assign" ? "Ready to Assign" : newStatus) as any;
     });
     broadcastChange();
     console.log(`[Sync] Updated order ${orderId} to status: ${newStatus}`);
     return;
   }
 
-  const cleanId = getCleanOrderId(orderId);
+  // 1. Try Laravel mobile/admin status mutation endpoint first
+  try {
+    let targetId: string | number = cleanId;
+    let res: any = await erpNextClient.post(`/api/mobile/orders/${targetId}/status`, {
+      status: normalized,
+    });
+
+    // If order was not found by this ID (e.g. order_number was provided instead of numeric order_id)
+    if (res && res.success === false && (res.message === "Order not found." || res.message?.includes("not found"))) {
+      try {
+        const detailRes: any = await erpNextClient.get(`/api/admin/order-details/${cleanId}`);
+        if (detailRes?.data?.order_id) {
+          targetId = detailRes.data.order_id;
+          res = await erpNextClient.post(`/api/mobile/orders/${targetId}/status`, {
+            status: normalized,
+          });
+        }
+      } catch (innerErr) {
+        console.warn("[updateOrderStatus] Failed resolving order_id via order-details:", innerErr);
+      }
+    }
+
+    if (res && (res.success || res.status)) {
+      updateSharedOrder(orderId, (o) => {
+        o.status = (normalized === "ready_to_assign" ? "Ready to Assign" : newStatus) as any;
+      });
+      broadcastChange();
+      return;
+    }
+  } catch (err) {
+    console.warn(`[updateOrderStatus] /api/mobile/orders/${cleanId}/status failed, trying fallback:`, err);
+  }
+
+  // 2. Fallback to ERPNext Sales Order PUT
   await erpNextClient.put(`/api/resource/Sales Order/${cleanId}`, {
     status: newStatus,
   });
 }
+
+/**
+ * Force an order into 'Ready to Assign' status
+ */
+export async function forceReadyToAssign(orderId: string): Promise<void> {
+  return updateOrderStatus(orderId, "ready_to_assign");
+}
+
 
 /**
  * Assign a driver to an order.
@@ -1677,7 +1707,25 @@ export async function updateOrderDetails(
  * - GET /api/orders/status/in-delivery & /api/orders/in-delivery
  * - GET /api/orders/status/delivered & /api/orders/delivered
  */
+// In-memory cache for fast status queries to eliminate tab switching delays
+const statusQueryCache = new Map<string, { timestamp: number; result: any }>();
+const STATUS_CACHE_TTL = 30 * 1000; // 30 seconds cache
+
+/** Clear status query cache if orders are updated */
+export function invalidateStatusQueryCache() {
+  statusQueryCache.clear();
+}
+
+/**
+ * Enhanced fetchOrdersByStatus that queries dedicated Laravel status endpoints
+ */
 export async function fetchOrdersByStatus(statusName: string, page = 1, perPage = 15) {
+  const cacheKey = `${statusName.toLowerCase()}_${page}_${perPage}`;
+  const cached = statusQueryCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < STATUS_CACHE_TTL) {
+    return cached.result;
+  }
+
   if (isDemoMode()) {
     const orders = getSharedOrders();
     let filtered = orders;
@@ -1715,7 +1763,7 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
     const to = Math.min(safePage * perPage, total);
     const paginatedData = filtered.slice(from > 0 ? from - 1 : 0, to);
 
-    return {
+    const result = {
       success: true,
       status_filter: statusName,
       pagination: {
@@ -1734,9 +1782,11 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
       data: paginatedData,
       mappedOrders: paginatedData,
     };
+    statusQueryCache.set(cacheKey, { timestamp: Date.now(), result });
+    return result;
   }
 
-  // Live Mode: call dedicated Laravel status endpoint with admin prefix and fallbacks
+  // Live Mode: call dedicated Laravel status endpoint with admin prefix
   let response: any = null;
   const adminPrimaryEndpoint = `/api/admin/orders/status/${statusName}?page=${page}&per_page=${perPage}`;
   try {
@@ -1751,33 +1801,14 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
         `/api/admin/orders/${statusName}?page=${page}&per_page=${perPage}`,
       );
     } catch (adminFallbackErr) {
-      console.warn(
-        `[OrdersByStatus] /api/admin/orders/${statusName} failed, trying legacy /api/orders/status/${statusName}`,
+      console.error(
+        `[OrdersByStatus] all endpoints failed for status ${statusName}`,
         adminFallbackErr,
       );
-      try {
-        response = await erpNextClient.get(
-          `/api/orders/status/${statusName}?page=${page}&per_page=${perPage}`,
-        );
-      } catch (legacyStatusErr) {
-        console.warn(
-          `[OrdersByStatus] /api/orders/status/${statusName} failed, trying /api/orders/${statusName}`,
-          legacyStatusErr,
-        );
-        try {
-          response = await erpNextClient.get(
-            `/api/orders/${statusName}?page=${page}&per_page=${perPage}`,
-          );
-        } catch (fallbackErr) {
-          console.error(
-            `[OrdersByStatus] all endpoints failed for status ${statusName}`,
-            fallbackErr,
-          );
-          throw fallbackErr;
-        }
-      }
+      throw err;
     }
   }
+
 
   if (response) {
     const rawData = Array.isArray(response.data)
@@ -1805,13 +1836,15 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
       prev_page_url: response.prev_page_url ?? null,
     };
 
-    return {
+    const result = {
       success: response.success ?? true,
       status_filter: response.status_filter ?? statusName,
       pagination,
       data: rawData,
       mappedOrders,
     };
+    statusQueryCache.set(cacheKey, { timestamp: Date.now(), result });
+    return result;
   }
 
   return response;
@@ -2011,6 +2044,7 @@ export const ordersApi = {
   fetchInstallationItems,
   fetchCancelledDeliveryOrders,
   updateOrderStatus,
+  forceReadyToAssign,
   assignDriver,
   assignPicker,
   assignPickerItems,

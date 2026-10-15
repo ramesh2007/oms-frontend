@@ -110,20 +110,71 @@ export interface ERPNextDocResponse<T> {
  * The left side is what ERPNext sends, the right side is what our dashboard expects.
  */
 function mapStatus(erpStatus: string): OrderStatus {
+  if (!erpStatus) return "New";
+  const normalized = String(erpStatus).trim().toLowerCase().replace(/[\s_-]+/g, "_");
+
+  if (normalized === "flagged") return "Flagged";
+  if (normalized === "delivery_failed" || normalized === "failed") return "Delivery Failed";
+  if (
+    normalized === "pending" ||
+    normalized === "new" ||
+    normalized === "unfulfilled" ||
+    normalized === "draft"
+  ) {
+    return "New";
+  }
+  if (normalized === "picking") return "Picking";
+  if (normalized === "picked") return "Picked";
+  if (normalized === "packing") return "Packing";
+  if (
+    normalized === "ready_to_assign" ||
+    normalized === "readytoassign" ||
+    normalized === "to_deliver" ||
+    normalized === "packed"
+  ) {
+    return "Ready to Assign";
+  }
+  if (normalized === "driver_accepted" || normalized === "assigned_to_driver") return "Driver Accepted";
+  if (
+    normalized === "started" ||
+    normalized === "in_delivery" ||
+    normalized === "out_for_delivery"
+  ) {
+    return "Started";
+  }
+  if (normalized === "delivered" || normalized === "completed" || normalized === "to_bill") return "Delivered";
+  if (
+    normalized === "cancelled" ||
+    normalized === "canceled" ||
+    normalized === "cancelled_delivery" ||
+    normalized === "delivery_cancelled"
+  ) {
+    return "Cancelled";
+  }
+  if (normalized === "replacement") return "Replacement";
+  if (normalized === "exchange") return "Exchange";
+  if (
+    normalized === "installation" ||
+    normalized === "ready_for_installation" ||
+    normalized === "in_installation" ||
+    normalized === "installed"
+  ) {
+    return "Installation";
+  }
+  if (normalized === "paylater" || normalized === "pay_later") return "PayLater";
+
   const statusMap: Record<string, OrderStatus> = {
-    // ERPNext standard statuses
     Draft: "New",
     "To Deliver and Bill": "Unfulfilled",
     "To Deliver": "Ready to Assign",
     "To Bill": "Delivered",
     Completed: "Delivered",
     Cancelled: "Cancelled",
-
-    // Custom statuses your ERPNext dev might create
     Picking: "Picking",
     Picked: "Picked",
     Packing: "Packing",
     "Ready to Assign": "Ready to Assign",
+    "Ready to assign": "Ready to Assign",
     "Driver Accepted": "Driver Accepted",
     Started: "Started",
     Delivered: "Delivered",
@@ -265,6 +316,29 @@ export function mapErpNextToOrder(raw: ERPNextSalesOrder): Order {
     ),
     installationItemsCount:
       (raw as any).installation_items_count ?? (raw as any).installation_items ?? undefined,
+    order_id: (raw as any).order_id ?? (raw as any).id,
+    ready_to_assign: Boolean(
+      (raw as any).ready_to_assign ||
+      (raw as any).is_ready_to_assign ||
+      (raw as any).ready_assign ||
+      (raw as any).summary?.ready_to_assign ||
+      (raw as any).summary?.ready_assign ||
+      (raw as any).all_items_vs ||
+      (raw as any).summary?.all_items_vs
+    ),
+    is_ready_to_assign: Boolean(
+      (raw as any).ready_to_assign ||
+      (raw as any).is_ready_to_assign ||
+      (raw as any).ready_assign ||
+      (raw as any).summary?.ready_to_assign ||
+      (raw as any).summary?.ready_assign ||
+      (raw as any).all_items_vs ||
+      (raw as any).summary?.all_items_vs
+    ),
+    all_items_vs: Boolean((raw as any).all_items_vs || (raw as any).summary?.all_items_vs),
+    summary: (raw as any).summary,
+    notes: (raw as any).notes || raw.custom_notes || (raw as any).customer_notes || "",
+    rawOrder: raw,
   };
 }
 
@@ -319,12 +393,44 @@ export function mapErpNextToOrderItem(raw: ERPNextSalesOrderItem): OrderItemType
     picked_at: (raw as any).picked_at ?? null,
     packed_at: (raw as any).packed_at ?? null,
     delivered_at: (raw as any).delivered_at ?? null,
+    product_tags:
+      (raw as any).product_tags ??
+      (raw as any).tags ??
+      (raw as any).custom_product_tags ??
+      (raw as any).product?.product_tags ??
+      (raw as any).product?.tags ??
+      (raw as any).product_tag ??
+      null,
     is_scheduled_assigned: Boolean((raw as any).is_scheduled_assigned || (raw as any).is_scheduled),
     is_installable: isInstallable,
     isInstallable: isInstallable,
     installation_type: (raw as any).installation_type || null,
     installation_level: (raw as any).installation_level || null,
     installation: (raw as any).installation || null,
+    gift_wrap:
+      (raw as any).gift_wrap ??
+      (raw as any).giftWrap ??
+      (raw as any).gift_wrapper ??
+      (raw as any).giftWrapper ??
+      (raw as any).custom_gift_wrap ??
+      null,
+    giftWrap:
+      (raw as any).gift_wrap ??
+      (raw as any).giftWrap ??
+      (raw as any).gift_wrapper ??
+      (raw as any).giftWrapper ??
+      (raw as any).custom_gift_wrap ??
+      null,
+    gift_message:
+      (raw as any).gift_message ??
+      (raw as any).giftMessage ??
+      (raw as any).custom_gift_message ??
+      null,
+    giftMessage:
+      (raw as any).gift_message ??
+      (raw as any).giftMessage ??
+      (raw as any).custom_gift_message ??
+      null,
   };
 }
 
@@ -396,7 +502,12 @@ export function mapErpNextToEnrichedOrder(raw: ERPNextSalesOrder): EnrichedOrder
       shopifyOrderId: rawPayment.shopify_order_id,
       processedAt: rawPayment.processed_at,
     },
-    notes: raw.custom_notes || "",
+    notes:
+      (raw as any).notes ||
+      raw.custom_notes ||
+      (raw as any).customer_notes ||
+      base.notes ||
+      "",
     shippingAddress: {
       line1: raw.custom_shipping_address_line1 || "",
       line2: raw.custom_shipping_address_line2 || "",
@@ -406,6 +517,30 @@ export function mapErpNextToEnrichedOrder(raw: ERPNextSalesOrder): EnrichedOrder
       lng: raw.custom_longitude || 51.520008,
     },
     matrix: [],
+    order_id: (raw as any).order_id ?? (raw as any).id ?? base.order_id,
+    ready_to_assign: Boolean(
+      (raw as any).ready_to_assign ||
+      (raw as any).is_ready_to_assign ||
+      (raw as any).ready_assign ||
+      (raw as any).summary?.ready_to_assign ||
+      (raw as any).summary?.ready_assign ||
+      (raw as any).all_items_vs ||
+      (raw as any).summary?.all_items_vs ||
+      base.ready_to_assign
+    ),
+    is_ready_to_assign: Boolean(
+      (raw as any).ready_to_assign ||
+      (raw as any).is_ready_to_assign ||
+      (raw as any).ready_assign ||
+      (raw as any).summary?.ready_to_assign ||
+      (raw as any).summary?.ready_assign ||
+      (raw as any).all_items_vs ||
+      (raw as any).summary?.all_items_vs ||
+      base.is_ready_to_assign
+    ),
+    all_items_vs: Boolean((raw as any).all_items_vs || (raw as any).summary?.all_items_vs || base.all_items_vs),
+    summary: (raw as any).summary || base.summary,
+    rawOrder: raw,
   };
 }
 
@@ -653,6 +788,7 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     packingStatus,
     bags: raw.bag_count || 0,
     tags: parsedTags,
+    notes: raw.notes || raw.custom_notes || raw.customer_notes || "",
     shippingMethod: rawShippingMethod || (isExpress ? "Express Delivery" : "Standard Delivery"),
     isExpress,
     itemsList: (raw.items || []).map((i: any) => {
@@ -712,6 +848,38 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
         installation_type: i.installation_type || null,
         installation_level: i.installation_level || null,
         installation: i.installation || null,
+        product_tags:
+          i.product_tags ??
+          i.tags ??
+          i.custom_product_tags ??
+          i.product?.product_tags ??
+          i.product?.tags ??
+          i.product_tag ??
+          null,
+        gift_wrap:
+          i.gift_wrap ??
+          i.giftWrap ??
+          i.gift_wrapper ??
+          i.giftWrapper ??
+          i.custom_gift_wrap ??
+          null,
+        giftWrap:
+          i.gift_wrap ??
+          i.giftWrap ??
+          i.gift_wrapper ??
+          i.giftWrapper ??
+          i.custom_gift_wrap ??
+          null,
+        gift_message:
+          i.gift_message ??
+          i.giftMessage ??
+          i.custom_gift_message ??
+          null,
+        giftMessage:
+          i.gift_message ??
+          i.giftMessage ??
+          i.custom_gift_message ??
+          null,
       };
     }),
     hasInstallation: Boolean(
@@ -753,5 +921,27 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
                   Boolean(i.installation),
               ).length
             : 0,
+    order_id: raw.order_id ?? raw.id,
+    ready_to_assign: Boolean(
+      raw.ready_to_assign ||
+      raw.is_ready_to_assign ||
+      raw.ready_assign ||
+      raw.summary?.ready_to_assign ||
+      raw.summary?.ready_assign ||
+      raw.all_items_vs ||
+      raw.summary?.all_items_vs
+    ),
+    is_ready_to_assign: Boolean(
+      raw.ready_to_assign ||
+      raw.is_ready_to_assign ||
+      raw.ready_assign ||
+      raw.summary?.ready_to_assign ||
+      raw.summary?.ready_assign ||
+      raw.all_items_vs ||
+      raw.summary?.all_items_vs
+    ),
+    all_items_vs: Boolean(raw.all_items_vs || raw.summary?.all_items_vs),
+    summary: raw.summary,
+    rawOrder: raw,
   };
 }

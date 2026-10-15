@@ -201,6 +201,12 @@ export interface Order {
   deliveryType?: string;
   timeline?: OrderTimelineEvent[];
   flags?: string[];
+  order_id?: number | string;
+  ready_to_assign?: boolean;
+  is_ready_to_assign?: boolean;
+  all_items_vs?: boolean;
+  summary?: any;
+  rawOrder?: any;
   shippingAddress?: {
     line1: string;
     line2: string;
@@ -268,6 +274,14 @@ export interface OrderItemType {
   installation_type?: string | null;
   installation_level?: string | null;
   installation?: any;
+  /** Product tags (e.g. VS, Fragile, Summer, etc.) */
+  product_tags?: string[] | string | null;
+  /** Gift wrap value or code (e.g. "GW-G") */
+  gift_wrap?: string | boolean | null;
+  giftWrap?: string | boolean | null;
+  /** Gift message written for this item */
+  gift_message?: string | null;
+  giftMessage?: string | null;
 }
 
 export type ReturnStatus = "pending" | "picked up" | "completed";
@@ -821,6 +835,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         bin: "B-100 / 1",
         status: "Prepared",
         itemType: "FC",
+        product_tags: ["Inflatable", "Bouncy Castle", "Outdoor"],
       },
       {
         id: "test-item-2",
@@ -835,6 +850,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         bin: "B-100 / 2",
         status: "Prepared",
         itemType: "MWH",
+        product_tags: ["Swimming", "Summer Pool"],
       },
       {
         id: "test-item-3",
@@ -849,6 +865,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         bin: "B-100 / 3",
         status: "Prepared",
         itemType: "VL_SUPPLIER",
+        product_tags: ["VS", "Garden Slide", "Kids Outdoor"],
       },
     ];
   } else if (id === "HM68229") {
@@ -866,6 +883,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         bin: "B-100 / 1",
         status: "Prepared",
         itemType: "FC",
+        product_tags: ["Inflatable", "Bouncy Castle", "Outdoor Fun"],
       },
       {
         id: "si-item-2",
@@ -880,6 +898,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         bin: "B-100 / 2",
         status: "Prepared",
         itemType: "MWH",
+        product_tags: ["Swimming", "Summer Pool"],
       },
       {
         id: "si-item-3",
@@ -894,6 +913,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         bin: "B-100 / 3",
         status: "Prepared",
         itemType: "VL_SUPPLIER",
+        product_tags: ["VS", "Garden Slide", "Kids Outdoor"],
       },
       {
         id: "si-item-4",
@@ -907,6 +927,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         fcName: "Fulfillment Center Hilal",
         bin: "B-100 / 4",
         status: "Prepared",
+        product_tags: ["Water Slide", "Deluxe", "Summer"],
       },
     ];
   } else if (id === "HM68258") {
@@ -923,6 +944,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         fcName: "Fulfillment Center Hilal",
         bin: "B-101 / 1",
         status: "Prepared",
+        product_tags: ["Water Park", "Inflatable"],
       },
       {
         id: "si-item-6",
@@ -936,6 +958,7 @@ export function getMockOrderItems(id: string, totalItems: number): OrderItemType
         fcName: "Virtual Stock",
         bin: "B-101 / 2",
         status: "Prepared",
+        product_tags: ["VS", "Pool Cover", "Accessories"],
       },
     ];
   } else if (id === "HM68268") {
@@ -1240,8 +1263,24 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
   // 1. Items List
   let itemsList: OrderItemType[] = [];
   if (Array.isArray(order.itemsList) && order.itemsList.length > 0) {
-    itemsList = order.itemsList;
+    const mockItems = getMockOrderItems(rawId, order.itemsList.length);
+    itemsList = order.itemsList.map((item, idx) => {
+      const matchingMock = mockItems.find((m) => m.id === item.id || m.sku === item.sku) || mockItems[idx];
+      return {
+        ...item,
+        product_tags:
+          item.product_tags ??
+          (item as any).tags ??
+          (item as any).custom_product_tags ??
+          (item as any).product?.product_tags ??
+          (item as any).product?.tags ??
+          (item as any).product_tag ??
+          matchingMock?.product_tags ??
+          null,
+      };
+    });
   } else if (Array.isArray(order.line_items) && order.line_items.length > 0) {
+    const mockItems = getMockOrderItems(rawId, order.line_items.length);
     itemsList = order.line_items.map((rawItem: any, idx: number) => {
       const orderItemId =
         rawItem.order_item_id ??
@@ -1251,6 +1290,7 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
         `item-${rawId}-${idx + 1}`;
       const qty = Number(rawItem.quantity ?? rawItem.qty ?? 1) || 1;
       const price = Number(rawItem.unit_price ?? rawItem.price ?? rawItem.rate ?? 0) || 0;
+      const matchingMock = mockItems.find((m) => m.id === String(orderItemId) || m.sku === (rawItem.product_code ?? rawItem.item_code ?? rawItem.sku)) || mockItems[idx];
       return {
         id: String(orderItemId),
         order_item_id: orderItemId,
@@ -1264,6 +1304,25 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
         fcName: rawItem.warehouse ?? rawItem.fcName ?? "Fulfillment Center Hilal",
         bin: rawItem.bin ?? rawItem.custom_bin ?? "—",
         status: (rawItem.status as any) || "Prepared",
+        product_tags:
+          rawItem.product_tags ??
+          rawItem.tags ??
+          (rawItem as any).custom_product_tags ??
+          (rawItem as any).product?.product_tags ??
+          (rawItem as any).product?.tags ??
+          (rawItem as any).product_tag ??
+          matchingMock?.product_tags ??
+          null,
+        gift_wrap:
+          rawItem.gift_wrap ??
+          rawItem.giftWrap ??
+          (rawItem as any).custom_gift_wrap ??
+          null,
+        gift_message:
+          rawItem.gift_message ??
+          rawItem.giftMessage ??
+          (rawItem as any).custom_gift_message ??
+          null,
       };
     });
   } else {
@@ -2189,18 +2248,153 @@ export function statusDotClass(status: OrderStatus): string {
 export function matchesSearch(order: Order, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
+  const cleanQ = q.replace(/^#/, "");
+  
+  const orderNumber = order.orderNumber ? order.orderNumber.toString().toLowerCase() : "";
+  const orderId = order.id ? order.id.toString().toLowerCase() : "";
+  const cleanOrderNumber = orderNumber.replace(/^#/, "");
+  const cleanOrderId = orderId.replace(/^#/, "");
+
+  if (
+    orderId === q ||
+    cleanOrderId === q ||
+    cleanOrderId === cleanQ ||
+    orderNumber === q ||
+    cleanOrderNumber === q ||
+    cleanOrderNumber === cleanQ ||
+    orderId.includes(q) ||
+    orderNumber.includes(q) ||
+    (cleanQ.length > 0 && (cleanOrderId.includes(cleanQ) || cleanOrderNumber.includes(cleanQ)))
+  ) {
+    return true;
+  }
+
   const blob = [
     order.id,
+    order.orderNumber,
+    order.shopifyOrderId,
     order.customerId,
-    order.customer.name,
-    order.customer.email,
-    order.customer.phone,
+    order.customer?.name,
+    order.customer?.email,
+    order.customer?.phone,
     order.city,
     order.status,
   ]
+    .filter(Boolean)
     .join(" ")
     .toLowerCase();
-  return blob.includes(q);
+
+  return blob.includes(q) || (cleanQ.length > 0 && blob.includes(cleanQ));
+}
+
+export function getOrderPrimaryTab(order: Order): LegacyTabId {
+  if (isUnpaidPayLaterOrder(order)) return "PayLater";
+  if (order.status === "Cancelled" || order.status === "Delivery Failed") return "Cancelled";
+  if (order.status === "Delivered") return "Delivered";
+  if (
+    order.status === "Driver Accepted" ||
+    order.status === "Started" ||
+    (order.driver && !["New", "Unfulfilled", "Picking", "Picked", "Packing", "Delivered", "Cancelled"].includes(order.status))
+  ) {
+    return "In Delivery";
+  }
+  if (order.status === "Ready to Assign") return "Ready to Assign";
+  if (order.status === "Packing") return "Packing";
+  if (order.status === "Picked") return "Picked";
+  if (order.status === "Picking") return "Picking";
+  if (isExpressOrder(order) && (order.status === "New" || order.status === "Unfulfilled")) return "Express";
+  if (matchesLegacyTab(order, "Installation")) return "Installation";
+  if (order.status === "New" || order.status === "Unfulfilled") return "New";
+  if (order.status === "Flagged") return "Flags & Exceptions";
+  return "All";
+}
+
+export interface CustomerStageSummary {
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  totalOrders: number;
+  stages: Array<{
+    tab: LegacyTabId;
+    label: string;
+    count: number;
+    color: string;
+    activeColor: string;
+  }>;
+}
+
+export function getCustomerOrdersBreakdown(orders: Order[], customerKey: string): CustomerStageSummary | null {
+  if (!customerKey || !customerKey.trim()) return null;
+  const key = customerKey.trim().toLowerCase();
+  
+  const customerOrders = orders.filter((o) => {
+    const cName = o.customer?.name?.toLowerCase() || "";
+    const cId = o.customerId?.toLowerCase() || "";
+    const cEmail = o.customer?.email?.toLowerCase() || "";
+    const cPhone = o.customer?.phone?.replace(/\D/g, "") || "";
+    const cleanKeyDigits = key.replace(/\D/g, "");
+    
+    return (
+      cName === key ||
+      cName.includes(key) ||
+      cId === key ||
+      cEmail === key ||
+      (cleanKeyDigits.length >= 4 && cPhone.includes(cleanKeyDigits))
+    );
+  });
+
+  if (customerOrders.length === 0) return null;
+
+  const firstOrder = customerOrders[0];
+  const primaryName = firstOrder.customer?.name || "Customer";
+  const primaryPhone = customerOrders.find(o => o.customer?.phone)?.customer?.phone;
+  const primaryEmail = customerOrders.find(o => o.customer?.email)?.customer?.email;
+
+  const stageOrder: LegacyTabId[] = [
+    "New",
+    "Express",
+    "Picking",
+    "Picked",
+    "Packing",
+    "Ready to Assign",
+    "In Delivery",
+    "Delivered",
+    "Installation",
+    "Cancelled",
+    "Flags & Exceptions",
+    "PayLater",
+  ];
+
+  const stages: Array<{
+    tab: LegacyTabId;
+    label: string;
+    count: number;
+    color: string;
+    activeColor: string;
+  }> = [];
+
+  for (const tabId of stageOrder) {
+    const matchingTab = LEGACY_TABS.find(t => t.id === tabId);
+    if (!matchingTab) continue;
+    const count = customerOrders.filter(o => matchesLegacyTab(o, tabId)).length;
+    if (count > 0) {
+      stages.push({
+        tab: tabId,
+        label: matchingTab.label,
+        count,
+        color: matchingTab.color,
+        activeColor: matchingTab.activeColor,
+      });
+    }
+  }
+
+  return {
+    customerName: primaryName,
+    customerPhone: primaryPhone,
+    customerEmail: primaryEmail,
+    totalOrders: customerOrders.length,
+    stages,
+  };
 }
 
 /**

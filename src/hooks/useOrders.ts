@@ -26,7 +26,10 @@
 
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { ordersApi } from "@/lib/api";
+import { mapErpNextToOrderItem } from "@/lib/api/mappers";
 import type { Order, EnrichedOrder } from "@/lib/orders";
+import { matchesLegacyTab } from "@/lib/orders";
+import { getSharedOrders } from "@/lib/sync";
 import type {
   ScheduledOrderItem,
   ScheduledItemsResponse,
@@ -59,11 +62,11 @@ export function useOrders() {
     queryKey: orderKeys.list(),
     queryFn: () => ordersApi.fetchOrders(),
 
-    // Keep data fresh for 10 seconds before refetching in background
-    staleTime: 10 * 1000,
+    // Keep data fresh for 30 seconds before refetching in background
+    staleTime: 30 * 1000,
 
-    // Keep cached data for 5 minutes even if the component unmounts
-    gcTime: 5 * 60 * 1000,
+    // Keep cached data for 10 minutes even if the component unmounts
+    gcTime: 10 * 60 * 1000,
 
     // Auto-refetch every 15 seconds for live real-time dashboard dynamic updates
     refetchInterval: 15 * 1000,
@@ -96,6 +99,8 @@ export interface OrdersByStatusResult {
  * Hook to fetch orders by dedicated status API (e.g. 'new', 'picking', 'picked', 'packing', 'ready-to-assign', 'in-delivery', 'delivered', 'all').
  */
 export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
+  const queryClient = useQueryClient();
+
   return useQuery<OrdersByStatusResult, Error>({
     queryKey: orderKeys.status(statusName, page),
     queryFn: async () => {
@@ -120,14 +125,53 @@ export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
         rawData: res,
       };
     },
-    staleTime: 60 * 1000,
+    staleTime: 30 * 1000,
     gcTime: 10 * 60 * 1000,
     placeholderData: (previousData, previousQuery) => {
-      // Only keep previous data if we are paginating within the EXACT same status!
-      // If the user clicked a different tab (statusName changed), do NOT show previous status data!
+      // 1. If we are paginating within the EXACT same status, keep previous data
       if (previousQuery?.queryKey?.[2] === statusName) {
         return previousData;
       }
+
+      // 2. If this specific status & page is already in the query client cache, use it immediately
+      const cached = queryClient.getQueryData<OrdersByStatusResult>(orderKeys.status(statusName, page));
+      if (cached && cached.orders && cached.orders.length > 0) {
+        return cached;
+      }
+
+      // 3. Fallback: derive instant placeholder data from cached list or local shared orders
+      const listOrders = queryClient.getQueryData<Order[]>(orderKeys.list());
+      const source = (listOrders && listOrders.length > 0) ? listOrders : getSharedOrders();
+      if (source && source.length > 0) {
+        const lower = statusName.toLowerCase();
+        const filtered = lower === "all"
+          ? source
+          : source.filter((o) => {
+              if (lower === "new") return o.status === "New" || o.status === "Unfulfilled";
+              return matchesLegacyTab(o, statusName as any);
+            });
+        const total = filtered.length;
+        if (total > 0) {
+          const from = (page - 1) * perPage + 1;
+          const to = Math.min(page * perPage, total);
+          return {
+            orders: filtered.slice(from - 1, to),
+            pagination: {
+              current_page: page,
+              per_page: perPage,
+              total,
+              last_page: Math.max(1, Math.ceil(total / perPage)),
+              from,
+              to,
+              has_more_pages: page < Math.ceil(total / perPage),
+              next_page_url: null,
+              prev_page_url: null,
+            },
+            statusFilter: statusName,
+          };
+        }
+      }
+
       return undefined;
     },
     refetchInterval: 15 * 1000,
@@ -263,6 +307,9 @@ export function useInstallationTeams(locationId?: string | number | null) {
  * }
  */
 export function useOrderDetails(orderId: string) {
+  const queryClient = useQueryClient();
+  const cleanId = String(orderId || "").replace(/^#/, "");
+
   return useQuery<EnrichedOrder | undefined, Error>({
     queryKey: orderKeys.detail(orderId),
     queryFn: () => ordersApi.fetchOrderDetails(orderId),
@@ -270,7 +317,106 @@ export function useOrderDetails(orderId: string) {
     // Only fetch when orderId is provided
     enabled: !!orderId,
 
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+
+    // Provide instant placeholder data so the user never sees a delay or blank loading skeleton
+    placeholderData: () => {
+      // 1. Check if this exact order detail was fetched previously under an alternate ID key
+      const exactCached =
+        queryClient.getQueryData<EnrichedOrder>(orderKeys.detail(cleanId)) ||
+        queryClient.getQueryData<EnrichedOrder>(orderKeys.detail(`#${cleanId}`));
+      if (exactCached) return exactCached;
+
+      // 2. Look up in the general orders list cache
+      let found: Order | undefined;
+      const cachedOrders = queryClient.getQueryData<Order[]>(orderKeys.list());
+      if (cachedOrders && Array.isArray(cachedOrders)) {
+        found = cachedOrders.find(
+          (o) =>
+            o.id === orderId ||
+            o.id === cleanId ||
+            o.orderNumber === orderId ||
+            o.orderNumber === cleanId ||
+            o.orderNumber === `#${cleanId}`,
+        );
+      }
+
+      // 3. Look up in any status query cache (e.g. /picking, /packing, /delivered, etc.)
+      if (!found) {
+        const statusQueries = queryClient.getQueriesData<OrdersByStatusResult>({
+          queryKey: [...orderKeys.all, "status"],
+        });
+        for (const [, queryData] of statusQueries) {
+          if (queryData?.orders && Array.isArray(queryData.orders)) {
+            found = queryData.orders.find(
+              (o) =>
+                o.id === orderId ||
+                o.id === cleanId ||
+                o.orderNumber === orderId ||
+                o.orderNumber === cleanId ||
+                o.orderNumber === `#${cleanId}`,
+            );
+            if (found) break;
+          }
+        }
+      }
+
+      if (found) {
+        const rawItems = (found as any).line_items || (found as any).items || [];
+        const itemsList = Array.isArray(rawItems) ? rawItems.map(mapErpNextToOrderItem) : [];
+
+        return {
+          ...found,
+          zone: (found as any).zone || (found as any).custom_zone || found.city || "No Zone",
+          itemsList,
+          returnsList: [],
+          timeline: [],
+          payment: (found as any).payment
+            ? {
+                method: (found as any).payment.payment_method || "Cash on Delivery (COD)",
+                status: (found as any).payment.payment_status || "pending",
+                totalPaid: (found as any).payment.paid_amount || 0,
+                cash: 0,
+                card: 0,
+                subtotal: Math.max(0, (found.total || 0) - 10),
+                discount: 0,
+                shipping: 10,
+                total: found.total || 0,
+                balance: (found as any).payment.total_outstanding || 0,
+                shippingMethod: "Standard Delivery",
+                id: (found as any).payment.id,
+                shopifyOrderId: (found as any).payment.shopify_order_id,
+                processedAt: (found as any).payment.processed_at,
+              }
+            : {
+                method: "Cash on Delivery (COD)",
+                status: "pending",
+                totalPaid: 0,
+                cash: 0,
+                card: 0,
+                subtotal: Math.max(0, (found.total || 0) - 10),
+                discount: 0,
+                shipping: 10,
+                total: found.total || 0,
+                balance: found.total || 0,
+                shippingMethod: "Standard Delivery",
+              },
+          notes: (found as any).notes || found.notes || (found as any).custom_notes || (found as any).customer_notes || "",
+          shippingAddress: {
+            line1: (found as any).delivery_address || (found as any).custom_shipping_address_line1 || "",
+            line2: (found as any).custom_shipping_address_line2 || "",
+            city: found.city || "Doha",
+            country: "Qatar",
+            lat: 25.276987,
+            lng: 51.520008,
+          },
+          matrix: [],
+        };
+      }
+
+      return undefined;
+    },
   });
 }
 

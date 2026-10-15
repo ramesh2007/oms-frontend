@@ -7,10 +7,14 @@ export function OrdersTabs({
   activeTab,
   onTabChange,
   tabCounts,
+  searchActive = false,
+  searchTabCounts,
 }: {
   activeTab: LegacyTabId;
   onTabChange: (tab: LegacyTabId) => void;
   tabCounts: Record<LegacyTabId, number>;
+  searchActive?: boolean;
+  searchTabCounts?: Record<LegacyTabId, number> | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -87,7 +91,12 @@ export function OrdersTabs({
         }
 
         const isActive = activeTab === tab.id;
-        const count = tabCounts[tab.id] ?? 0;
+        const totalCount = tabCounts[tab.id] ?? 0;
+        const searchCount = searchTabCounts ? (searchTabCounts[tab.id] ?? 0) : null;
+        const hasSearchMatch = searchActive && searchCount !== null && searchCount > 0;
+        const hasZeroSearchMatch = searchActive && searchCount !== null && searchCount === 0;
+
+        const count = searchActive && searchCount !== null ? searchCount : totalCount;
 
         const TabButton = (
           <button
@@ -109,7 +118,11 @@ export function OrdersTabs({
               "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-2 text-xs font-semibold transition-all duration-200 select-none cursor-pointer",
               isActive
                 ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                : hasSearchMatch
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 ring-1 ring-emerald-500/20"
+                  : hasZeroSearchMatch
+                    ? "text-muted-foreground/50 hover:bg-muted hover:text-foreground opacity-60"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
             {/* Active indicator dot */}
@@ -130,10 +143,12 @@ export function OrdersTabs({
             <span>{tab.label}</span>
             <span
               className={cn(
-                "min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold tabular-nums leading-none",
+                "min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold tabular-nums leading-none transition-all",
                 isActive
                   ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-muted text-muted-foreground",
+                  : hasSearchMatch
+                    ? "bg-emerald-600 text-white font-extrabold shadow-xs"
+                    : "bg-muted text-muted-foreground",
               )}
             >
               {count}
