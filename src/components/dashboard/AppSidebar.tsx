@@ -139,6 +139,16 @@ function SidebarContent({
     { title: "In Delivery", url: "/orders", search: { tab: "In Delivery" }, icon: Truck, badge: inDeliveryCount.toString() },
     { title: "Delivered", url: "/orders", search: { tab: "Delivered" }, icon: CheckCircle2, badge: deliveredCount.toString() },
     { title: "Flags & Exceptions", url: "/orders", search: { tab: "Flags & Exceptions" }, icon: Flag, badge: flaggedOrderCount.toString(), danger: true },
+    { title: "Scheduled Installation", url: "/scheduled", icon: Wrench, badge: scheduledCount.toString() },
+    {
+      title: "Scheduling",
+      icon: CalendarDays,
+      subItems: [
+        { title: "Customer Care Queue", url: "/customer-care", badge: ccQueueCount.toString() },
+        { title: "Locations & Teams", url: "/locations" },
+        { title: "Team Calendars", url: "/calendars" },
+      ],
+    },
     {
       title: "After-Sales Operations",
       icon: RotateCcw,
@@ -149,17 +159,7 @@ function SidebarContent({
         { title: "Exchange", url: "/orders", search: { tab: "Exchange" }, badge: orders.filter(o => o.status === "Exchange").length.toString() },
       ],
     },
-    { title: "Scheduled Inst...", url: "/scheduled", icon: Wrench, badge: scheduledCount.toString() },
     { title: "Warehouses", url: "/warehouses", icon: Warehouse },
-    {
-      title: "Scheduling",
-      icon: CalendarDays,
-      subItems: [
-        { title: "Customer Care Queue", url: "/customer-care", badge: ccQueueCount.toString() },
-        { title: "Locations & Teams", url: "/locations" },
-        { title: "Team Calendars", url: "/calendars" },
-      ],
-    },
     { title: "Reports", url: "/reports", icon: BarChart3 },
     { title: "MIS Benchmarks", url: "/mis-benchmarks", icon: TrendingUp },
     { title: "Settings", url: "/settings", icon: Settings },

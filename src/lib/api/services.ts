@@ -1586,6 +1586,207 @@ export async function fetchScheduledItems(params?: {
   }
 }
 
+export interface TechnicianScheduleRecord {
+  id: number | string;
+  schedule_id?: number | string;
+  order_id: number | string;
+  order_number: string;
+  order_status?: string;
+  order_item_id: number | string;
+  order_installation_id?: number | string;
+  technician_id: number | string;
+  technician_name: string;
+  scheduled_date: string;
+  start_time: string;
+  end_time: string;
+  taken_time_in_mins?: number;
+  scheduled_at?: string;
+  zone?: string | null;
+  building?: string | null;
+  unit?: string | null;
+  street?: string | null;
+  address?: string | null;
+  customer?: {
+    name?: string;
+    phone?: string;
+    address?: string;
+    delivery_address?: string;
+    [key: string]: any;
+  };
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  status: string;
+  is_rescheduled?: boolean;
+  reschedule_count?: number;
+  rescheduled_at?: string | null;
+  latest_reschedule_reason?: string | null;
+  reschedule_history?: any[];
+  notes?: string | null;
+  images?: string | string[] | null;
+  completed_at?: string | null;
+  product_name?: string | null;
+  product_code?: string | null;
+  barcode?: string | null;
+  product_image?: string | null;
+  product_tags?: string | string[] | null;
+  gift_wrap?: string | boolean | null;
+  gift_message?: string | null;
+  installation_type?: string | null;
+  installation_level?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  order?: {
+    id: number | string;
+    order_number: string;
+    customer_name?: string;
+    customer_phone?: string;
+    delivery_address?: string;
+    status?: string;
+    total_amount?: number;
+    notes?: string | null;
+    created_at?: string;
+    driver_assignment?: {
+      id?: number | string;
+      assigned_driver_user_id?: number | string;
+      driver_name?: string;
+      driver_status?: string;
+      zone?: string;
+      [key: string]: any;
+    } | null;
+    [key: string]: any;
+  };
+  order_item?: {
+    id: number | string;
+    item_id?: number | string;
+    order_id?: number | string;
+    line_item_id?: string;
+    product_id?: string;
+    product_name?: string;
+    product_code?: string;
+    barcode?: string;
+    image?: string;
+    image_url?: string;
+    quantity?: number;
+    unit_price?: number;
+    total_price?: number;
+    status?: string;
+    is_installable?: boolean;
+    product_tags?: string | string[] | null;
+    gift_wrap?: string | boolean | null;
+    gift_message?: string | null;
+    [key: string]: any;
+  };
+  installation?: {
+    id: number | string;
+    order_item_id?: number | string;
+    installation_type?: string;
+    installation_level?: string;
+    status?: string;
+    is_scheduled_assigned?: boolean;
+    notes?: string | null;
+    completed_at?: string | null;
+    images?: string[] | string | null;
+    [key: string]: any;
+  };
+  technician?: {
+    id: number | string;
+    name: string;
+    email?: string;
+    phone?: string;
+    status?: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
+export interface TechnicianSchedulesResponse {
+  success: boolean;
+  status: string;
+  message?: string;
+  status_filter?: string;
+  total_count?: number;
+  pagination?: {
+    current_page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+    from?: number;
+    to?: number;
+    has_more_pages?: boolean;
+    next_page_url?: string | null;
+    prev_page_url?: string | null;
+  };
+  data: TechnicianScheduleRecord[];
+}
+
+/**
+ * Fetch technician schedules from:
+ * GET|POST /api/admin/technician-scheduled-list
+ * (with fallbacks to /api/admin/technician-schedule/list, /api/technician-scheduled-list)
+ */
+export async function fetchTechnicianSchedules(params?: {
+  technician_id?: number | string;
+  scheduled_date?: string;
+  status?: string;
+  order_id?: number | string;
+  order_number?: string;
+  search?: string;
+  all?: boolean;
+  per_page?: number;
+  page?: number;
+}): Promise<TechnicianSchedulesResponse> {
+  const queryParams: Record<string, string> = {};
+  if (params?.technician_id) queryParams.technician_id = String(params.technician_id);
+  if (params?.scheduled_date) queryParams.scheduled_date = params.scheduled_date;
+  if (params?.status) queryParams.status = params.status;
+  if (params?.order_id) queryParams.order_id = String(params.order_id);
+  if (params?.order_number) queryParams.order_number = params.order_number;
+  if (params?.search) queryParams.search = params.search;
+  if (params?.all) queryParams.all = "1";
+  if (params?.per_page) queryParams.per_page = String(params.per_page);
+  if (params?.page) queryParams.page = String(params.page);
+
+  if (isDemoMode()) {
+    return {
+      success: true,
+      status: "success",
+      message: "Technician schedules retrieved successfully (demo mode).",
+      pagination: {
+        current_page: 1,
+        per_page: params?.per_page || 15,
+        total: 0,
+        last_page: 1,
+      },
+      data: [],
+    };
+  }
+
+  const endpoints = [
+    "/api/admin/technician-scheduled-list",
+    "/api/admin/technician-schedule/list",
+    "/api/technician-scheduled-list",
+    "/api/technician-schedule/list",
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await erpNextClient.get<TechnicianSchedulesResponse>(ep, queryParams);
+      if (res && (Array.isArray(res.data) || Array.isArray((res as any)))) {
+        return res;
+      }
+    } catch (err: any) {
+      console.warn(`[TechnicianSchedules] ${ep} failed, trying next fallback:`, err?.message || err);
+    }
+  }
+
+  return {
+    success: false,
+    status: "error",
+    message: "Failed to fetch technician schedules from all endpoints",
+    data: [],
+  };
+}
+
 /**
  * Update payment details for an order.
  */
@@ -2071,4 +2272,5 @@ export const ordersApi = {
   fetchInstallationTeams,
   checkTechnicianAvailability,
   createTechnicianSchedule,
+  fetchTechnicianSchedules,
 };

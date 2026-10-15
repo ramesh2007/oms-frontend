@@ -35,6 +35,8 @@ import type {
   ScheduledItemsResponse,
   ApiInstallationLocation,
   ApiInstallationTeam,
+  TechnicianScheduleRecord,
+  TechnicianSchedulesResponse,
 } from "@/lib/api/services";
 
 // ─── Query Keys ──────────────────────────────────────────────────────────
@@ -287,6 +289,26 @@ export function useInstallationTeams(locationId?: string | number | null) {
     queryKey: [...orderKeys.all, "installation", "teams", locationId ? String(locationId) : "all"] as const,
     queryFn: () => ordersApi.fetchInstallationTeams(locationId),
     staleTime: 60 * 1000,
+  });
+}
+
+// ─── useTechnicianSchedules ─────────────────────────────────────────────
+
+/**
+ * Hook to fetch technician schedules from /api/admin/technician-schedule/list
+ */
+export function useTechnicianSchedules(params?: {
+  technician_id?: number | string;
+  scheduled_date?: string;
+  status?: string;
+  order_id?: number | string;
+  per_page?: number;
+  page?: number;
+}) {
+  return useQuery<TechnicianSchedulesResponse, Error>({
+    queryKey: [...orderKeys.all, "technician-schedules", params] as const,
+    queryFn: () => ordersApi.fetchTechnicianSchedules(params),
+    staleTime: 10 * 1000,
   });
 }
 
