@@ -13,6 +13,7 @@ import {
   ArrowLeftRight,
   RotateCcw,
 } from "lucide-react";
+import { isDemoMode } from "@/lib/api/config";
 
 export type OrderStatus =
   | "New"
@@ -205,8 +206,16 @@ export interface Order {
   ready_to_assign?: boolean;
   is_ready_to_assign?: boolean;
   all_items_vs?: boolean;
+  hasCancelledItems?: boolean;
+  cancelledItemsCount?: number;
   summary?: any;
   rawOrder?: any;
+  backend_status?: string;
+  rawStatus?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  customer_email?: string;
+  delivery_address?: string;
   shippingAddress?: {
     line1: string;
     line2: string;
@@ -234,7 +243,14 @@ export interface OrderItemType {
   fc: string;
   fcName: string;
   bin: string;
-  status: "Prepared" | "Accepted" | "Allocated" | "Pending" | "Picker Assigned";
+  status: "Prepared" | "Accepted" | "Allocated" | "Pending" | "Picker Assigned" | "Cancelled" | string;
+  is_cancelled?: boolean;
+  isCancelled?: boolean;
+  is_added?: boolean;
+  isAdded?: boolean;
+  is_new?: boolean;
+  isNew?: boolean;
+  raw_status?: string | null;
   /**
    * Fulfillment type for this item:
    * - FC: standard fulfillment center item (normal delivery flow)
@@ -256,6 +272,8 @@ export interface OrderItemType {
   isInstallable?: boolean;
   /** Backend Order Item ID */
   order_item_id?: number | string;
+  /** Backend Line Item ID (e.g. 17043696451828) */
+  line_item_id?: string | number;
   assigned_to?: number | string | null;
   assigned_user_name?: string | null;
   assigned_at?: string | null;
@@ -282,6 +300,17 @@ export interface OrderItemType {
   /** Gift message written for this item */
   gift_message?: string | null;
   giftMessage?: string | null;
+  item_id?: number | string;
+  is_flagged?: boolean;
+  isFlagged?: boolean;
+  flag_reason?: string | null;
+  flagged_reason?: string | null;
+  flaggedReason?: string | null;
+  flagged_image?: string | null;
+  flagged_image_url?: string | null;
+  flaggedImageUrl?: string | null;
+  flagged_by?: string | null;
+  flagged_at?: string | null;
 }
 
 export type ReturnStatus = "pending" | "picked up" | "completed";
@@ -352,7 +381,15 @@ export interface OrderTimelineEvent {
     | "line_item_updated"
     | "delivery_failed"
     | "cancelled"
-    | "bypassed";
+    | "bypassed"
+    | "item_flagged"
+    | "flagged";
+  /** Item-level identifiers & flagged information */
+  itemId?: string | number;
+  itemName?: string;
+  isFlagged?: boolean;
+  flagReason?: string | null;
+  flaggedImageUrl?: string | null;
 }
 
 export interface EnrichedOrder extends Order {
@@ -449,10 +486,9 @@ function buildTimelineFor(base: Order, items?: OrderItemType[]): OrderTimelineEv
   ].includes(base.status);
 
   // Item names for per-item events (use provided items or fallback)
-  const itemNames = items?.map((i) => i.name) ?? [
-    "Frida Baby NoseFrida Saline Snot Spray",
-    ...(base.items > 1 ? ["SmarTrike STR3 6-in-1 Stroller-Trike (Black)"] : []),
-  ];
+  const itemNames =
+    items?.map((i) => i.name) ??
+    (base.items > 0 ? Array.from({ length: base.items }, (_, idx) => `Item ${idx + 1}`) : []);
   const itemCount = Math.max(base.items, itemNames.length);
   const fcName = "Fulfillment Center Hilal";
   const fcCode = "F01";
@@ -816,434 +852,28 @@ function buildTimelineFor(base: Order, items?: OrderItemType[]): OrderTimelineEv
   return ev;
 }
 
-/** Get mock order items list dynamically based on order ID and item count. */
+/** Single reference sample items for development reference. Returns empty array for all other orders. */
 export function getMockOrderItems(id: string, totalItems: number): OrderItemType[] {
-  let itemsList: OrderItemType[] = [];
-
-  if (id === "HM99005") {
-    itemsList = [
+  if (id === "HM-REF-1001") {
+    return [
       {
-        id: "test-item-1",
-        name: "Happy Hop 6-in-1 Play Center",
-        sku: "9060",
+        id: "ref-item-1",
+        name: "Reference Product Item",
+        sku: "REF-SKU-001",
         barcode: "90600000001",
         image: "https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?w=100&h=100&fit=crop",
         qty: 1,
-        price: 1999.0,
+        price: 150.0,
         fc: "F01",
         fcName: "Fulfillment Center Hilal",
         bin: "B-100 / 1",
         status: "Prepared",
         itemType: "FC",
-        product_tags: ["Inflatable", "Bouncy Castle", "Outdoor"],
-      },
-      {
-        id: "test-item-2",
-        name: "Bestway Apx 365 Round Pool Set (12' x 30\")",
-        sku: "561KC",
-        barcode: "56100000002",
-        image: "https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 799.0,
-        fc: "MWO",
-        fcName: "Main Warehouse Outdoor",
-        bin: "B-100 / 2",
-        status: "Prepared",
-        itemType: "MWH",
-        product_tags: ["Swimming", "Summer Pool"],
-      },
-      {
-        id: "test-item-3",
-        name: "Smoby Green XL Slide",
-        sku: "820304",
-        barcode: "82030400003",
-        image: "https://images.unsplash.com/photo-1515488042361-ee00e0ddd4e4?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 399.0,
-        fc: "VS",
-        fcName: "Virtual Stock",
-        bin: "B-100 / 3",
-        status: "Prepared",
-        itemType: "VL_SUPPLIER",
-        product_tags: ["VS", "Garden Slide", "Kids Outdoor"],
+        product_tags: ["Reference"],
       },
     ];
-  } else if (id === "HM68229") {
-    itemsList = [
-      {
-        id: "si-item-1",
-        name: "Happy Hop 6-in-1 Play Center",
-        sku: "9060",
-        barcode: "90600000001",
-        image: "https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 1999.0,
-        fc: "F01",
-        fcName: "Fulfillment Center Hilal",
-        bin: "B-100 / 1",
-        status: "Prepared",
-        itemType: "FC",
-        product_tags: ["Inflatable", "Bouncy Castle", "Outdoor Fun"],
-      },
-      {
-        id: "si-item-2",
-        name: "Bestway Apx 365 Round Pool Set (12' x 30\")",
-        sku: "561KC",
-        barcode: "56100000002",
-        image: "https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 799.0,
-        fc: "MWO",
-        fcName: "Main Warehouse Outdoor",
-        bin: "B-100 / 2",
-        status: "Prepared",
-        itemType: "MWH",
-        product_tags: ["Swimming", "Summer Pool"],
-      },
-      {
-        id: "si-item-3",
-        name: "Smoby Green XL Slide",
-        sku: "820304",
-        barcode: "82030400003",
-        image: "https://images.unsplash.com/photo-1515488042361-ee00e0ddd4e4?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 399.0,
-        fc: "VS",
-        fcName: "Virtual Stock",
-        bin: "B-100 / 3",
-        status: "Prepared",
-        itemType: "VL_SUPPLIER",
-        product_tags: ["VS", "Garden Slide", "Kids Outdoor"],
-      },
-      {
-        id: "si-item-4",
-        name: "Happy Hop Double Water Slide – Deluxe",
-        sku: "9029",
-        barcode: "90290000004",
-        image: "https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 1499.0,
-        fc: "F01",
-        fcName: "Fulfillment Center Hilal",
-        bin: "B-100 / 4",
-        status: "Prepared",
-        product_tags: ["Water Slide", "Deluxe", "Summer"],
-      },
-    ];
-  } else if (id === "HM68258") {
-    itemsList = [
-      {
-        id: "si-item-5",
-        name: "Bestway H2Ogo! Leap & Play Mega Water Park",
-        sku: "53427",
-        barcode: "53427000005",
-        image: "https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 1299.0,
-        fc: "F01",
-        fcName: "Fulfillment Center Hilal",
-        bin: "B-101 / 1",
-        status: "Prepared",
-        product_tags: ["Water Park", "Inflatable"],
-      },
-      {
-        id: "si-item-6",
-        name: "Bestway Flowclear Pool Cover (12ft)",
-        sku: "58034",
-        barcode: "58034000006",
-        image: "https://images.unsplash.com/photo-1560090995-01b72abb4c06?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 149.0,
-        fc: "VS",
-        fcName: "Virtual Stock",
-        bin: "B-101 / 2",
-        status: "Prepared",
-        product_tags: ["VS", "Pool Cover", "Accessories"],
-      },
-    ];
-  } else if (id === "HM68268") {
-    itemsList = [
-      {
-        id: "si-item-7",
-        name: "Intex Prism Frame Rectangular Pool Set",
-        sku: "26790",
-        barcode: "26790000007",
-        image: "https://images.unsplash.com/photo-1560090995-01b72abb4c06?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 899.0,
-        fc: "MWO",
-        fcName: "Main Warehouse Outdoor",
-        bin: "B-102 / 1",
-        status: "Prepared",
-      },
-    ];
-  } else if (id === "HM64839") {
-    itemsList = [
-      {
-        id: "si-item-8",
-        name: "Nip Soother With Hook (Blue)",
-        sku: "412217",
-        barcode: "41221700008",
-        image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 25.0,
-        fc: "F01",
-        fcName: "Fulfillment Center Hilal",
-        bin: "B-103 / 1",
-        status: "Prepared",
-      },
-    ];
-  } else if (id === "HM68300") {
-    itemsList = [
-      {
-        id: "si-item-9",
-        name: "HalaMama Premium Wooden Playground Set",
-        sku: "HMP-WPS",
-        barcode: "HMPWPS0001",
-        image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 3499.0,
-        fc: "MWO",
-        fcName: "Main Warehouse Outdoor",
-        bin: "B-300 / 1",
-        status: "Prepared",
-        itemType: "MWH",
-      },
-    ];
-  } else if (id === "HM64110") {
-    itemsList = [
-      {
-        id: "vl-item-1",
-        name: "Mima Xari Stroller (Camel)",
-        sku: "MX-STR-CAM",
-        barcode: "MXSTRCAM001",
-        image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 3999.0,
-        fc: "VL_HMA",
-        fcName: "Vendor Location 1",
-        bin: "V-01",
-        status: "Prepared",
-        itemType: "VL_HMA",
-        locationId: "loc-1",
-      },
-      {
-        id: "vl-item-2",
-        name: "Stokke Tripp Trapp High Chair (Oak)",
-        sku: "ST-TTHC-OAK",
-        barcode: "STTTHCOAK001",
-        image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 1199.0,
-        fc: "VL_HMA",
-        fcName: "Vendor Location 1",
-        bin: "V-02",
-        status: "Prepared",
-        itemType: "VL_HMA",
-        locationId: "loc-1",
-      },
-    ];
-  } else if (id === "HM99001") {
-    itemsList = [
-      {
-        id: "vl-item-3",
-        name: "Chicco Next2Me Side Sleeping Crib",
-        sku: "CC-N2M-CRIB",
-        barcode: "CCN2MCRIB01",
-        image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 899.0,
-        fc: "VL_HMA",
-        fcName: "Vendor Location 1",
-        bin: "V-03",
-        status: "Prepared",
-        itemType: "VL_HMA",
-        locationId: "loc-1",
-      },
-      {
-        id: "vl-item-4",
-        name: "Nuna Leaf Grow Lounger",
-        sku: "NL-GROW-LNG",
-        barcode: "NLGROWLNG01",
-        image: "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-        qty: 1,
-        price: 1299.0,
-        fc: "VL_HMA",
-        fcName: "Vendor Location 1",
-        bin: "V-04",
-        status: "Prepared",
-        itemType: "VL_HMA",
-        locationId: "loc-1",
-      },
-    ];
-  } else {
-    const totalItemsCount = totalItems || 1;
-    if (totalItemsCount === 1) {
-      itemsList = [
-        {
-          id: "item-1",
-          name: "Frida Baby NoseFrida Saline Snot Spray",
-          sku: "NS-SPNC-1P-0200",
-          barcode: "9350764006338",
-          image:
-            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 31.0,
-          fc: "F01",
-          fcName: "Fulfillment Center Hilal",
-          bin: "B-252 / 4",
-          status: "Prepared",
-        },
-      ];
-    } else if (totalItemsCount === 2) {
-      itemsList = [
-        {
-          id: "item-1",
-          name: "Frida Baby NoseFrida Saline Snot Spray",
-          sku: "NS-SPNC-1P-0200",
-          barcode: "9350764006338",
-          image:
-            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 31.0,
-          fc: "F01",
-          fcName: "Fulfillment Center Hilal",
-          bin: "B-252 / 4",
-          status: "Prepared",
-        },
-        {
-          id: "item-3",
-          name: "Bestway Apx 365 Round Pool Set (12' x 30\")",
-          sku: "561KC",
-          barcode: "561KC00001",
-          image: "https://images.unsplash.com/photo-1560090995-01b72abb4c06?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 799.0,
-          fc: "MWO",
-          fcName: "Main Warehouse Outdoor",
-          bin: "B-102 / 2",
-          status: "Prepared",
-        },
-      ];
-    } else if (totalItemsCount === 3) {
-      itemsList = [
-        {
-          id: "item-1",
-          name: "Frida Baby NoseFrida Saline Snot Spray",
-          sku: "NS-SPNC-1P-0200",
-          barcode: "9350764006338",
-          image:
-            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 31.0,
-          fc: "F01",
-          fcName: "Fulfillment Center Hilal",
-          bin: "B-252 / 4",
-          status: "Prepared",
-        },
-        {
-          id: "item-2",
-          name: "SmarTrike STR3 6-in-1 Stroller-Trike (Black)",
-          sku: "5021933",
-          barcode: "9350764006339",
-          image:
-            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 599.0,
-          fc: "F01",
-          fcName: "Fulfillment Center Hilal",
-          bin: "B-100 / 1",
-          status: "Allocated",
-        },
-        {
-          id: "item-3",
-          name: "Bestway Apx 365 Round Pool Set (12' x 30\")",
-          sku: "561KC",
-          barcode: "561KC00001",
-          image: "https://images.unsplash.com/photo-1560090995-01b72abb4c06?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 799.0,
-          fc: "MWO",
-          fcName: "Main Warehouse Outdoor",
-          bin: "B-102 / 2",
-          status: "Prepared",
-        },
-      ];
-    } else {
-      itemsList = [
-        {
-          id: "item-1",
-          name: "Frida Baby NoseFrida Saline Snot Spray",
-          sku: "NS-SPNC-1P-0200",
-          barcode: "9350764006338",
-          image:
-            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 31.0,
-          fc: "F01",
-          fcName: "Fulfillment Center Hilal",
-          bin: "B-252 / 4",
-          status: "Prepared",
-        },
-        {
-          id: "item-2",
-          name: "SmarTrike STR3 6-in-1 Stroller-Trike (Black)",
-          sku: "5021933",
-          barcode: "9350764006339",
-          image:
-            "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 599.0,
-          fc: "F01",
-          fcName: "Fulfillment Center Hilal",
-          bin: "B-100 / 1",
-          status: "Allocated",
-        },
-        {
-          id: "item-3",
-          name: "Bestway Apx 365 Round Pool Set (12' x 30\")",
-          sku: "561KC",
-          barcode: "561KC00001",
-          image: "https://images.unsplash.com/photo-1560090995-01b72abb4c06?w=100&h=100&fit=crop",
-          qty: 1,
-          price: 799.0,
-          fc: "MWO",
-          fcName: "Main Warehouse Outdoor",
-          bin: "B-102 / 2",
-          status: "Prepared",
-        },
-        {
-          id: "item-4",
-          name: "Smoby Green XL Slide",
-          sku: "820304",
-          barcode: "82030400001",
-          image: "https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=100&h=100&fit=crop",
-          qty: totalItemsCount - 3,
-          price: 399.0,
-          fc: "VS",
-          fcName: "Virtual Stock",
-          bin: "B-103 / 1",
-          status: "Prepared",
-        },
-      ];
-    }
   }
-
-  // Load cancelled items from localStorage in demo mode
-  let cancelledItemIds: string[] = [];
-  if (typeof window !== "undefined") {
-    try {
-      const raw = localStorage.getItem("hm_cancelled_items");
-      if (raw) cancelledItemIds = JSON.parse(raw);
-    } catch {}
-  }
-
-  return itemsList.map((item) => {
-    if (cancelledItemIds.includes(item.id)) {
-      return { ...item, status: "Pending" as const };
-    }
-    return item as OrderItemType;
-  });
+  return [];
 }
 
 /** Get mock order total dynamically based on its items and payment information. */
@@ -1258,7 +888,7 @@ export function getMockOrderTotal(id: string, totalItems: number, payment?: any)
 /** Converts any Order into an EnrichedOrder, ensuring all nested properties exist safely */
 export function toEnrichedOrder(order: Order): EnrichedOrder {
   const rawId = String(order.id || "");
-  const baseOrder = MOCK_ORDERS.find((o) => o.id === rawId);
+  const baseOrder = isDemoMode() ? MOCK_ORDERS.find((o) => o.id === rawId) : undefined;
 
   // 1. Items List
   let itemsList: OrderItemType[] = [];
@@ -1266,8 +896,56 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
     const mockItems = getMockOrderItems(rawId, order.itemsList.length);
     itemsList = order.itemsList.map((item, idx) => {
       const matchingMock = mockItems.find((m) => m.id === item.id || m.sku === item.sku) || mockItems[idx];
+      const rawLineItemId = (item as any).line_item_id;
+      const rawIdVal = item.id;
+      const rawOrderItemIdVal = (item as any).order_item_id;
+      const rawItemIdVal = (item as any).item_id;
+
+      const resolvedLineItemId = rawLineItemId
+        ? String(rawLineItemId)
+        : rawIdVal && String(rawIdVal).length > 6
+          ? String(rawIdVal)
+          : rawOrderItemIdVal && String(rawOrderItemIdVal).length > 6
+            ? String(rawOrderItemIdVal)
+            : rawLineItemId ?? rawIdVal ?? rawOrderItemIdVal ?? rawItemIdVal;
+
+      const finalLineItemIdStr = resolvedLineItemId ? String(resolvedLineItemId) : String(item.id);
+
+      const rawStatusStr = String(item.status || (item as any).custom_status || (item as any).raw_status || "").toLowerCase().trim();
+      const isItemCancelled = rawStatusStr === "cancelled" || rawStatusStr === "canceled" || Boolean((item as any).is_cancelled || (item as any).cancelled);
+      const isItemAdded = Boolean(
+        (item as any).is_new ||
+        (item as any).isNew ||
+        (item as any).is_added ||
+        (item as any).isAdded ||
+        (item as any).added ||
+        (item as any).is_replacement ||
+        (item as any).isReplacement ||
+        (item as any).is_exchange ||
+        (item as any).isExchange ||
+        rawStatusStr === "new" ||
+        rawStatusStr === "added"
+      );
+
       return {
         ...item,
+        status: isItemCancelled ? "Cancelled" : isItemAdded ? "Added New" : item.status,
+        is_cancelled: isItemCancelled,
+        isCancelled: isItemCancelled,
+        is_added: isItemAdded,
+        isAdded: isItemAdded,
+        is_new: isItemAdded,
+        isNew: isItemAdded,
+        raw_status: (item as any).raw_status || item.status,
+        id: finalLineItemIdStr,
+        line_item_id: finalLineItemIdStr,
+        order_item_id: finalLineItemIdStr,
+        item_id: rawItemIdVal ?? (item as any).product_id,
+        assigned_to: item.assigned_to ?? (item as any).assigned_user_id ?? (item as any).picker_id ?? (item as any).picker ?? null,
+        assigned_user_name: item.assigned_user_name ?? (item as any).assigned_to_name ?? (item as any).picker_name ?? (item as any).picker ?? (item as any).assignedUser?.name ?? null,
+        assigned_at: item.assigned_at ?? null,
+        picked_by: item.picked_by ?? null,
+        picked_user_name: item.picked_user_name ?? (item as any).pickedUser?.name ?? null,
         product_tags:
           item.product_tags ??
           (item as any).tags ??
@@ -1282,18 +960,28 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
   } else if (Array.isArray(order.line_items) && order.line_items.length > 0) {
     const mockItems = getMockOrderItems(rawId, order.line_items.length);
     itemsList = order.line_items.map((rawItem: any, idx: number) => {
-      const orderItemId =
-        rawItem.order_item_id ??
-        rawItem.id ??
-        rawItem.item_id ??
-        rawItem.line_item_id ??
-        `item-${rawId}-${idx + 1}`;
+      const rawLineItemId = rawItem.line_item_id;
+      const rawIdVal = rawItem.id;
+      const rawOrderItemIdVal = rawItem.order_item_id;
+      const rawItemIdVal = rawItem.item_id;
+
+      const resolvedLineItemId = rawLineItemId
+        ? String(rawLineItemId)
+        : rawIdVal && String(rawIdVal).length > 6
+          ? String(rawIdVal)
+          : rawOrderItemIdVal && String(rawOrderItemIdVal).length > 6
+            ? String(rawOrderItemIdVal)
+            : rawLineItemId ?? rawIdVal ?? rawOrderItemIdVal ?? rawItemIdVal ?? `item-${rawId}-${idx + 1}`;
+
+      const finalLineItemIdStr = String(resolvedLineItemId);
       const qty = Number(rawItem.quantity ?? rawItem.qty ?? 1) || 1;
       const price = Number(rawItem.unit_price ?? rawItem.price ?? rawItem.rate ?? 0) || 0;
-      const matchingMock = mockItems.find((m) => m.id === String(orderItemId) || m.sku === (rawItem.product_code ?? rawItem.item_code ?? rawItem.sku)) || mockItems[idx];
+      const matchingMock = mockItems.find((m) => m.id === finalLineItemIdStr || m.sku === (rawItem.product_code ?? rawItem.item_code ?? rawItem.sku)) || mockItems[idx];
       return {
-        id: String(orderItemId),
-        order_item_id: orderItemId,
+        id: finalLineItemIdStr,
+        line_item_id: finalLineItemIdStr,
+        order_item_id: finalLineItemIdStr,
+        item_id: rawItemIdVal ?? undefined,
         name: rawItem.product_name ?? rawItem.item_name ?? rawItem.name ?? `Item ${idx + 1}`,
         sku: rawItem.product_code ?? rawItem.item_code ?? rawItem.sku ?? "N/A",
         barcode: rawItem.barcode ?? rawItem.custom_barcode ?? "",
@@ -1303,7 +991,88 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
         fc: rawItem.warehouse_code ?? rawItem.fc ?? "F01",
         fcName: rawItem.warehouse ?? rawItem.fcName ?? "Fulfillment Center Hilal",
         bin: rawItem.bin ?? rawItem.custom_bin ?? "—",
-        status: (rawItem.status as any) || "Prepared",
+        status: (() => {
+          const s = String(rawItem.status || rawItem.custom_status || "").toLowerCase().trim();
+          if (s === "cancelled" || s === "canceled") return "Cancelled";
+          if (
+            (rawItem as any).is_new ||
+            (rawItem as any).isNew ||
+            (rawItem as any).is_added ||
+            (rawItem as any).isAdded ||
+            (rawItem as any).added ||
+            s === "new" ||
+            s === "added"
+          ) return "Added New";
+          return (rawItem.status as any) || "Prepared";
+        })(),
+        is_cancelled: Boolean(
+          String(rawItem.status || "").toLowerCase() === "cancelled" ||
+          String(rawItem.status || "").toLowerCase() === "canceled" ||
+          rawItem.is_cancelled ||
+          rawItem.cancelled
+        ),
+        isCancelled: Boolean(
+          String(rawItem.status || "").toLowerCase() === "cancelled" ||
+          String(rawItem.status || "").toLowerCase() === "canceled" ||
+          rawItem.is_cancelled ||
+          rawItem.cancelled
+        ),
+        is_added: Boolean(
+          (rawItem as any).is_new ||
+          (rawItem as any).isNew ||
+          (rawItem as any).is_added ||
+          (rawItem as any).isAdded ||
+          (rawItem as any).added ||
+          String(rawItem.status || "").toLowerCase() === "new" ||
+          String(rawItem.status || "").toLowerCase() === "added"
+        ),
+        isAdded: Boolean(
+          (rawItem as any).is_new ||
+          (rawItem as any).isNew ||
+          (rawItem as any).is_added ||
+          (rawItem as any).isAdded ||
+          (rawItem as any).added ||
+          String(rawItem.status || "").toLowerCase() === "new" ||
+          String(rawItem.status || "").toLowerCase() === "added"
+        ),
+        is_new: Boolean(
+          (rawItem as any).is_new ||
+          (rawItem as any).isNew ||
+          (rawItem as any).is_added ||
+          (rawItem as any).isAdded ||
+          (rawItem as any).added ||
+          String(rawItem.status || "").toLowerCase() === "new" ||
+          String(rawItem.status || "").toLowerCase() === "added"
+        ),
+        isNew: Boolean(
+          (rawItem as any).is_new ||
+          (rawItem as any).isNew ||
+          (rawItem as any).is_added ||
+          (rawItem as any).isAdded ||
+          (rawItem as any).added ||
+          String(rawItem.status || "").toLowerCase() === "new" ||
+          String(rawItem.status || "").toLowerCase() === "added"
+        ),
+        assigned_to: rawItem.assigned_to ?? rawItem.assigned_user_id ?? (rawItem as any).picker_id ?? (rawItem as any).picker ?? null,
+        assigned_user_name: rawItem.assigned_user_name ?? rawItem.assigned_to_name ?? rawItem.picker_name ?? (rawItem as any).picker ?? rawItem.assignedUser?.name ?? null,
+        assigned_at: rawItem.assigned_at ?? null,
+        picked_by: rawItem.picked_by ?? null,
+        picked_user_name: rawItem.picked_user_name ?? rawItem.pickedUser?.name ?? null,
+        packed_by: rawItem.packed_by ?? null,
+        packed_user_name: rawItem.packed_user_name ?? rawItem.packedUser?.name ?? null,
+        is_installable: Boolean(
+          rawItem.is_installable ||
+          rawItem.isInstallable ||
+          (rawItem as any).requires_installation ||
+          (rawItem as any).custom_is_installable
+        ),
+        isInstallable: Boolean(
+          rawItem.is_installable ||
+          rawItem.isInstallable ||
+          (rawItem as any).requires_installation ||
+          (rawItem as any).custom_is_installable
+        ),
+        itemType: rawItem.itemType || rawItem.item_type,
         product_tags:
           rawItem.product_tags ??
           rawItem.tags ??
@@ -1323,21 +1092,34 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
           rawItem.giftMessage ??
           (rawItem as any).custom_gift_message ??
           null,
+        is_flagged: Boolean(
+          rawItem.is_flagged ||
+          (rawItem as any).isFlagged ||
+          (rawItem as any).flagged ||
+          String(rawItem.status || "").toLowerCase() === "flagged"
+        ),
+        flag_reason: rawItem.flag_reason ?? (rawItem as any).flagged_reason ?? (rawItem as any).flaggedReason ?? (rawItem as any).reason ?? null,
+        flagged_reason: rawItem.flag_reason ?? (rawItem as any).flagged_reason ?? (rawItem as any).flaggedReason ?? (rawItem as any).reason ?? null,
+        flagged_image_url: rawItem.flagged_image_url ?? (rawItem as any).flagged_image ?? (rawItem as any).flag_image_url ?? null,
+        flagged_by: rawItem.flagged_by ?? (rawItem as any).flagged_user_name ?? null,
+        flagged_at: rawItem.flagged_at ?? null,
       };
     });
   } else {
-    itemsList = getMockOrderItems(rawId, Math.max(1, order.items || 1));
+    itemsList = isDemoMode() ? getMockOrderItems(rawId, Math.max(1, order.items || 1)) : [];
   }
 
   // 2. Calculated total & payment
   const calculatedTotal =
     typeof order.total === "number" && order.total > 0
       ? order.total
-      : getMockOrderTotal(
-          rawId,
-          itemsList.reduce((sum, i) => sum + i.qty, 0),
-          order.payment || baseOrder?.payment
-        );
+      : isDemoMode()
+        ? getMockOrderTotal(
+            rawId,
+            itemsList.reduce((sum, i) => sum + i.qty, 0),
+            order.payment || baseOrder?.payment
+          )
+        : (order.payment?.total ?? 0);
 
   const rawPayment = order.payment || baseOrder?.payment;
   const shipping = typeof rawPayment?.shipping === "number" ? rawPayment.shipping : 10;
@@ -1407,23 +1189,36 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
   };
 
   // 4. Returns
+  const isOrderFullyCancelled = isOrderCancelled(order);
+  const cancelledFromItems = isOrderFullyCancelled ? [] : itemsList.filter(isItemCancelledOrReturned);
   const returnsList: OrderReturn[] =
-    order.returnItems && order.returnItems.length > 0
-      ? order.returnItems
-      : baseOrder?.returnItems && baseOrder.returnItems.length > 0
-        ? baseOrder.returnItems
-        : order.returns
-          ? [
-              {
-                id: `ret-${rawId}-1`,
-                itemName: itemsList[0]?.name || "Returned Item",
-                type: "return",
-                qty: order.returns.count || 1,
-                status: "pending",
-                source: "Shopify",
-              },
-            ]
-          : [];
+    isOrderFullyCancelled
+      ? []
+      : order.returnItems && order.returnItems.length > 0
+        ? order.returnItems
+        : baseOrder?.returnItems && baseOrder.returnItems.length > 0
+          ? baseOrder.returnItems
+          : order.returns
+            ? [
+                {
+                  id: `ret-${rawId}-1`,
+                  itemName: itemsList[0]?.name || "Returned Item",
+                  type: "return",
+                  qty: order.returns.count || 1,
+                  status: "pending",
+                  source: "Shopify",
+                },
+              ]
+            : cancelledFromItems.length > 0
+              ? cancelledFromItems.map((ci, idx) => ({
+                  id: `ret-${rawId}-${idx + 1}`,
+                  itemName: ci.name || "Returned Item",
+                  type: "return" as const,
+                  qty: ci.qty || 1,
+                  status: "pending" as const,
+                  source: "Shopify",
+                }))
+              : [];
 
   // 5. Timeline
   const timeline: OrderTimelineEvent[] =
@@ -1436,15 +1231,50 @@ export function toEnrichedOrder(order: Order): EnrichedOrder {
     total: calculatedTotal,
     zone: order.zone || order.city || "No Zone",
     customer: {
-      name: order.customer?.name || "Customer",
-      email: order.customer?.email || "",
-      phone: order.customer?.phone || "—",
+      name:
+        (order.customer?.name &&
+        order.customer.name !== "Unknown Customer" &&
+        order.customer.name !== "Unknown" &&
+        order.customer.name !== "Customer"
+          ? order.customer.name
+          : null) ||
+        order.customer_name ||
+        (order as any).customerName ||
+        (order as any).rawOrder?.customer_name ||
+        (order as any).rawOrder?.customerName ||
+        (order as any).rawOrder?.customer?.name ||
+        (order as any).rawOrder?.customer?.customer_name ||
+        (typeof (order as any).rawOrder?.customer === "string" ? (order as any).rawOrder.customer : null) ||
+        (order as any).shippingAddress?.name ||
+        (order as any).recipient_name ||
+        order.customer?.name ||
+        "Customer",
+      email:
+        order.customer?.email ||
+        order.customer_email ||
+        (order as any).rawOrder?.customer_email ||
+        (order as any).rawOrder?.email ||
+        "",
+      phone:
+        order.customer?.phone ||
+        order.customer_phone ||
+        (order as any).rawOrder?.customer_phone ||
+        (order as any).rawOrder?.phone ||
+        "—",
     },
     itemsList,
     returnsList,
+    returns: isOrderFullyCancelled
+      ? undefined
+      : returnsList.length > 0
+        ? { type: "Return" as const, count: returnsList.length }
+        : order.returns,
+    returnItems: isOrderFullyCancelled ? [] : returnsList,
+    hasCancelledItems: !isOrderFullyCancelled && returnsList.length > 0,
+    cancelledItemsCount: isOrderFullyCancelled ? 0 : returnsList.length,
     timeline,
     payment,
-    notes: order.notes || baseOrder?.notes || "Standard delivery order.",
+    notes: order.notes || baseOrder?.notes || "",
     shippingAddress,
     matrix: [
       {
@@ -1483,22 +1313,28 @@ export function getEnrichedOrder(id: string, fallbackOrder?: Order): EnrichedOrd
   if (fallbackOrder) {
     return toEnrichedOrder(fallbackOrder);
   }
-  const baseOrder = MOCK_ORDERS.find((o) => o.id === id);
-  if (baseOrder) {
-    return toEnrichedOrder(baseOrder);
-  }
-  if (typeof window !== "undefined") {
-    try {
-      const shared = localStorage.getItem("hm_shared_orders");
-      if (shared) {
-        const parsed: Order[] = JSON.parse(shared);
-        const found = parsed.find((o) => o.id === id);
-        if (found) return toEnrichedOrder(found);
-      }
-    } catch {}
+  if (isDemoMode() || id === "HM-REF-1001") {
+    const baseOrder = MOCK_ORDERS.find((o) => o.id === id);
+    if (baseOrder) {
+      return toEnrichedOrder(baseOrder);
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const shared = localStorage.getItem("hm_shared_orders");
+        if (shared) {
+          const parsed: Order[] = JSON.parse(shared);
+          const found = parsed.find((o) => o.id === id);
+          if (found) return toEnrichedOrder(found);
+        }
+      } catch {}
+    }
   }
 
-  // Graceful fallback order so print and export operations never drop an order
+  if (!isDemoMode()) {
+    return undefined;
+  }
+
+  // Graceful fallback order only in demo mode
   const fallback: Order = {
     id,
     shopifyOrderId: id,
@@ -1537,611 +1373,49 @@ export const ACTIVE_STATUSES: OrderStatus[] = [
   "Started",
 ];
 
+/**
+ * Single reference order kept for structure & type reference until production.
+ * All fake mock orders removed in favor of live dynamic server data.
+ */
 export const MOCK_ORDERS: Order[] = [
   {
-    id: "HM99005",
-    customerId: "cust-99005",
-    tat: "00h 01m",
-    date: "Jun 27",
-    time: "10:55",
-    customer: { name: "Khalid Al-Nuaimi", email: "khalid.nuaimi@example.com", phone: "55776688" },
+    id: "HM-REF-1001",
+    orderNumber: "1001",
+    customerId: "cust-ref-001",
+    tat: "00h 15m",
+    date: "2026-10-18",
+    time: "10:00",
+    customer: { name: "Sample Reference Order", email: "sample@halamama.com", phone: "55000000" },
     channel: "shopify",
-    items: 3,
+    items: 1,
     status: "New",
     city: "Doha",
     coordinator: "-",
     driver: null,
     picker: null,
     packer: null,
-    total: 3197,
+    total: 100,
     shopify: "Unfulfilled",
-    pickingStatus: "0/3 Picked",
-    packingStatus: "0/3 Packed",
+    pickingStatus: "0/1 Picked",
+    packingStatus: "0/1 Packed",
     bags: 0,
-    isExpress: true,
-    shippingMethod: "Express Delivery",
-    tags: ["express"],
-    lat: 25.2638,
-    lng: 51.4822,
+    isExpress: false,
+    shippingMethod: "Standard Delivery",
+    tags: [],
+    lat: 25.2854,
+    lng: 51.5310,
     payment: {
-      subtotal: 3197,
+      subtotal: 100,
       discount: 0,
-      shipping: 25,
-      shippingMethod: "Express Delivery",
-      total: 3197,
-      balance: 3197,
+      shipping: 0,
+      shippingMethod: "Standard Delivery",
+      total: 100,
+      balance: 100,
       method: "Cash on Delivery",
       totalPaid: 0,
       cash: 0,
       card: 0,
     },
-  },
-  {
-    id: "HM59238",
-    customerId: "cust-59238",
-    tat: "642h 50m",
-    date: "Apr 16",
-    time: "18:34",
-    customer: { name: "test test", email: "nandu@halamama.com", phone: "77532802" },
-    channel: "web",
-    items: 0,
-    status: "Cancelled",
-    returns: { type: "Return", count: 1 },
-    returnItems: [
-      {
-        id: "ret-HM59238-1",
-        itemName: "Beurer Sugar Machine With 50 Strips",
-        sku: "BEU-SM-050",
-        type: "return",
-        qty: 1,
-        status: "completed",
-        source: "Web",
-        reason: "damaged",
-        adminNote: "Customer reported device not powering on.",
-        createdAt: "2026-04-16T18:40:00Z",
-        collectedAt: "2026-04-17T10:20:00Z",
-        collectedBy: "driver1",
-        completedAt: "2026-04-17T14:00:00Z",
-      },
-    ],
-    city: "Doha",
-    coordinator: "-",
-    driver: "driver1",
-    driverStatus: "Completed",
-    picker: null,
-    packer: null,
-    total: 10,
-    shopify: "Fulfilled",
-    pickingStatus: "0/0 Picked",
-    packingStatus: "0/0 Packed",
-    bags: 0,
-    lat: 25.2854,
-    lng: 51.531,
-  },
-  {
-    id: "HM59239",
-    customerId: "cust-59239",
-    tat: "642h 49m",
-    date: "Apr 16",
-    time: "18:35",
-    customer: { name: "Sara Alsooj", email: "bent-alsooj@hotmail.com", phone: "55339494" },
-    channel: "5382175",
-    items: 2,
-    status: "Delivered",
-    returns: { type: "Return", count: 1 },
-    returnItems: [
-      {
-        id: "ret-HM59239-1",
-        itemName: "Philips Avent Natural Bottle 260ml",
-        sku: "PA-NB-260",
-        type: "return",
-        qty: 1,
-        status: "picked up",
-        source: "Web",
-        reason: "damaged",
-        adminNote: "Bottle had visible crack on arrival.",
-        createdAt: "2026-04-16T19:00:00Z",
-        collectedAt: "2026-04-17T09:15:00Z",
-        collectedBy: "irshad",
-      },
-    ],
-    city: "Zone 50",
-    coordinator: "-",
-    driver: "irshad",
-    driverStatus: "Completed",
-    picker: "picker1",
-    packer: "packer1",
-    total: 178,
-    shopify: "Fulfilled",
-    pickingStatus: "2/2 Picked",
-    packingStatus: "2/2 Packed",
-    bags: 1,
-    lat: 25.2279,
-    lng: 51.4941,
-  },
-  {
-    id: "HM59245",
-    customerId: "cust-59245",
-    tat: "02h 15m",
-    date: "May 13",
-    time: "11:00",
-    customer: { name: "Fatima Al-Thani", email: "fatima.thani@gmail.com", phone: "33442211" },
-    channel: "shopify",
-    items: 3,
-    status: "New",
-    city: "West Bay",
-    coordinator: "-",
-    driver: null,
-    picker: null,
-    packer: null,
-    total: 1429,
-    shopify: "Pending",
-    pickingStatus: "0/3 Picked",
-    packingStatus: "0/3 Packed",
-    bags: 0,
-    tags: ["PAYLATER", "PAYMENTLINKSENT"],
-    notes:
-      "Customer chose Pay Later. Payment link sent: https://halamama.myshopify.com/checkouts/pay/c1b2c3d4e5f6",
-    payment: {
-      subtotal: 1429,
-      discount: 0,
-      shipping: 0,
-      shippingMethod: "Standard Delivery",
-      total: 1429,
-      balance: 1429,
-      method: "Shopify PayLater",
-      totalPaid: 0,
-      cash: 0,
-      card: 0,
-    },
-    lat: 25.3286,
-    lng: 51.531,
-  },
-  {
-    id: "HM64110",
-    customerId: "cust-64110",
-    tat: "00h 28m",
-    date: "May 27",
-    time: "10:15",
-    customer: { name: "Dana Al-Thani", email: "dana.thani@gmail.com", phone: "55223344" },
-    channel: "shopify",
-    items: 2,
-    status: "New",
-    city: "West Bay",
-    coordinator: "-",
-    driver: null,
-    picker: null,
-    packer: null,
-    total: 630,
-    shopify: "Unfulfilled",
-    pickingStatus: "0/2 Picked",
-    packingStatus: "0/2 Packed",
-    bags: 0,
-    lat: 25.3286,
-    lng: 51.531,
-  },
-  {
-    id: "HM64112",
-    customerId: "cust-64112",
-    tat: "00h 58m",
-    date: "May 27",
-    time: "09:45",
-    customer: { name: "Zoe Henderson", email: "zoe.h@outlook.com", phone: "33445566" },
-    channel: "web",
-    items: 4,
-    status: "New",
-    city: "The Pearl",
-    coordinator: "Omar",
-    driver: null,
-    picker: "noushad",
-    packer: null,
-    total: 740,
-    shopify: "Unfulfilled",
-    pickingStatus: "2/4 Picked",
-    packingStatus: "0/4 Packed",
-    bags: 0,
-    lat: 25.3713,
-    lng: 51.5476,
-  },
-  {
-    id: "HM64116",
-    customerId: "cust-64116",
-    tat: "01h 31m",
-    date: "May 27",
-    time: "09:12",
-    customer: { name: "Liam Gallagher", email: "liam.g@oasis.com", phone: "55009988" },
-    channel: "web",
-    items: 3,
-    status: "Picked",
-    city: "Lusail",
-    coordinator: "Rania",
-    driver: null,
-    picker: "rahul",
-    packer: null,
-    total: 320,
-    shopify: "Pending",
-    pickingStatus: "3/3 Picked",
-    packingStatus: "0/3 Packed",
-    bags: 0,
-    lat: 25.4182,
-    lng: 51.5218,
-  },
-  {
-    id: "HM64118",
-    customerId: "cust-64118",
-    tat: "02h 03m",
-    date: "May 27",
-    time: "08:40",
-    customer: { name: "Amira Haddad", email: "amira.h@gmail.com", phone: "66778899" },
-    channel: "shopify",
-    items: 5,
-    status: "Picked",
-    city: "Doha",
-    coordinator: "Omar",
-    driver: null,
-    picker: "adhil",
-    packer: "mashood",
-    total: 1250,
-    shopify: "Pending",
-    pickingStatus: "5/5 Picked",
-    packingStatus: "3/5 Packed",
-    bags: 1,
-    lat: 25.2764,
-    lng: 51.5385,
-  },
-  {
-    id: "HM60104",
-    customerId: "cust-60104",
-    tat: "03h 22m",
-    date: "May 13",
-    time: "12:41",
-    customer: { name: "Hessa Al-Jaber", email: "hessa.jaber@gmail.com", phone: "55330012" },
-    channel: "shopify",
-    items: 4,
-    status: "Driver Accepted",
-    city: "Lusail",
-    coordinator: "Rania",
-    driver: "irshad",
-    driverStatus: "Accepted",
-    picker: "noushad",
-    packer: "packer1",
-    total: 760,
-    shopify: "Pending",
-    pickingStatus: "4/4 Picked",
-    packingStatus: "4/4 Packed",
-    bags: 2,
-    lat: 25.4182,
-    lng: 51.5218,
-  },
-  {
-    id: "HM60105",
-    customerId: "cust-60105",
-    tat: "04h 03m",
-    date: "May 13",
-    time: "13:12",
-    customer: { name: "Rashed Nasser", email: "rashed.nasser@gmail.com", phone: "55881234" },
-    channel: "web",
-    items: 5,
-    status: "Started",
-    city: "Education City",
-    coordinator: "Omar",
-    driver: "farshad",
-    driverStatus: "Started",
-    picker: "adhil",
-    packer: "mashood",
-    total: 925,
-    shopify: "Pending",
-    pickingStatus: "5/5 Picked",
-    packingStatus: "5/5 Packed",
-    bags: 3,
-    lat: 25.3183,
-    lng: 51.4358,
-  },
-  {
-    id: "HM60106",
-    customerId: "cust-60106",
-    tat: "05h 37m",
-    date: "May 13",
-    time: "13:48",
-    customer: { name: "Dana Ibrahim", email: "dana.ibrahim@gmail.com", phone: "55773391" },
-    channel: "web",
-    items: 1,
-    status: "Delivery Failed",
-    city: "Al Rayyan",
-    coordinator: "Rania",
-    driver: "nassim",
-    driverStatus: "Failed",
-    picker: "rahul",
-    packer: "packer1",
-    total: 145,
-    shopify: "Pending",
-    pickingStatus: "1/1 Picked",
-    packingStatus: "1/1 Packed",
-    bags: 1,
-    lat: 25.2917,
-    lng: 51.4244,
-  },
-  {
-    id: "HM60107",
-    customerId: "cust-60107",
-    tat: "06h 10m",
-    date: "May 13",
-    time: "14:26",
-    customer: { name: "Lina Qassim", email: "lina.qassim@gmail.com", phone: "55990031" },
-    channel: "shopify",
-    items: 2,
-    status: "Replacement",
-    returns: { type: "Return", count: 1 },
-    returnItems: [
-      {
-        id: "ret-HM60107-1",
-        itemName: "Nip 2in1 Soother Box Sterilizer and Hygienic Case (Blue)",
-        sku: "NIP-STZ-001",
-        type: "return",
-        qty: 1,
-        status: "pending",
-        source: "Shopify",
-        reason: "wrong",
-        adminNote: "Customer received wrong colour variant.",
-        createdAt: "2026-05-13T14:30:00Z",
-      },
-    ],
-    city: "Muaither",
-    coordinator: "Omar",
-    driver: "irshad",
-    driverStatus: "Accepted",
-    picker: "noushad",
-    packer: "mashood",
-    total: 230,
-    shopify: "Pending",
-    pickingStatus: "2/2 Picked",
-    packingStatus: "2/2 Packed",
-    bags: 1,
-    lat: 25.2682,
-    lng: 51.4069,
-  },
-  {
-    id: "HM60108",
-    customerId: "cust-60108",
-    tat: "07h 25m",
-    date: "May 13",
-    time: "15:04",
-    customer: { name: "Othman Kareem", email: "othman.kareem@gmail.com", phone: "55447766" },
-    channel: "web",
-    items: 3,
-    status: "Exchange",
-    returns: { type: "Return", count: 2 },
-    returnItems: [
-      {
-        id: "ret-HM60108-1",
-        itemName: "Chicco Baby Carrier EasyFit (Grey)",
-        sku: "CHC-BC-EF-GR",
-        type: "replacement",
-        qty: 1,
-        status: "picked up",
-        source: "Web",
-        reason: "wrong",
-        adminNote: "Customer ordered blue, received grey. Exchange approved.",
-        createdAt: "2026-05-13T15:10:00Z",
-        collectedAt: "2026-05-14T11:00:00Z",
-        collectedBy: "farshad",
-      },
-      {
-        id: "ret-HM60108-2",
-        itemName: "Tommee Tippee Closer to Nature Bottle 150ml",
-        sku: "TT-CTN-150",
-        type: "return",
-        qty: 2,
-        status: "pending",
-        source: "Web",
-        reason: "damaged",
-        adminNote: "Bottles leaking from cap seal.",
-        createdAt: "2026-05-14T09:00:00Z",
-      },
-    ],
-    city: "Old Airport",
-    coordinator: "Rania",
-    driver: "farshad",
-    driverStatus: "Accepted",
-    picker: "rahul",
-    packer: "packer1",
-    total: 388,
-    shopify: "Pending",
-    pickingStatus: "3/3 Picked",
-    packingStatus: "3/3 Packed",
-    bags: 1,
-    lat: 25.2494,
-    lng: 51.5492,
-  },
-  {
-    id: "HM63850",
-    customerId: "cust-63850",
-    tat: "154h 34m",
-    date: "May 20",
-    time: "02:53",
-    customer: { name: "Noora Almannai", email: "n.a.y.1@hotmail.com", phone: "+97466111881" },
-    channel: "web" as const,
-    items: 1,
-    status: "Installation" as const,
-    city: "Doha",
-    coordinator: "-",
-    driver: "mwd_nishad",
-    driverStatus: "Completed",
-    picker: "rahul",
-    packer: "packer1",
-    total: 1749,
-    shopify: "Fulfilled" as const,
-    pickingStatus: "1/1 Picked",
-    packingStatus: "1/1 Packed",
-    bags: 1,
-    lat: 25.2854,
-    lng: 51.531,
-  },
-  {
-    id: "HM68300",
-    customerId: "cust-68300",
-    tat: "50h 00m",
-    date: "May 25",
-    time: "12:30",
-    customer: { name: "Fatima Al-Kuwari", email: "fatima.kuwari@example.com", phone: "55889900" },
-    channel: "shopify" as const,
-    items: 1,
-    status: "Ready to Assign" as const,
-    city: "Doha",
-    coordinator: "-",
-    driver: null,
-    driverStatus: null,
-    picker: "rahul",
-    packer: "packer1",
-    total: 3499,
-    shopify: "Pending" as const,
-    pickingStatus: "1/1 Picked",
-    packingStatus: "1/1 Packed",
-    bags: 1,
-    lat: 25.2854,
-    lng: 51.531,
-  },
-  {
-    id: "HM68229",
-    customerId: "cust-68229",
-    tat: "48h 15m",
-    date: "May 25",
-    time: "14:10",
-    customer: { name: "Sara Al Sulaiti", email: "sara.sulaiti@example.com", phone: "55112233" },
-    channel: "web" as const,
-    items: 4,
-    status: "Ready to Assign" as const,
-    city: "Doha",
-    coordinator: "-",
-    driver: null,
-    driverStatus: null,
-    picker: "rahul",
-    packer: "packer1",
-    total: 4696,
-    shopify: "Pending" as const,
-    pickingStatus: "4/4 Picked",
-    packingStatus: "4/4 Packed",
-    bags: 2,
-    lat: 25.2854,
-    lng: 51.531,
-  },
-  {
-    id: "HM68258",
-    customerId: "cust-68258",
-    tat: "46h 10m",
-    date: "May 25",
-    time: "16:20",
-    customer: { name: "Mouza Al Derham", email: "mouza.derham@example.com", phone: "55667788" },
-    channel: "web" as const,
-    items: 2,
-    status: "Ready to Assign" as const,
-    city: "Doha",
-    coordinator: "-",
-    driver: null,
-    driverStatus: null,
-    picker: "noushad",
-    packer: "packer1",
-    total: 1448,
-    shopify: "Pending" as const,
-    pickingStatus: "2/2 Picked",
-    packingStatus: "2/2 Packed",
-    bags: 1,
-    lat: 25.2854,
-    lng: 51.531,
-  },
-  {
-    id: "HM68268",
-    customerId: "cust-68268",
-    tat: "44h 05m",
-    date: "May 26",
-    time: "09:30",
-    customer: { name: "aisha alnaemi", email: "aisha.naemi@example.com", phone: "55990011" },
-    channel: "shopify" as const,
-    items: 1,
-    status: "Ready to Assign" as const,
-    city: "Doha",
-    coordinator: "-",
-    driver: null,
-    driverStatus: null,
-    picker: "adhil",
-    packer: "mashood",
-    total: 899,
-    shopify: "Pending" as const,
-    pickingStatus: "1/1 Picked",
-    packingStatus: "1/1 Packed",
-    bags: 1,
-    lat: 25.2854,
-    lng: 51.531,
-  },
-  {
-    id: "HM64839",
-    customerId: "cust-64839",
-    tat: "432h 12m",
-    date: "May 15",
-    time: "11:15",
-    customer: { name: "test test", email: "test.test@example.com", phone: "77532802" },
-    channel: "web" as const,
-    items: 1,
-    status: "Driver Accepted" as const,
-    city: "Doha",
-    coordinator: "-",
-    driver: "driver1",
-    driverStatus: "Accepted",
-    picker: "rahul",
-    packer: "packer1",
-    total: 25,
-    shopify: "Pending" as const,
-    pickingStatus: "1/1 Picked",
-    packingStatus: "1/1 Packed",
-    bags: 1,
-    lat: 25.2854,
-    lng: 51.531,
-  },
-  {
-    id: "HM99001",
-    customerId: "cust-99001",
-    tat: "01h 05m",
-    date: "Jun 16",
-    time: "14:00",
-    customer: { name: "Salem Al-Marri", email: "salem.marri@example.com", phone: "33224455" },
-    channel: "shopify" as const,
-    items: 2,
-    status: "New" as const,
-    city: "Doha",
-    coordinator: "-",
-    driver: null,
-    picker: null,
-    packer: null,
-    total: 480,
-    shopify: "Unfulfilled" as const,
-    pickingStatus: "0/2 Picked",
-    packingStatus: "0/2 Packed",
-    bags: 0,
-    lat: 25.2854,
-    lng: 51.531,
-  },
-  {
-    id: "HM99003",
-    customerId: "cust-99003",
-    tat: "04h 15m",
-    date: "Jun 16",
-    time: "11:20",
-    customer: { name: "Mohammed Al-Sada", email: "m.sada@example.com", phone: "66554433" },
-    channel: "web" as const,
-    items: 2,
-    status: "Ready to Assign" as const,
-    city: "Lusail",
-    coordinator: "Omar",
-    driver: null,
-    picker: "rahul",
-    packer: "packer1",
-    total: 320,
-    shopify: "Pending" as const,
-    pickingStatus: "2/2 Picked",
-    packingStatus: "2/2 Packed",
-    bags: 1,
-    lat: 25.4182,
-    lng: 51.5218,
   },
 ];
 
@@ -2157,31 +1431,25 @@ export function isUnpaidPayLaterOrder(order: {
 export const ORDER_STATS = [
   {
     label: "Picking",
-    value: MOCK_ORDERS.filter(
-      (order) => order.status === "Picked" && !isUnpaidPayLaterOrder(order),
-    ).length.toLocaleString(),
+    value: "0",
     icon: Package,
     tone: "violet" as const,
   },
   {
     label: "Packing",
-    value: MOCK_ORDERS.filter(
-      (order) => order.status === "Ready to Assign" && !isUnpaidPayLaterOrder(order),
-    ).length.toLocaleString(),
+    value: "0",
     icon: PackageCheck,
     tone: "primary" as const,
   },
   {
     label: "Delivered",
-    value: MOCK_ORDERS.filter(
-      (order) => order.status === "Delivered" && !isUnpaidPayLaterOrder(order),
-    ).length.toLocaleString(),
+    value: "0",
     icon: Truck,
     tone: "primary" as const,
   },
   {
     label: "Revenue",
-    value: `QAR ${Math.round(MOCK_ORDERS.filter((o) => !isUnpaidPayLaterOrder(o)).reduce((sum, order) => sum + order.total, 0) / 1000)}K`,
+    value: "QAR 0",
     icon: Wallet,
     tone: "success" as const,
   },
@@ -2291,14 +1559,30 @@ export function getOrderPrimaryTab(order: Order): LegacyTabId {
   if (isUnpaidPayLaterOrder(order)) return "PayLater";
   if (order.status === "Cancelled" || order.status === "Delivery Failed") return "Cancelled";
   if (order.status === "Delivered") return "Delivered";
-  if (
-    order.status === "Driver Accepted" ||
-    order.status === "Started" ||
-    (order.driver && !["New", "Unfulfilled", "Picking", "Picked", "Packing", "Delivered", "Cancelled"].includes(order.status))
-  ) {
+
+  const raw = (
+    (order as any).backend_status ||
+    (order as any).rawStatus ||
+    (order as any).rawOrder?.status ||
+    (order as any).rawOrder?.order_status ||
+    ""
+  ).toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
+
+  if (raw === "assigned_to_driver" || raw === "partial_assigned_driver") {
     return "In Delivery";
   }
-  if (order.status === "Ready to Assign") return "Ready to Assign";
+  if (
+    raw === "ready_to_assign" ||
+    raw === "readytoassign" ||
+    raw === "to_deliver" ||
+    raw === "packed" ||
+    order.status === "Ready to Assign"
+  ) {
+    return "Ready to Assign";
+  }
+  if (order.status === "Driver Accepted" || order.status === "Started") {
+    return "In Delivery";
+  }
   if (order.status === "Packing") return "Packing";
   if (order.status === "Picked") return "Picked";
   if (order.status === "Picking") return "Picking";
@@ -2465,6 +1749,220 @@ export function isExpressOrder(order: any): boolean {
   return false;
 }
 
+export function orderHasInstallation(order: Order): boolean {
+  if (!order) return false;
+  return Boolean(
+    order.status === "Installation" ||
+    Boolean(order.hasInstallation) ||
+    (typeof order.installationItemsCount === "number" && order.installationItemsCount > 0) ||
+    Boolean((order as any).summary?.has_installation) ||
+    Boolean((order as any).summary?.installation_items > 0) ||
+    order.itemsList?.some(
+      (i) =>
+        Boolean(i.is_installable) ||
+        Boolean(i.isInstallable) ||
+        Boolean((i as any).custom_is_installable) ||
+        Boolean((i as any).requires_installation) ||
+        Boolean(i.installation) ||
+        Boolean(i.installation_type) ||
+        i.itemType === "MWH" ||
+        i.itemType === "VL_SUPPLIER",
+    )
+  );
+}
+
+export function orderHasVirtualStock(order: Order): boolean {
+  if (!order) return false;
+  return Boolean(
+    Boolean(order.all_items_vs) ||
+    Boolean((order as any).summary?.all_items_vs) ||
+    Boolean((order as any).summary?.vs_items_count > 0) ||
+    Boolean((order as any).vs_items_count > 0) ||
+    Boolean((order as any).has_vs) ||
+    Boolean((order as any).is_vs) ||
+    order.itemsList?.some(
+      (i) =>
+        Boolean((i as any).is_vs) ||
+        i.fc === "VS" ||
+        (i.fcName && i.fcName.toLowerCase().includes("virtual stock")) ||
+        (Array.isArray(i.product_tags) && i.product_tags.some((t) => String(t).trim().toUpperCase() === "VS")) ||
+        (typeof i.product_tags === "string" && i.product_tags.split(",").some((t) => t.trim().toUpperCase() === "VS")) ||
+        String((i as any).product_tag || "").split(",").some((t) => t.trim().toUpperCase() === "VS")
+    )
+  );
+}
+
+export function isItemCancelledOrReturned(item: any): boolean {
+  if (!item) return false;
+  if (item.is_cancelled === true || item.isCancelled === true || item.cancelled === true) return true;
+  if (item.is_return === true || item.isReturn === true) return true;
+  const s = String(item.status || item.custom_status || item.raw_status || "").toLowerCase().trim();
+  if (s === "cancelled" || s === "canceled" || s === "return" || s === "returned" || s === "delivery_failed") {
+    return true;
+  }
+  return false;
+}
+
+export function isItemAddedNew(item: any, order?: Order): boolean {
+  if (!item) return false;
+  if (isItemCancelledOrReturned(item)) return false;
+
+  const normStatus = String(item.status || "").toLowerCase().trim();
+  const rawStatus = String(item.raw_status || item.custom_status || "").toLowerCase().trim();
+
+  if (
+    item.is_new === true ||
+    item.isNew === true ||
+    item.is_added === true ||
+    item.isAdded === true ||
+    item.added === true ||
+    item.is_replacement === true ||
+    item.isReplacement === true ||
+    item.is_exchange === true ||
+    item.isExchange === true ||
+    normStatus === "added new" ||
+    normStatus === "new item" ||
+    normStatus === "added" ||
+    rawStatus === "added"
+  ) {
+    return true;
+  }
+
+  const tagsStr = Array.isArray(item.product_tags)
+    ? item.product_tags.join(" ")
+    : String(item.product_tags || "");
+  if (
+    tagsStr.toLowerCase().includes("new_item") ||
+    tagsStr.toLowerCase().includes("added") ||
+    tagsStr.toLowerCase().includes("replacement") ||
+    tagsStr.toLowerCase().includes("exchange")
+  ) {
+    return true;
+  }
+
+  // If order is active/advanced and has cancelled items (like order 1080),
+  // any newly pending or new item is the newly added replacement
+  if (order && !isOrderCancelled(order) && (order.hasCancelledItems || (order.returns && order.returns.count > 0))) {
+    if (normStatus === "new" || rawStatus === "new") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function getOrderCancelledItemsCount(order: Order): number {
+  if (!order) return 0;
+  let count = 0;
+  if (Array.isArray(order.itemsList) && order.itemsList.length > 0) {
+    count = order.itemsList.filter(isItemCancelledOrReturned).length;
+  } else if (Array.isArray(order.line_items) && order.line_items.length > 0) {
+    count = order.line_items.filter(isItemCancelledOrReturned).length;
+  } else if (Array.isArray((order as any).items) && (order as any).items.length > 0) {
+    count = (order as any).items.filter(isItemCancelledOrReturned).length;
+  } else if (Array.isArray(order.rawOrder?.items)) {
+    count = order.rawOrder.items.filter(isItemCancelledOrReturned).length;
+  } else if (Array.isArray(order.rawOrder?.line_items)) {
+    count = order.rawOrder.line_items.filter(isItemCancelledOrReturned).length;
+  }
+  if (count > 0) return count;
+  if (typeof order.cancelledItemsCount === "number" && order.cancelledItemsCount > 0) return order.cancelledItemsCount;
+  if (order.returnItems && order.returnItems.length > 0) return order.returnItems.length;
+  if (order.returns?.count && order.returns.count > 0) return order.returns.count;
+  if (typeof (order as any).custom_return_count === "number" && (order as any).custom_return_count > 0) return (order as any).custom_return_count;
+  if (typeof (order as any).cancelled_items_count === "number" && (order as any).cancelled_items_count > 0) return (order as any).cancelled_items_count;
+  return 0;
+}
+
+export function isOrderCancelled(order: Order): boolean {
+  if (!order) return false;
+  const s = String(
+    order.status ||
+    (order as any).backend_status ||
+    (order as any).rawStatus ||
+    (order as any).rawOrder?.status ||
+    (order as any).rawOrder?.order_status ||
+    ""
+  ).toLowerCase().trim();
+  return (
+    s === "cancelled" ||
+    s === "canceled" ||
+    s === "cancelled delivery" ||
+    s === "cancelled_delivery" ||
+    s === "delivery failed" ||
+    s === "delivery_failed" ||
+    Boolean((order as any).cancelled_at) ||
+    Boolean((order as any).rawOrder?.cancelled_at)
+  );
+}
+
+export function orderHasReturnedItems(order: Order): boolean {
+  if (!order) return false;
+  // If the whole order is cancelled, it is NOT an item return!
+  if (isOrderCancelled(order)) return false;
+
+  if (getOrderCancelledItemsCount(order) > 0) return true;
+  if (order.hasCancelledItems === true) return true;
+  if (order.status === "Replacement" || order.status === "Exchange") return true;
+  if (Boolean(order.returns && order.returns.count > 0)) return true;
+  if (Array.isArray(order.tags) && order.tags.some(t => {
+    const s = String(t).toLowerCase();
+    return s === "return" || s === "returns";
+  })) return true;
+  return false;
+}
+
+export function orderHasReplacedItems(order: Order): boolean {
+  if (!order) return false;
+  if (isOrderCancelled(order)) return false;
+
+  const s = String(
+    order.status ||
+    (order as any).backend_status ||
+    (order as any).rawStatus ||
+    ""
+  ).toLowerCase().trim();
+  if (s === "replacement" || s === "exchange") return true;
+
+  const items = (Array.isArray(order.itemsList) && order.itemsList.length > 0)
+    ? order.itemsList
+    : (Array.isArray(order.line_items) && order.line_items.length > 0)
+      ? order.line_items
+      : (Array.isArray((order as any).items) && (order as any).items.length > 0)
+        ? (order as any).items
+        : Array.isArray(order.rawOrder?.items)
+          ? order.rawOrder.items
+          : Array.isArray(order.rawOrder?.line_items)
+            ? order.rawOrder.line_items
+            : [];
+
+  if (items.some((i: any) => isItemAddedNew(i, order))) {
+    return true;
+  }
+
+  if (
+    Array.isArray(order.tags) &&
+    order.tags.some((t: any) => {
+      const ts = String(t).toLowerCase();
+      return ts.includes("replacement") || ts.includes("exchange");
+    })
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export function isOrderReturnAndReplacement(order: Order): boolean {
+  if (!order) return false;
+  if (isOrderCancelled(order)) return false;
+  return orderHasReturnedItems(order) && orderHasReplacedItems(order);
+}
+
+export function orderHasReturnedOrCancelledItems(order: Order): boolean {
+  return orderHasReturnedItems(order);
+}
+
 export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
   const isPayLater = isUnpaidPayLaterOrder(order);
   if (isPayLater) {
@@ -2473,62 +1971,153 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
     if (tab === "PayLater") return false;
   }
 
+  const raw = (
+    (order as any).backend_status ||
+    (order as any).rawStatus ||
+    (order as any).rawOrder?.status ||
+    (order as any).rawOrder?.order_status ||
+    ""
+  ).toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
+
   if (tab === "All") return true;
-  if (tab === "New") return order.status === "New" || order.status === "Unfulfilled";
+
+  if (tab === "New") {
+    if (raw) {
+      return raw === "new" || raw === "unfulfilled" || raw === "pending" || raw === "draft";
+    }
+    return order.status === "New" || order.status === "Unfulfilled";
+  }
+
   if (tab === "Express") {
     return (
       (order.status as string) === "Express" ||
       (isExpressOrder(order) && (order.status === "New" || order.status === "Unfulfilled"))
     );
   }
-  if (tab === "Unfulfilled") return order.status !== "Delivered" && order.status !== "Cancelled";
-  if (tab === "Picking") return order.status === "Picking";
-  if (tab === "Picked") return order.status === "Picked";
-  if (tab === "Packing") return order.status === "Packing";
-  if (tab === "Ready to Assign") return order.status === "Ready to Assign";
-  if (tab === "In Delivery") {
-    if (order.status === "Driver Accepted" || order.status === "Started") return true;
-    if (Boolean(order.driver)) {
-      const nonDeliveryStatuses = [
-        "New",
-        "Unfulfilled",
-        "Picking",
-        "Picked",
-        "Packing",
-        "Delivered",
-        "Cancelled",
-      ];
-      return !nonDeliveryStatuses.includes(order.status);
-    }
-    return false;
+
+  if (tab === "Unfulfilled") {
+    return order.status !== "Delivered" && order.status !== "Cancelled";
   }
-  if (tab === "Delivered") return order.status === "Delivered";
-  if (tab === "Cancelled")
+
+  if (tab === "Picking") {
+    if (raw) {
+      return raw === "picking";
+    }
+    const s = String(order.status || "").toLowerCase();
+    if (
+      s === "delivered" ||
+      s === "started" ||
+      s === "driver accepted" ||
+      s === "in delivery" ||
+      s === "cancelled" ||
+      s === "delivery failed" ||
+      s === "packing" ||
+      s === "packed" ||
+      s === "ready to assign" ||
+      s === "picked"
+    ) {
+      return false;
+    }
+    return order.status === "Picking";
+  }
+
+  if (tab === "Picked") {
+    if (raw) {
+      return raw === "picked";
+    }
+    return order.status === "Picked";
+  }
+
+  if (tab === "Packing") {
+    if (raw) {
+      return raw === "packing";
+    }
+    const s = String(order.status || "").toLowerCase();
+    if (
+      s === "delivered" ||
+      s === "started" ||
+      s === "driver accepted" ||
+      s === "in delivery" ||
+      s === "cancelled" ||
+      s === "delivery failed" ||
+      s === "ready to assign"
+    ) {
+      return false;
+    }
+    return order.status === "Packing";
+  }
+
+  if (tab === "Ready to Assign") {
+    if (raw) {
+      return (
+        raw === "ready_to_assign" ||
+        raw === "readytoassign" ||
+        raw === "to_deliver" ||
+        raw === "packed"
+      );
+    }
+    const s = String(order.status || "").toLowerCase();
+    if (
+      s === "delivered" ||
+      s === "started" ||
+      s === "driver accepted" ||
+      s === "in delivery" ||
+      s === "cancelled" ||
+      s === "delivery failed"
+    ) {
+      return false;
+    }
+    return order.status === "Ready to Assign";
+  }
+
+  if (tab === "In Delivery") {
+    // In Delivery strictly shows only 2 statuses: 'partial_assigned_driver', 'assigned_to_driver'
+    if (raw) {
+      return raw === "assigned_to_driver" || raw === "partial_assigned_driver";
+    }
+    return order.status === "Driver Accepted" || order.status === "Started";
+  }
+
+  if (tab === "Delivered") {
+    if (raw) {
+      return raw === "delivered" || raw === "completed" || raw === "to_bill";
+    }
+    return order.status === "Delivered";
+  }
+
+  if (tab === "Cancelled") {
+    if (raw) {
+      return (
+        raw === "cancelled" ||
+        raw === "canceled" ||
+        raw === "cancelled_delivery" ||
+        raw === "delivery_cancelled"
+      );
+    }
     return order.status === "Cancelled" || order.status === "Delivery Failed";
+  }
+
+  if (tab === "Delivery Failed") {
+    if (raw) {
+      return raw === "delivery_failed" || raw === "failed";
+    }
+    return order.status === "Delivery Failed";
+  }
   if (tab === "Installation") {
-    return (
-      order.status === "Installation" ||
-      Boolean(order.hasInstallation) ||
-      (typeof order.installationItemsCount === "number" && order.installationItemsCount > 0) ||
-      Boolean(
-        order.itemsList?.some(
-          (i) =>
-            i.is_installable ||
-            i.isInstallable ||
-            Boolean(i.installation) ||
-            Boolean(i.installation_type) ||
-            i.itemType === "MWH" ||
-            i.itemType === "VL_SUPPLIER",
-        ),
-      )
-    );
+    return orderHasInstallation(order);
   }
   if (tab === "Returns & Replacements")
-    return Boolean(order.returns) || order.status === "Replacement" || order.status === "Exchange";
+    return (
+      Boolean(order.returns) ||
+      orderHasReturnedItems(order) ||
+      isOrderReturnAndReplacement(order) ||
+      order.status === "Replacement" ||
+      order.status === "Exchange"
+    );
   if (tab === "Flags & Exceptions") {
     return order.status === "Flagged" || order.status === "Delivery Failed";
   }
-  if (tab === "Replacement") return order.status === "Replacement";
+  if (tab === "Replacement") return order.status === "Replacement" || isOrderReturnAndReplacement(order);
   if (tab === "Exchange") return order.status === "Exchange";
   return order.status === tab;
 }
@@ -2664,6 +2253,7 @@ export function getDeliveryDate(order: { date: string; deliveryDate?: string }):
 
 /** All mock orders for this customer (newest-first by order id). */
 export function getOrdersForCustomerId(customerId: string): Order[] {
+  if (!isDemoMode()) return [];
   return MOCK_ORDERS.filter((o) => o.customerId === customerId).sort((a, b) =>
     a.id < b.id ? 1 : a.id > b.id ? -1 : 0,
   );

@@ -189,6 +189,13 @@ export function OrderTable({
               activeTab={activeTab}
             />
           ))}
+          {orders.length === 0 && (
+            <tr>
+              <td colSpan={15} className="py-12 text-center text-sm font-medium text-muted-foreground">
+                No orders found.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

@@ -1,14 +1,12 @@
 import { MOCK_ORDERS } from "@/lib/orders";
+import { isDemoMode } from "@/lib/api";
 import { Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function DeliveryHistory() {
-  const mockDriverName = "Ansil";
-  
-  const historyOrders = MOCK_ORDERS.filter((o) => 
-    (o.driver === mockDriverName || o.driver === "suhail_halamama") && 
-    (o.status === "Delivered" || o.status === "Delivery Failed")
-  );
+  const historyOrders = isDemoMode()
+    ? MOCK_ORDERS.filter((o) => o.status === "Delivered" || o.status === "Delivery Failed")
+    : [];
 
   return (
     <div className="p-4 space-y-4 max-w-lg mx-auto">

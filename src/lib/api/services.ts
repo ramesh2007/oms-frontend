@@ -278,7 +278,7 @@ export async function fetchOrderDetails(orderId: string): Promise<EnrichedOrder 
     // Ignore
   }
 
-  return getMockEnrichedOrder(cleanId);
+  return isDemoMode() || cleanId === "HM-REF-1001" ? getMockEnrichedOrder(cleanId) : undefined;
 }
 
 /**
@@ -393,16 +393,51 @@ export async function assignPicker(orderId: string, pickerName: string): Promise
 }
 
 /**
- * Assign one order line item to a picker.
+ * Assign one order line item to a picker via POST /api/admin/assign-items-by-picker
  */
 export async function assignItemToPicker(
-  orderLineItemId: number | string,
+  itemOrId: any,
   pickerId: number | string,
+  orderId?: string | number,
 ): Promise<any> {
-  return erpNextClient.post("/api/admin/assign-items-by-picker", {
-    order_line_item_id: orderLineItemId,
-    picker_id: pickerId,
-  });
+  let lineItemId: string | number = "";
+  let itemId: number | string | undefined = undefined;
+
+  if (typeof itemOrId === "object" && itemOrId !== null) {
+    lineItemId =
+      itemOrId.line_item_id ??
+      (itemOrId.id && String(itemOrId.id).length > 6 ? itemOrId.id : undefined) ??
+      (itemOrId.order_item_id && String(itemOrId.order_item_id).length > 6 ? itemOrId.order_item_id : undefined) ??
+      itemOrId.id ??
+      itemOrId.order_item_id ??
+      itemOrId.item_id;
+    itemId = itemOrId.item_id ?? (itemOrId as any).product_id;
+  } else {
+    lineItemId = itemOrId;
+  }
+
+  const cleanLineItemId = String(lineItemId).trim();
+  const numericId = !isNaN(Number(cleanLineItemId)) ? Number(cleanLineItemId) : cleanLineItemId;
+  const numericPickerId = !isNaN(Number(pickerId)) ? Number(pickerId) : pickerId;
+
+  const payload: any = {
+    order_id: orderId ? getCleanOrderId(String(orderId)) : undefined,
+    order_number: orderId ? getCleanOrderId(String(orderId)) : undefined,
+    order_line_item_id: cleanLineItemId,
+    line_item_id: cleanLineItemId,
+    picker_id: numericPickerId,
+    picker: numericPickerId,
+    order_items: [cleanLineItemId],
+    line_items: [
+      {
+        id: numericId,
+        item_id: itemId ?? (typeof numericId === "number" && numericId < 100000 ? numericId : undefined),
+        line_item_id: String(cleanLineItemId),
+      },
+    ],
+  };
+
+  return erpNextClient.post("/api/admin/assign-items-by-picker", payload);
 }
 
 /**
@@ -413,6 +448,7 @@ export async function assignPickerItems(
   pickerIdOrName: string | number,
   orderItems: (number | string)[],
   pickerName?: string,
+  lineItems?: any[],
 ): Promise<any> {
   const cleanId = getCleanOrderId(orderId);
   const isNumericPickerId =
@@ -433,6 +469,7 @@ export async function assignPickerItems(
     picker_name: resolvedPickerName,
     picker: resolvedPickerName || (pickerId !== null ? pickerId : undefined),
     order_items: orderItems,
+    line_items: lineItems,
   });
 }
 
@@ -443,34 +480,77 @@ export async function orderWisePickerUnassign(
   orderId: string,
   orderItems?: (number | string)[],
   notes?: string,
+  lineItems?: any[],
 ): Promise<any> {
   const cleanId = getCleanOrderId(orderId);
   return syncOrderWisePickerUnassign({
     order_id: cleanId,
     order_number: cleanId,
     order_items: orderItems,
+    line_items: lineItems,
     notes,
   });
 }
 
 /**
- * Unassign picker items from an order via POST /api/admin/orders/order-wise-picker-unassign
+ * Unassign picker items from an order via POST /api/admin/orders/unassign-picker-items
  */
 export async function unassignPickerItems(
   orderId: string,
   orderItems: (number | string)[],
+  lineItems?: any[],
 ): Promise<any> {
   const cleanId = getCleanOrderId(orderId);
-  return orderWisePickerUnassign(cleanId, orderItems);
+  return unassignPickerItemsFromOrder({
+    order_id: cleanId,
+    order_number: cleanId,
+    order_items: orderItems,
+    line_items: lineItems,
+  });
 }
 
 /**
- * Unassign one order line item from its picker.
+ * Unassign one order line item from its picker via POST /api/admin/orders/unassign-picker-items
  */
-export async function unassignItemFromPicker(orderLineItemId: number | string): Promise<any> {
-  return erpNextClient.post("/api/admin/orders/unassign-picker-items", {
-    order_line_item_id: orderLineItemId,
-  });
+export async function unassignItemFromPicker(
+  itemOrId: any,
+  orderId?: string | number,
+): Promise<any> {
+  let lineItemId: string | number = "";
+  let itemId: number | string | undefined = undefined;
+
+  if (typeof itemOrId === "object" && itemOrId !== null) {
+    lineItemId =
+      itemOrId.line_item_id ??
+      (itemOrId.id && String(itemOrId.id).length > 6 ? itemOrId.id : undefined) ??
+      (itemOrId.order_item_id && String(itemOrId.order_item_id).length > 6 ? itemOrId.order_item_id : undefined) ??
+      itemOrId.id ??
+      itemOrId.order_item_id ??
+      itemOrId.item_id;
+    itemId = itemOrId.item_id ?? (itemOrId as any).product_id;
+  } else {
+    lineItemId = itemOrId;
+  }
+
+  const cleanLineItemId = String(lineItemId).trim();
+  const numericId = !isNaN(Number(cleanLineItemId)) ? Number(cleanLineItemId) : cleanLineItemId;
+
+  const payload: any = {
+    order_id: orderId ? getCleanOrderId(String(orderId)) : undefined,
+    order_number: orderId ? getCleanOrderId(String(orderId)) : undefined,
+    line_item_id: cleanLineItemId,
+    order_line_item_id: cleanLineItemId,
+    order_items: [cleanLineItemId],
+    line_items: [
+      {
+        id: numericId,
+        item_id: itemId ?? (typeof numericId === "number" && numericId < 100000 ? numericId : undefined),
+        line_item_id: String(cleanLineItemId),
+      },
+    ],
+  };
+
+  return erpNextClient.post("/api/admin/orders/unassign-picker-items", payload);
 }
 
 /**
@@ -1787,6 +1867,207 @@ export async function fetchTechnicianSchedules(params?: {
   };
 }
 
+export interface CompletedInstallationProofImage {
+  id: number | string;
+  before_install_image?: string | null;
+  after_install_image?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+}
+
+export interface CompletedInstallationRecord {
+  id: number | string;
+  order_installation_id?: number | string;
+  order_id?: number | string;
+  order_number?: string | null;
+  order_status?: string | null;
+  order_item_id?: number | string;
+  installation_type?: string | null;
+  installation_level?: string | null;
+  status: string;
+  is_scheduled_assigned?: boolean;
+  notes?: string | null;
+  completed_at?: string | null;
+  images?: string[];
+  proof_images?: CompletedInstallationProofImage[];
+  technician_id?: number | string | null;
+  technician_name?: string | null;
+  technician?: {
+    id: number | string;
+    name: string;
+    email?: string;
+    phone?: string | null;
+    status?: string;
+    [key: string]: any;
+  } | null;
+  scheduled_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  taken_time_in_mins?: number;
+  customer?: {
+    name?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    [key: string]: any;
+  } | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  address?: string | null;
+  product_name?: string | null;
+  product_code?: string | null;
+  barcode?: string | null;
+  product_image?: string | null;
+  product_tags?: string | string[] | null;
+  gift_wrap?: string | boolean | null;
+  gift_message?: string | null;
+  quantity?: number;
+  unit_price?: number;
+  total_price?: number;
+  order_item?: {
+    id: number | string;
+    product_name?: string;
+    product_code?: string;
+    barcode?: string;
+    image?: string;
+    image_url?: string;
+    quantity?: number;
+    unit_price?: number;
+    total_price?: number;
+    status?: string;
+    assigned_user_name?: string | null;
+    delivered_user_name?: string | null;
+    [key: string]: any;
+  } | null;
+  order?: {
+    id: number | string;
+    order_number?: string;
+    status?: string;
+    customer_name?: string;
+    customer_phone?: string;
+    delivery_address?: string;
+    total_amount?: number;
+    notes?: string | null;
+    created_at?: string | null;
+    [key: string]: any;
+  } | null;
+  technician_schedule?: {
+    id: number | string;
+    technician_id?: number | string;
+    technician_name?: string;
+    scheduled_date?: string;
+    start_time?: string;
+    end_time?: string;
+    status?: string;
+    zone?: string | null;
+    [key: string]: any;
+  } | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  [key: string]: any;
+}
+
+export interface CompletedInstallationsResponse {
+  success: boolean;
+  status: string;
+  message?: string;
+  status_filter?: string;
+  total_count?: number;
+  pagination?: {
+    current_page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+    from?: number;
+    to?: number;
+    has_more_pages?: boolean;
+    next_page_url?: string | null;
+    prev_page_url?: string | null;
+  };
+  data: CompletedInstallationRecord[];
+}
+
+/**
+ * Fetch installation completed status items from:
+ * GET|POST /api/admin/installation-completed
+ * (with fallbacks to /api/installation-completed, /api/orders/status/installation-completed, /api/orders/installation-completed)
+ */
+export async function fetchCompletedInstallations(params?: {
+  status?: string;
+  search?: string;
+  technician_id?: number | string;
+  order_id?: number | string;
+  order_number?: string;
+  order_item_id?: number | string;
+  installation_type?: string;
+  installation_level?: string;
+  completed_date?: string;
+  from_date?: string;
+  to_date?: string;
+  sort_by?: string;
+  sort_direction?: string;
+  all?: boolean;
+  per_page?: number;
+  page?: number;
+}): Promise<CompletedInstallationsResponse> {
+  const queryParams: Record<string, string> = {};
+  if (params?.status) queryParams.status = params.status;
+  if (params?.search) queryParams.search = params.search;
+  if (params?.technician_id) queryParams.technician_id = String(params.technician_id);
+  if (params?.order_id) queryParams.order_id = String(params.order_id);
+  if (params?.order_number) queryParams.order_number = params.order_number;
+  if (params?.order_item_id) queryParams.order_item_id = String(params.order_item_id);
+  if (params?.installation_type) queryParams.installation_type = params.installation_type;
+  if (params?.installation_level) queryParams.installation_level = params.installation_level;
+  if (params?.completed_date) queryParams.completed_date = params.completed_date;
+  if (params?.from_date) queryParams.from_date = params.from_date;
+  if (params?.to_date) queryParams.to_date = params.to_date;
+  if (params?.sort_by) queryParams.sort_by = params.sort_by;
+  if (params?.sort_direction) queryParams.sort_direction = params.sort_direction;
+  if (params?.all) queryParams.all = "1";
+  if (params?.per_page) queryParams.per_page = String(params.per_page);
+  if (params?.page) queryParams.page = String(params.page);
+
+  if (isDemoMode()) {
+    return {
+      success: true,
+      status: "success",
+      message: "Completed installations retrieved successfully (demo mode).",
+      pagination: {
+        current_page: 1,
+        per_page: params?.per_page || 15,
+        total: 0,
+        last_page: 1,
+      },
+      data: [],
+    };
+  }
+
+  const endpoints = [
+    "/api/admin/installation-completed",
+    "/api/installation-completed",
+    "/api/orders/status/installation-completed",
+    "/api/orders/installation-completed",
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await erpNextClient.get<CompletedInstallationsResponse>(ep, queryParams);
+      if (res && (Array.isArray(res.data) || Array.isArray((res as any)))) {
+        return res;
+      }
+    } catch (err: any) {
+      console.warn(`[CompletedInstallations] ${ep} failed, trying next fallback:`, err?.message || err);
+    }
+  }
+
+  return {
+    success: false,
+    status: "error",
+    message: "Failed to fetch completed installations from all endpoints",
+    data: [],
+  };
+}
+
 /**
  * Update payment details for an order.
  */
@@ -1935,18 +2216,18 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
       filtered = orders.filter((o) => o.status === "New" || o.status === "Unfulfilled");
     } else if (lowerStatus === "express") {
       filtered = orders.filter((o) => matchesLegacyTab(o, "Express"));
-    } else if (lowerStatus === "ready-to-assign") {
-      filtered = orders.filter((o) => o.status === "Ready to Assign");
+    } else if (lowerStatus === "ready-to-assign" || lowerStatus === "ready_to_assign" || lowerStatus === "ready to assign") {
+      filtered = orders.filter((o) => matchesLegacyTab(o, "Ready to Assign"));
     } else if (lowerStatus === "picking") {
-      filtered = orders.filter((o) => o.status === "Picking");
+      filtered = orders.filter((o) => matchesLegacyTab(o, "Picking"));
     } else if (lowerStatus === "picked") {
-      filtered = orders.filter((o) => o.status === "Picked");
+      filtered = orders.filter((o) => matchesLegacyTab(o, "Picked"));
     } else if (lowerStatus === "packing") {
-      filtered = orders.filter((o) => o.status === "Packing");
-    } else if (lowerStatus === "in-delivery") {
-      filtered = orders.filter((o) => o.status === "Started" || o.status === "Driver Accepted");
+      filtered = orders.filter((o) => matchesLegacyTab(o, "Packing"));
+    } else if (lowerStatus === "in-delivery" || lowerStatus === "in_delivery" || lowerStatus === "in delivery") {
+      filtered = orders.filter((o) => matchesLegacyTab(o, "In Delivery"));
     } else if (lowerStatus === "delivered") {
-      filtered = orders.filter((o) => o.status === "Delivered");
+      filtered = orders.filter((o) => matchesLegacyTab(o, "Delivered"));
     } else if (
       lowerStatus === "cancelled" ||
       lowerStatus === "cancelled-delivery" ||
@@ -2019,7 +2300,69 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
         : [];
     const mappedOrders = rawData.map(mapLaravelOrderToDashboardOrder);
 
-    const totalItems = response.pagination?.total ?? response.total ?? mappedOrders.length;
+    // Filter out terminal or irrelevant statuses when dedicated active status endpoint returns historical orders
+    let validMappedOrders = mappedOrders;
+    const lowerStatus = statusName.toLowerCase();
+    if (lowerStatus === "packing") {
+      validMappedOrders = mappedOrders.filter((o: any) => {
+        const s = String(o.status || "").toLowerCase();
+        return (
+          s !== "delivered" &&
+          s !== "cancelled" &&
+          s !== "started" &&
+          s !== "driver accepted" &&
+          s !== "in delivery" &&
+          s !== "delivery failed"
+        );
+      });
+    } else if (lowerStatus === "picking") {
+      validMappedOrders = mappedOrders.filter((o: any) => {
+        const s = String(o.status || "").toLowerCase();
+        return (
+          s !== "delivered" &&
+          s !== "cancelled" &&
+          s !== "packed" &&
+          s !== "packing" &&
+          s !== "ready to assign" &&
+          s !== "started" &&
+          s !== "driver accepted" &&
+          s !== "in delivery" &&
+          s !== "delivery failed"
+        );
+      });
+    } else if (lowerStatus === "ready_to_assign" || lowerStatus === "ready-to-assign" || lowerStatus === "ready to assign") {
+      validMappedOrders = mappedOrders.filter((o: any) => {
+        const s = String(o.status || "").toLowerCase();
+        return (
+          s !== "delivered" &&
+          s !== "cancelled" &&
+          s !== "started" &&
+          s !== "driver accepted" &&
+          s !== "in delivery" &&
+          s !== "delivery failed"
+        );
+      });
+    } else if (lowerStatus === "in-delivery" || lowerStatus === "in_delivery" || lowerStatus === "in delivery") {
+      validMappedOrders = mappedOrders.filter((o: any) => {
+        const raw = (
+          o.backend_status ||
+          o.rawStatus ||
+          o.rawOrder?.status ||
+          o.rawOrder?.order_status ||
+          ""
+        ).toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
+
+        if (raw) {
+          return raw === "assigned_to_driver" || raw === "partial_assigned_driver";
+        }
+        return (
+          (o.status === "Driver Accepted" || o.status === "Started") &&
+          o.status !== "Ready to Assign"
+        );
+      });
+    }
+
+    const totalItems = response.pagination?.total ?? response.total ?? validMappedOrders.length;
     const lastPg =
       response.pagination?.last_page ??
       response.last_page ??
@@ -2030,7 +2373,7 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
       per_page: perPage,
       total: totalItems,
       last_page: lastPg,
-      from: response.from ?? (mappedOrders.length > 0 ? (page - 1) * perPage + 1 : 0),
+      from: response.from ?? (validMappedOrders.length > 0 ? (page - 1) * perPage + 1 : 0),
       to: response.to ?? Math.min(page * perPage, totalItems),
       has_more_pages: response.has_more_pages ?? page < lastPg,
       next_page_url: response.next_page_url ?? null,
@@ -2042,7 +2385,7 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
       status_filter: response.status_filter ?? statusName,
       pagination,
       data: rawData,
-      mappedOrders,
+      mappedOrders: validMappedOrders,
     };
     statusQueryCache.set(cacheKey, { timestamp: Date.now(), result });
     return result;
@@ -2273,4 +2616,5 @@ export const ordersApi = {
   checkTechnicianAvailability,
   createTechnicianSchedule,
   fetchTechnicianSchedules,
+  fetchCompletedInstallations,
 };

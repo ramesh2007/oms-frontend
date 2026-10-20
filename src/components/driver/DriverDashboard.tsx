@@ -1,4 +1,5 @@
 import { MOCK_ORDERS } from "@/lib/orders";
+import { isDemoMode } from "@/lib/api";
 import { Package, Truck, CheckCircle2, AlertCircle, Clock, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -7,10 +8,10 @@ import { DriverOrderFlow } from "./DriverOrderFlow";
 export function DriverDashboard() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
-  // We are mocking a specific driver for the demo
-  const mockDriverName = "Ansil";
-  
-  const allAssigned = MOCK_ORDERS.filter((o) => o.driver === mockDriverName || o.driver === "suhail_halamama" || o.status === "Started" || o.status === "Driver Accepted" || o.status === "Ready to Assign");
+  // In live mode, active assigned driver orders are loaded dynamically.
+  const allAssigned = isDemoMode()
+    ? MOCK_ORDERS.filter((o) => o.status === "Started" || o.status === "Driver Accepted" || o.status === "Ready to Assign")
+    : [];
   
   // For a real app, "Active" means assigned to driver but not yet completed.
   const activeOrders = allAssigned.filter((o) => ["Ready to Assign", "Driver Accepted", "Started"].includes(o.status));

@@ -5,6 +5,11 @@ import {
   parseTatHours,
   statusDotClass,
   isExpressOrder,
+  orderHasInstallation,
+  orderHasVirtualStock,
+  isOrderCancelled,
+  orderHasReturnedItems,
+  isOrderReturnAndReplacement,
   type Order,
   type OrderStatus,
 } from "@/lib/orders";
@@ -24,6 +29,11 @@ import {
   Timer,
   ShoppingBag,
   Zap,
+  Wrench,
+  Sparkles,
+  RotateCcw,
+  XCircle,
+  ArrowLeftRight,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -113,6 +123,9 @@ export function OrderCard({
         "group/card relative flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card transition-all duration-300 ease-out",
         "shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_14px_rgba(0,0,0,0.04)]",
         "hover:-translate-y-[2px] hover:shadow-[0_8px_30px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/30",
+        isOrderReturnAndReplacement(order)
+          ? "border-l-4 border-l-indigo-500 bg-indigo-500/[0.02] dark:bg-indigo-950/10"
+          : (isOrderCancelled(order) || orderHasReturnedItems(order)) && "border-l-4 border-l-red-500 bg-red-500/[0.02] dark:bg-red-950/10",
         selected && "ring-2 ring-primary/40 border-primary/50 shadow-[0_0_0_1px_rgba(133,175,174,0.15)]",
       )}
     >
@@ -146,6 +159,43 @@ export function OrderCard({
                 EXPRESS
               </span>
             )}
+            {orderHasInstallation(order) && (
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200 dark:border-sky-800/60 shadow-2xs">
+                <Wrench className="h-3 w-3 shrink-0 text-sky-600 dark:text-sky-400" />
+                Installation
+              </span>
+            )}
+            {orderHasVirtualStock(order) && (
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shadow-2xs">
+                <Sparkles className="h-3 w-3 shrink-0 text-purple-600 dark:text-purple-400" />
+                Virtual Stock
+              </span>
+            )}
+            {isOrderCancelled(order) ? (
+              <span
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300 border border-red-300 dark:border-red-800/80 shadow-2xs select-none"
+                title="Order Cancelled"
+              >
+                <XCircle className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                (Cancelled)
+              </span>
+            ) : isOrderReturnAndReplacement(order) ? (
+              <span
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800/80 shadow-2xs select-none"
+                title="Item cancelled and replaced with another item (Return & Replacement)"
+              >
+                <ArrowLeftRight className="h-3 w-3 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                (Return & Replacement)
+              </span>
+            ) : orderHasReturnedItems(order) ? (
+              <span
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300 border border-red-300 dark:border-red-800/80 shadow-2xs select-none"
+                title="Returned item(s)"
+              >
+                <RotateCcw className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                (Return)
+              </span>
+            ) : null}
           </div>
           <span
             className={cn(
@@ -189,10 +239,10 @@ export function OrderCard({
         {/* ── Customer block ─────────────────────────────────────────────── */}
         <div className="mt-3 rounded-xl bg-muted/30 px-3 py-2.5 ring-1 ring-inset ring-border/30 dark:bg-muted/15">
           <div className="text-sm font-semibold text-foreground leading-snug">
-            {order.customer.name}
+            {order.customer?.name || (order as any).customer_name || (order as any).rawOrder?.customer_name || "Customer"}
           </div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {order.customer.email}
+            {order.customer?.email || (order as any).customer_email || (order as any).rawOrder?.customer_email || ""}
           </div>
         </div>
 

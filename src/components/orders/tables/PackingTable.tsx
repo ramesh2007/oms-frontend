@@ -1,7 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import { getOrderItemsCount, tatColorClass, type Order } from "@/lib/orders";
+import { getOrderItemsCount, tatColorClass, orderHasInstallation, orderHasVirtualStock, isOrderCancelled, orderHasReturnedItems, isOrderReturnAndReplacement, type Order } from "@/lib/orders";
 import { cn } from "@/lib/utils";
-import { Eye, Package } from "lucide-react";
+import { Eye, Package, Wrench, Sparkles, RotateCcw, XCircle, ArrowLeftRight } from "lucide-react";
 import { CrewTag } from "../CrewTag";
 import { Button } from "@/components/ui/button";
 
@@ -54,15 +54,50 @@ export function PackingTable({
             return (
               <tr
                 key={order.id}
-                className="border-b border-border/70 transition-colors hover:bg-muted/35"
+                className={cn(
+                  "border-b border-border/70 transition-colors hover:bg-muted/35",
+                  isOrderReturnAndReplacement(order)
+                    ? "bg-indigo-500/[0.03] hover:bg-indigo-500/[0.06] border-l-2 border-l-indigo-500"
+                    : (isOrderCancelled(order) || orderHasReturnedItems(order)) && "bg-red-500/[0.03] hover:bg-red-500/[0.06] border-l-2 border-l-red-500",
+                )}
               >
                 <td className="py-3 pl-4 pr-3 align-middle">
-                  <span
-                    onClick={() => onViewOrder(order)}
-                    className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer"
-                  >
-                    {order.orderNumber || order.id}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      onClick={() => onViewOrder(order)}
+                      className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer"
+                    >
+                      {order.orderNumber || order.id}
+                    </span>
+                    {orderHasInstallation(order) && (
+                      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200 dark:border-sky-800/60 shadow-2xs">
+                        <Wrench className="h-3 w-3 shrink-0 text-sky-600 dark:text-sky-400" />
+                        Installation
+                      </span>
+                    )}
+                    {orderHasVirtualStock(order) && (
+                      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shadow-2xs">
+                        <Sparkles className="h-3 w-3 shrink-0 text-purple-600 dark:text-purple-400" />
+                        Virtual Stock
+                      </span>
+                    )}
+                    {isOrderCancelled(order) ? (
+                      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300 border border-red-300 dark:border-red-800/80 shadow-2xs select-none">
+                        <XCircle className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                        (Cancelled)
+                      </span>
+                    ) : isOrderReturnAndReplacement(order) ? (
+                      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800/80 shadow-2xs select-none">
+                        <ArrowLeftRight className="h-3 w-3 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                        (Return & Replacement)
+                      </span>
+                    ) : orderHasReturnedItems(order) ? (
+                      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300 border border-red-300 dark:border-red-800/80 shadow-2xs select-none">
+                        <RotateCcw className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                        (Return)
+                      </span>
+                    ) : null}
+                  </div>
                 </td>
                 <td className="whitespace-nowrap py-3 pr-3 align-middle">
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">

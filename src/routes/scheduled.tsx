@@ -14,10 +14,11 @@ import {
   getTodayDateStr,
   getTomorrowDateStr,
   formatDisplayDate,
+  syncCompletedInstallations,
   type ScheduledItem,
   type ScheduledTabType,
 } from "@/lib/scheduled-installations";
-import { useTechnicianSchedules } from "@/hooks/useOrders";
+import { useTechnicianSchedules, useCompletedInstallations } from "@/hooks/useOrders";
 import { ordersApi } from "@/lib/api";
 import { getUsers } from "@/lib/sync";
 import { ScheduledList } from "@/components/scheduled/ScheduledList";
@@ -89,7 +90,7 @@ function ScheduledInstallationsContent() {
   const navigate = useNavigate();
   const items = useSyncExternalStore(subscribe, getSnapshot);
 
-  // 1. Fetch live technician schedules from backend (/api/admin/technician-schedule/list)
+  // 1. Fetch live technician schedules from backend (/api/admin/technician-scheduled-list)
   const {
     data: liveSchedulesData,
     isLoading: isLoadingSchedules,
@@ -97,12 +98,27 @@ function ScheduledInstallationsContent() {
     refetch: refetchSchedules,
   } = useTechnicianSchedules({ per_page: 100 });
 
+  // 2. Fetch live completed installations from backend (/api/admin/installation-completed)
+  const {
+    data: liveCompletedData,
+    isLoading: isLoadingCompleted,
+    isRefetching: isRefetchingCompleted,
+    refetch: refetchCompleted,
+  } = useCompletedInstallations({ per_page: 100 });
+
   // Sync live backend technician schedule records into the store
   useEffect(() => {
     if (liveSchedulesData?.data && Array.isArray(liveSchedulesData.data)) {
       syncTechnicianSchedules(liveSchedulesData.data);
     }
   }, [liveSchedulesData]);
+
+  // Sync live backend completed installation records into the store
+  useEffect(() => {
+    if (liveCompletedData?.data && Array.isArray(liveCompletedData.data)) {
+      syncCompletedInstallations(liveCompletedData.data);
+    }
+  }, [liveCompletedData]);
 
   // Drivers list from users sync
   const [driversList, setDriversList] = useState<string[]>(AVAILABLE_DRIVERS);
@@ -190,10 +206,14 @@ function ScheduledInstallationsContent() {
   const filtered = useMemo(() => {
     let result = items.filter((i) => i.status === activeTab);
 
-    // Scheduled date filter (defaults to today)
+    // Scheduled date filter (defaults to today for Scheduled tab)
     if (selectedScheduledDate) {
       result = result.filter((i) => {
         const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+        const completedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+        if (activeTab === "Completed") {
+          return itemDate === selectedScheduledDate || completedDate === selectedScheduledDate;
+        }
         return itemDate === selectedScheduledDate;
       });
     }
@@ -226,15 +246,27 @@ function ScheduledInstallationsContent() {
   const completedAll = useMemo(() => items.filter((i) => i.status === "Completed"), [items]);
 
   const todayCount = useMemo(() => {
-    return items.filter(
-      (i) => (i.scheduledDate || i.scheduledAt?.slice(0, 10)) === todayStr && i.status === activeTab,
-    ).length;
+    return items.filter((i) => {
+      if (i.status !== activeTab) return false;
+      const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+      const completedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+      if (activeTab === "Completed") {
+        return itemDate === todayStr || completedDate === todayStr;
+      }
+      return itemDate === todayStr;
+    }).length;
   }, [items, todayStr, activeTab]);
 
   const tomorrowCount = useMemo(() => {
-    return items.filter(
-      (i) => (i.scheduledDate || i.scheduledAt?.slice(0, 10)) === tomorrowStr && i.status === activeTab,
-    ).length;
+    return items.filter((i) => {
+      if (i.status !== activeTab) return false;
+      const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+      const completedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+      if (activeTab === "Completed") {
+        return itemDate === tomorrowStr || completedDate === tomorrowStr;
+      }
+      return itemDate === tomorrowStr;
+    }).length;
   }, [items, tomorrowStr, activeTab]);
 
   const allActiveTabCount = useMemo(() => {
@@ -248,7 +280,11 @@ function ScheduledInstallationsContent() {
     ? driverAssignedAll.filter((i) => (i.scheduledDate || i.scheduledAt?.slice(0, 10)) === selectedScheduledDate).length
     : driverAssignedAll.length;
   const completedCount = selectedScheduledDate
-    ? completedAll.filter((i) => (i.scheduledDate || i.scheduledAt?.slice(0, 10)) === selectedScheduledDate).length
+    ? completedAll.filter((i) => {
+        const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+        const completedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+        return itemDate === selectedScheduledDate || completedDate === selectedScheduledDate;
+      }).length
     : completedAll.length;
 
   const currentTabItems = filtered;
@@ -448,17 +484,20 @@ function ScheduledInstallationsContent() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetchSchedules()}
-            disabled={isRefetchingSchedules || isLoadingSchedules}
+            onClick={() => {
+              refetchSchedules();
+              refetchCompleted();
+            }}
+            disabled={isRefetchingSchedules || isLoadingSchedules || isRefetchingCompleted || isLoadingCompleted}
             className="h-9 gap-2 rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer"
           >
             <RefreshCw
               className={cn(
                 "h-3.5 w-3.5 text-slate-500",
-                (isRefetchingSchedules || isLoadingSchedules) && "animate-spin text-primary",
+                (isRefetchingSchedules || isLoadingSchedules || isRefetchingCompleted || isLoadingCompleted) && "animate-spin text-primary",
               )}
             />
-            <span>{isRefetchingSchedules ? "Syncing..." : "Sync Schedules"}</span>
+            <span>{isRefetchingSchedules || isRefetchingCompleted ? "Syncing..." : "Sync Schedules"}</span>
           </Button>
         </div>
       </div>
@@ -830,12 +869,17 @@ function ScheduledInstallationsContent() {
         onToggleSelect={toggleSelect}
         onToggleSelectAll={toggleSelectAll}
         onRemoveItem={(item) => setPendingCancelItem(item)}
-        onViewOrder={(orderId) =>
+        onViewOrder={(orderId) => {
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("last_orders_tab", "Scheduled Installation");
+            sessionStorage.setItem("last_orders_from", "/scheduled");
+          }
           navigate({
             to: "/orders/$orderId",
             params: { orderId: orderId.replace(/^HM/i, "") },
-          })
-        }
+            search: { tab: "Scheduled Installation", from: "/scheduled" } as any,
+          });
+        }}
         onAssignDriver={(item) => handleOpenAssignDriver(item)}
         onCompleteInstallation={(item) => handleOpenCompleteDialog(item)}
         onUploadPhotos={(item) => handleOpenUploadPhotos(item)}

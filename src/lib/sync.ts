@@ -85,7 +85,13 @@ function resolveDynamicRouting(itemsList: any[]): any[] {
 
 /** Seed localStorage with MOCK_ORDERS on first load (only in demo mode). */
 function seedIfNeeded(): void {
-  if (!isDemoMode()) return;
+  if (!isDemoMode()) {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem("hm_orders");
+    } catch {}
+    return;
+  }
   const existing = localStorage.getItem(STORAGE_KEY);
   if (!existing) {
     const enriched = MOCK_ORDERS.map((o) => ({
@@ -154,6 +160,9 @@ function seedIfNeeded(): void {
 
 /** Get all orders from the shared store. */
 export function getSharedOrders(): Order[] {
+  if (!isDemoMode()) {
+    return [];
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -623,6 +632,7 @@ export async function assignPickerItemsToOrder(payload: {
   picker_name?: string | null;
   picker?: number | string | null;
   order_items: (number | string)[];
+  line_items?: any[];
 }) {
   if (isDemoMode()) {
     console.log("[Sync] Demo mode: assignPickerItemsToOrder", payload);
@@ -642,6 +652,15 @@ export async function assignPickerItemsToOrder(payload: {
 
     const orderVal = payload.order || payload.order_id || payload.order_number;
 
+    const lineItems = (payload.line_items && payload.line_items.length > 0)
+      ? payload.line_items
+      : (payload.order_items || []).map((id) => ({
+          id: !isNaN(Number(id)) ? Number(id) : id,
+          line_item_id: String(id),
+        }));
+
+    const firstLineItemId = payload.order_items?.[0] ? String(payload.order_items[0]) : undefined;
+
     const response = await erpNextClient.post<any>("/api/orders/assign-picker-items", {
       order_id: numericOrderId,
       order_number: payload.order_number ? String(payload.order_number) : (payload.order_id ? String(payload.order_id) : undefined),
@@ -649,7 +668,10 @@ export async function assignPickerItemsToOrder(payload: {
       picker_id: parsedPickerId,
       picker_name: resolvedPickerName,
       picker: resolvedPicker,
+      line_item_id: firstLineItemId,
+      order_line_item_id: firstLineItemId,
       order_items: payload.order_items,
+      line_items: lineItems,
     });
     return response;
   } catch (err) {
@@ -662,6 +684,7 @@ export async function orderWisePickerUnassign(payload: {
   order_id?: number | string;
   order_number?: string;
   order_items?: (number | string)[];
+  line_items?: any[];
   notes?: string;
 }) {
   if (isDemoMode()) {
@@ -680,10 +703,23 @@ export async function orderWisePickerUnassign(payload: {
   }
 
   const cleanId = payload.order_id ?? payload.order_number;
+  const lineItems = (payload.line_items && payload.line_items.length > 0)
+    ? payload.line_items
+    : (payload.order_items || []).map((id) => ({
+        id: !isNaN(Number(id)) ? Number(id) : id,
+        line_item_id: String(id),
+      }));
+
+  const firstLineItemId = payload.order_items?.[0] ? String(payload.order_items[0]) : undefined;
+
   try {
     const response = await erpNextClient.post<any>("/api/admin/orders/order-wise-picker-unassign", {
       order_id: cleanId,
+      order_number: cleanId,
+      line_item_id: firstLineItemId,
+      order_line_item_id: firstLineItemId,
       order_items: payload.order_items && payload.order_items.length > 0 ? payload.order_items : undefined,
+      line_items: lineItems,
       notes: payload.notes,
     });
     if (response && response.success === false) {
@@ -703,6 +739,7 @@ export async function unassignPickerItemsFromOrder(payload: {
   order_id?: number | string;
   order_number?: string;
   order_items: (number | string)[];
+  line_items?: any[];
 }) {
   if (isDemoMode()) {
     console.log("[Sync] Demo mode: unassignPickerItemsFromOrder", payload);
@@ -710,11 +747,28 @@ export async function unassignPickerItemsFromOrder(payload: {
   }
 
   try {
+    const cleanId = payload.order_id ?? payload.order_number;
+    const lineItems = (payload.line_items && payload.line_items.length > 0)
+      ? payload.line_items.map((li: any) => ({
+          id: li.line_item_id ? (!isNaN(Number(li.line_item_id)) ? Number(li.line_item_id) : li.line_item_id) : (li.id ? (!isNaN(Number(li.id)) ? Number(li.id) : li.id) : undefined),
+          item_id: li.item_id,
+          line_item_id: String(li.line_item_id ?? li.id ?? ""),
+        }))
+      : (payload.order_items || []).map((id) => ({
+          id: !isNaN(Number(id)) ? Number(id) : id,
+          line_item_id: String(id),
+        }));
+
+    const firstLineItemId = payload.order_items?.[0] ? String(payload.order_items[0]) : undefined;
+
     const response = await erpNextClient.post<any>("/api/admin/orders/unassign-picker-items", {
-      order_id: payload.order_id ? Number(payload.order_id) : undefined,
-      order_number: payload.order_number,
-      order: payload.order_id || payload.order_number,
+      order_id: cleanId ? (isNaN(Number(cleanId)) ? cleanId : Number(cleanId)) : undefined,
+      order_number: cleanId ? String(cleanId) : undefined,
+      order: cleanId,
+      line_item_id: firstLineItemId,
+      order_line_item_id: firstLineItemId,
       order_items: payload.order_items,
+      line_items: lineItems,
     });
     return response;
   } catch (err) {

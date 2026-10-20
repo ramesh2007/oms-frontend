@@ -372,7 +372,15 @@ function CustomerCareContent() {
                 onViewCalendar={() => navigate({ to: "/calendars", search: { team: appt?.teamId } as any })}
                 onViewOrder={() => {
                   const targetId = String(item.order_id || item.order_number || "").replace(/^#/, "");
-                  navigate({ to: "/orders/$orderId", params: { orderId: targetId } });
+                  if (typeof window !== "undefined") {
+                    sessionStorage.setItem("last_orders_tab", "Customer Care Queue");
+                    sessionStorage.setItem("last_orders_from", "/customer-care");
+                  }
+                  navigate({
+                    to: "/orders/$orderId",
+                    params: { orderId: targetId },
+                    search: { tab: "Customer Care Queue", from: "/customer-care" } as any,
+                  });
                 }}
                 onMarkComplete={() => {
                   if (appt) {

@@ -125,7 +125,7 @@ export function FlagsPanel({ orders = [] }: FlagsPanelProps) {
           return (
             <div
               key={`${f.order}-${i}`}
-              onClick={() => navigate({ to: "/orders/$orderId", params: { orderId: f.order } })}
+              onClick={() => navigate({ to: "/orders/$orderId", params: { orderId: f.order }, search: { tab: "Flags & Exceptions", from: "/orders?tab=Flags%20%26%20Exceptions" } as any })}
               className={cn(
                 "flex items-start gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors border-l-2 cursor-pointer group",
                 p.border,
@@ -160,7 +160,7 @@ export function FlagsPanel({ orders = [] }: FlagsPanelProps) {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigate({ to: "/orders/$orderId", params: { orderId: f.order } });
+                  navigate({ to: "/orders/$orderId", params: { orderId: f.order }, search: { tab: "Flags & Exceptions", from: "/orders?tab=Flags%20%26%20Exceptions" } as any });
                 }}
                 className="h-7 px-2.5 rounded-md text-[10px] font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-0.5 cursor-pointer shrink-0"
               >

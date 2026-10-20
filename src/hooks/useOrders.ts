@@ -25,7 +25,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import { ordersApi } from "@/lib/api";
+import { ordersApi, isDemoMode } from "@/lib/api";
 import { mapErpNextToOrderItem } from "@/lib/api/mappers";
 import type { Order, EnrichedOrder } from "@/lib/orders";
 import { matchesLegacyTab } from "@/lib/orders";
@@ -37,6 +37,8 @@ import type {
   ApiInstallationTeam,
   TechnicianScheduleRecord,
   TechnicianSchedulesResponse,
+  CompletedInstallationRecord,
+  CompletedInstallationsResponse,
 } from "@/lib/api/services";
 
 // ─── Query Keys ──────────────────────────────────────────────────────────
@@ -143,7 +145,7 @@ export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
 
       // 3. Fallback: derive instant placeholder data from cached list or local shared orders
       const listOrders = queryClient.getQueryData<Order[]>(orderKeys.list());
-      const source = (listOrders && listOrders.length > 0) ? listOrders : getSharedOrders();
+      const source = (listOrders && listOrders.length > 0) ? listOrders : (isDemoMode() ? getSharedOrders() : []);
       if (source && source.length > 0) {
         const lower = statusName.toLowerCase();
         const filtered = lower === "all"
@@ -308,6 +310,36 @@ export function useTechnicianSchedules(params?: {
   return useQuery<TechnicianSchedulesResponse, Error>({
     queryKey: [...orderKeys.all, "technician-schedules", params] as const,
     queryFn: () => ordersApi.fetchTechnicianSchedules(params),
+    staleTime: 10 * 1000,
+  });
+}
+
+// ─── useCompletedInstallations ─────────────────────────────────────────
+
+/**
+ * Hook to fetch completed installations from /api/admin/installation-completed
+ */
+export function useCompletedInstallations(params?: {
+  status?: string;
+  search?: string;
+  technician_id?: number | string;
+  order_id?: number | string;
+  order_number?: string;
+  order_item_id?: number | string;
+  installation_type?: string;
+  installation_level?: string;
+  completed_date?: string;
+  from_date?: string;
+  to_date?: string;
+  sort_by?: string;
+  sort_direction?: string;
+  per_page?: number;
+  page?: number;
+  all?: boolean;
+}) {
+  return useQuery<CompletedInstallationsResponse, Error>({
+    queryKey: [...orderKeys.all, "installation-completed", params] as const,
+    queryFn: () => ordersApi.fetchCompletedInstallations(params),
     staleTime: 10 * 1000,
   });
 }

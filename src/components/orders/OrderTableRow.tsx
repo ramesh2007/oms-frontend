@@ -1,9 +1,9 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { tatColorClass, getOrderItemsCount, isExpressOrder, getOrderPrimaryTab, type Order } from "@/lib/orders";
+import { tatColorClass, getOrderItemsCount, isExpressOrder, orderHasInstallation, orderHasVirtualStock, isOrderCancelled, orderHasReturnedItems, isOrderReturnAndReplacement, getOrderCancelledItemsCount, type Order } from "@/lib/orders";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, Package, Truck, User, Eye, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, Package, Truck, User, Eye, Zap, Wrench, Sparkles, RotateCcw, XCircle, ArrowLeftRight } from "lucide-react";
 import { CrewTag } from "./CrewTag";
 import { DriverStatusBadge } from "./DriverStatusBadge";
 
@@ -152,6 +152,9 @@ export function OrderTableRow({
       <tr
         className={cn(
           "cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/35",
+          isOrderReturnAndReplacement(order)
+            ? "bg-indigo-500/[0.03] hover:bg-indigo-500/[0.06] border-l-2 border-l-indigo-500"
+            : (isOrderCancelled(order) || orderHasReturnedItems(order)) && "bg-red-500/[0.03] hover:bg-red-500/[0.06] border-l-2 border-l-red-500",
           selected && "bg-primary/5",
           expanded && "bg-muted/25",
         )}
@@ -189,11 +192,43 @@ export function OrderTableRow({
                 EXPRESS
               </span>
             )}
-            {activeTab && activeTab !== "All" && getOrderPrimaryTab(order) !== activeTab && (
-              <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
-                {getOrderPrimaryTab(order)}
+            {orderHasInstallation(order) && (
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200 dark:border-sky-800/60 shadow-2xs">
+                <Wrench className="h-3 w-3 shrink-0 text-sky-600 dark:text-sky-400" />
+                Installation
               </span>
             )}
+            {orderHasVirtualStock(order) && (
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shadow-2xs">
+                <Sparkles className="h-3 w-3 shrink-0 text-purple-600 dark:text-purple-400" />
+                Virtual Stock
+              </span>
+            )}
+            {isOrderCancelled(order) ? (
+              <span
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300 border border-red-300 dark:border-red-800/80 shadow-2xs select-none"
+                title="Order Cancelled"
+              >
+                <XCircle className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                (Cancelled)
+              </span>
+            ) : isOrderReturnAndReplacement(order) ? (
+              <span
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800/80 shadow-2xs select-none"
+                title="Item cancelled and replaced with another item (Return & Replacement)"
+              >
+                <ArrowLeftRight className="h-3 w-3 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                (Return & Replacement)
+              </span>
+            ) : orderHasReturnedItems(order) ? (
+              <span
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300 border border-red-300 dark:border-red-800/80 shadow-2xs select-none"
+                title={`${getOrderCancelledItemsCount(order)} item(s) cancelled before delivery (Return)`}
+              >
+                <RotateCcw className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                (Return)
+              </span>
+            ) : null}
           </div>
         </td>
 
@@ -215,13 +250,43 @@ export function OrderTableRow({
         <td className="max-w-[220px] py-3 pr-3 align-middle">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-foreground">
-              {order.customer.name}
+              {(() => {
+                const name =
+                  (order.customer?.name &&
+                  order.customer.name !== "Unknown Customer" &&
+                  order.customer.name !== "Unknown" &&
+                  order.customer.name !== "Customer"
+                    ? order.customer.name
+                    : null) ||
+                  order.customer_name ||
+                  (order as any).customerName ||
+                  (order as any).rawOrder?.customer_name ||
+                  (order as any).rawOrder?.customerName ||
+                  (order as any).rawOrder?.customer?.name ||
+                  (order as any).rawOrder?.customer?.customer_name ||
+                  (typeof (order as any).rawOrder?.customer === "string" ? (order as any).rawOrder.customer : null) ||
+                  (order as any).shippingAddress?.name ||
+                  (order as any).recipient_name ||
+                  order.customer?.name ||
+                  "—";
+                return name;
+              })()}
             </div>
             {!isPacking && (
-              <div className="truncate text-xs text-muted-foreground">{order.customer.email}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {order.customer?.email ||
+                  order.customer_email ||
+                  (order as any).rawOrder?.customer_email ||
+                  (order as any).rawOrder?.email ||
+                  ""}
+              </div>
             )}
             <div className="truncate text-xs text-muted-foreground tabular-nums">
-              {order.customer.phone}
+              {order.customer?.phone ||
+                order.customer_phone ||
+                (order as any).rawOrder?.customer_phone ||
+                (order as any).rawOrder?.phone ||
+                "—"}
             </div>
           </div>
         </td>
@@ -235,7 +300,25 @@ export function OrderTableRow({
 
         {/* Items */}
         <td className="py-3 pr-3 align-middle">
-          <span className="text-xs font-medium">{getOrderItemsCount(order)} items</span>
+          <div className="flex flex-col">
+            <span className="text-xs font-medium">{getOrderItemsCount(order)} items</span>
+            {isOrderCancelled(order) ? (
+              <span className="text-[10px] font-bold text-red-600 dark:text-red-400 flex items-center gap-0.5">
+                <XCircle className="h-2.5 w-2.5 shrink-0" />
+                Cancelled
+              </span>
+            ) : isOrderReturnAndReplacement(order) ? (
+              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5">
+                <ArrowLeftRight className="h-2.5 w-2.5 shrink-0" />
+                Return & Replacement
+              </span>
+            ) : orderHasReturnedItems(order) ? (
+              <span className="text-[10px] font-bold text-red-600 dark:text-red-400 flex items-center gap-0.5">
+                <RotateCcw className="h-2.5 w-2.5 shrink-0" />
+                {getOrderCancelledItemsCount(order)} return
+              </span>
+            ) : null}
+          </div>
         </td>
 
 

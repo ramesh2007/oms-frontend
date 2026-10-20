@@ -84,19 +84,19 @@ function SidebarContent({
     (order) => matchesLegacyTab(order, "Express"),
   ).length;
   const pickingCount = orders.filter(
-    (order) => order.status === "Picking",
+    (order) => matchesLegacyTab(order, "Picking"),
   ).length;
   const packingCount = orders.filter(
-    (order) => order.status === "Packing",
+    (order) => matchesLegacyTab(order, "Packing"),
   ).length;
   const inDeliveryCount = orders.filter(
-    (order) => order.status === "Driver Accepted" || order.status === "Started" || Boolean(order.driver),
+    (order) => matchesLegacyTab(order, "In Delivery"),
   ).length;
   const readyToAssignCount = orders.filter(
-    (order) => order.status === "Ready to Assign" && !order.driver,
+    (order) => matchesLegacyTab(order, "Ready to Assign"),
   ).length;
   const deliveredCount = orders.filter(
-    (order) => order.status === "Delivered",
+    (order) => matchesLegacyTab(order, "Delivered"),
   ).length;
   const flaggedOrderCount = flaggedResult?.pagination?.total ?? orders.filter(
     (order) => order.status === "Flagged" || order.status === "Delivery Failed",
@@ -131,7 +131,7 @@ function SidebarContent({
 
   const items = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
-    { title: "Orders", url: "/orders", icon: Package, badge: orders.length.toString() },
+    { title: "Orders", url: "/orders", search: { tab: "New" }, icon: Package, badge: orders.length.toString() },
     { title: "Express", url: "/orders", search: { tab: "Express" }, icon: Zap, badge: expressCount.toString() },
     { title: "Picking", url: "/orders", search: { tab: "Picking" }, icon: PackageSearch, badge: pickingCount.toString() },
     { title: "Packing", url: "/orders", search: { tab: "Packing" }, icon: Boxes, badge: packingCount.toString() },
@@ -248,9 +248,9 @@ function SidebarContent({
       }
 
       const active = item.search
-        ? pathname === item.url && search?.tab === item.search.tab
+        ? pathname === item.url && (search?.tab === item.search.tab || (!search?.tab && item.search.tab === "New"))
         : item.url === "/orders"
-          ? pathname === "/orders" && !search?.tab
+          ? pathname === "/orders" && (!search?.tab || search?.tab === "New")
           : pathname === item.url;
       const Icon = item.icon;
 
@@ -346,9 +346,9 @@ function SidebarContent({
     }
 
     const active = item.search
-      ? pathname === item.url && search?.tab === item.search.tab
+      ? pathname === item.url && (search?.tab === item.search.tab || (!search?.tab && item.search.tab === "New"))
       : item.url === "/orders"
-        ? pathname === "/orders" && !search?.tab
+        ? pathname === "/orders" && (!search?.tab || search?.tab === "New")
         : pathname === item.url;
     const Icon = item.icon;
     const link = (

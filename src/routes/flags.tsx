@@ -74,12 +74,28 @@ function FlagsPage() {
   }, [flaggedItemsRes]);
 
   const goToOrder = (order: Order) => {
-    navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", "Flags & Exceptions");
+      sessionStorage.setItem("last_orders_from", "/flags");
+    }
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId: order.id },
+      search: { tab: "Flags & Exceptions", from: "/flags" } as any,
+    });
   };
 
   const goToOrderById = (orderId: string) => {
     const cleanId = orderId.replace(/^#/, "");
-    navigate({ to: "/orders/$orderId", params: { orderId: cleanId } });
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", "Flags & Exceptions");
+      sessionStorage.setItem("last_orders_from", "/flags");
+    }
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId: cleanId },
+      search: { tab: "Flags & Exceptions", from: "/flags" } as any,
+    });
   };
 
   // Filtered orders

@@ -35,7 +35,15 @@ function DeliveredPage() {
   const pagination = statusResult?.pagination;
 
   const goToOrder = (order: Order) => {
-    navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", "Delivered");
+      sessionStorage.setItem("last_orders_from", "/delivered");
+    }
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId: order.id },
+      search: { tab: "Delivered", from: "/delivered" } as any,
+    });
   };
 
   const onSelect = (id: string, selected: boolean) => {

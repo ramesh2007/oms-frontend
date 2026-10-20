@@ -12,6 +12,7 @@
 
 import { MOCK_ORDERS, getEnrichedOrder, type Order, type OrderTimelineEvent } from "@/lib/orders";
 import { getSharedOrders } from "@/lib/sync";
+import { isDemoMode } from "@/lib/api";
 import { evaluateSla, summarizeSla } from "./sla-evaluator";
 import { parseOrderDateTime } from "./business-time";
 import { DEFAULT_SLA_CONFIG } from "./sla-config";
@@ -235,11 +236,7 @@ function getFilteredOrders(filters: MisFilters, customOrders?: Order[]): Order[]
   if (customOrders) {
     orders = customOrders;
   } else {
-    try {
-      orders = getSharedOrders();
-    } catch {
-      orders = [...MOCK_ORDERS];
-    }
+    orders = isDemoMode() ? getSharedOrders() : [];
   }
 
   return orders.filter((order) => {
@@ -355,7 +352,7 @@ class MockMisDataProvider implements MisDataProvider {
       if (orders) {
         originalOrders = orders;
       } else {
-        try { originalOrders = getSharedOrders(); } catch { originalOrders = [...MOCK_ORDERS]; }
+        try { originalOrders = isDemoMode() ? getSharedOrders() : []; } catch { originalOrders = []; }
       }
       const order = originalOrders.find((o) => o.id === m.orderId);
       const enriched = order ? getEnrichedOrder(order.id) : null;
