@@ -37,7 +37,15 @@ function ReadyPage() {
   const pagination = statusResult?.pagination;
 
   const goToOrder = (order: Order) => {
-    navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", "Ready to Assign");
+      sessionStorage.setItem("last_orders_from", "/ready");
+    }
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId: order.id },
+      search: { tab: "Ready to Assign", from: "/ready" } as any,
+    });
   };
 
   const onSelect = (id: string, selected: boolean) => {

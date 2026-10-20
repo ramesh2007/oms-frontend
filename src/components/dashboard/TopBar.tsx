@@ -186,7 +186,12 @@ export function TopBar() {
   }, [query, orders]);
 
   const handleSelectResult = useCallback((orderId: string) => {
-    navigate({ to: "/orders/$orderId", params: { orderId } });
+    const currentFrom = typeof window !== "undefined" ? window.location.pathname + window.location.search : "/orders";
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId },
+      search: { from: currentFrom } as any,
+    });
     setQuery("");
     setIsOpen(false);
     setIsMobileSearchOpen(false);

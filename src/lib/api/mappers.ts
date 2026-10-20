@@ -134,7 +134,13 @@ function mapStatus(erpStatus: string): OrderStatus {
   ) {
     return "Ready to Assign";
   }
-  if (normalized === "driver_accepted" || normalized === "assigned_to_driver") return "Driver Accepted";
+  if (
+    normalized === "driver_accepted" ||
+    normalized === "assigned_to_driver" ||
+    normalized === "partial_assigned_driver"
+  ) {
+    return "Driver Accepted";
+  }
   if (
     normalized === "started" ||
     normalized === "in_delivery" ||
@@ -263,17 +269,65 @@ export function mapErpNextToOrder(raw: ERPNextSalesOrder): Order {
     date,
     time,
     customer: {
-      name: raw.customer_name || raw.customer || "Unknown",
-      email: raw.contact_email || "",
-      phone: raw.contact_phone || "",
+      name:
+        raw.customer_name ||
+        (typeof raw.customer === "string" ? raw.customer : (raw as any).customer?.name) ||
+        "Customer",
+      email: raw.contact_email || (raw as any).customer?.email || "",
+      phone: raw.contact_phone || (raw as any).customer?.phone || "",
     },
+    customer_name:
+      raw.customer_name ||
+      (typeof raw.customer === "string" ? raw.customer : (raw as any).customer?.name) ||
+      "Customer",
     channel: mapChannel(raw.custom_channel),
     items: itemCount,
     line_items: rawLineItems,
     status: mapStatus(raw.status),
-    returns: raw.custom_return_count
-      ? { type: "Return", count: raw.custom_return_count }
-      : undefined,
+    returns: (() => {
+      const mappedStatus = mapStatus(raw.status);
+      const isOrderCancelled =
+        mappedStatus === "Cancelled" ||
+        mappedStatus === "Delivery Failed" ||
+        String(raw.status || "").toLowerCase().trim() === "cancelled" ||
+        String(raw.status || "").toLowerCase().trim() === "canceled";
+      if (isOrderCancelled) return undefined;
+
+      const cancelledCount = rawLineItems.filter((i: any) => {
+        const s = String(i.status || (i as any).custom_status || "").toLowerCase().trim();
+        return s === "cancelled" || s === "canceled" || Boolean((i as any).is_cancelled || (i as any).cancelled);
+      }).length;
+      const count = raw.custom_return_count || cancelledCount || 0;
+      return count > 0 ? { type: "Return" as const, count } : undefined;
+    })(),
+    hasCancelledItems: (() => {
+      const mappedStatus = mapStatus(raw.status);
+      const isOrderCancelled =
+        mappedStatus === "Cancelled" ||
+        mappedStatus === "Delivery Failed" ||
+        String(raw.status || "").toLowerCase().trim() === "cancelled" ||
+        String(raw.status || "").toLowerCase().trim() === "canceled";
+      if (isOrderCancelled) return false;
+
+      return rawLineItems.some((i: any) => {
+        const s = String(i.status || (i as any).custom_status || "").toLowerCase().trim();
+        return s === "cancelled" || s === "canceled" || Boolean((i as any).is_cancelled || (i as any).cancelled);
+      });
+    })(),
+    cancelledItemsCount: (() => {
+      const mappedStatus = mapStatus(raw.status);
+      const isOrderCancelled =
+        mappedStatus === "Cancelled" ||
+        mappedStatus === "Delivery Failed" ||
+        String(raw.status || "").toLowerCase().trim() === "cancelled" ||
+        String(raw.status || "").toLowerCase().trim() === "canceled";
+      if (isOrderCancelled) return 0;
+
+      return rawLineItems.filter((i: any) => {
+        const s = String(i.status || (i as any).custom_status || "").toLowerCase().trim();
+        return s === "cancelled" || s === "canceled" || Boolean((i as any).is_cancelled || (i as any).cancelled);
+      }).length;
+    })(),
     city: raw.custom_city || "—",
     coordinator: raw.custom_coordinator || "-",
     driver: raw.custom_driver || null,
@@ -365,8 +419,42 @@ export function mapErpNextToOrderItem(raw: ERPNextSalesOrderItem): OrderItemType
     (raw as any).requires_installation === "true",
   );
 
+  const rawLineItemId = (raw as any).line_item_id;
+  const rawId = raw.id;
+  const rawItemId = (raw as any).item_id;
+  const rawOrderItemId = (raw as any).order_item_id;
+
+  const resolvedLineItemId = rawLineItemId
+    ? String(rawLineItemId)
+    : rawId && String(rawId).length > 6
+      ? String(rawId)
+      : rawOrderItemId && String(rawOrderItemId).length > 6
+        ? String(rawOrderItemId)
+        : rawLineItemId ?? rawId ?? rawOrderItemId ?? rawItemId;
+
+  const finalLineItemIdStr = resolvedLineItemId ? String(resolvedLineItemId) : String(raw.name || Math.random());
+
+  const rawStatusStr = String(raw.custom_status || (raw as any).status || "").toLowerCase().trim();
+  const isItemCancelled = rawStatusStr === "cancelled" || rawStatusStr === "canceled" || Boolean((raw as any).is_cancelled || (raw as any).cancelled);
+  const isItemAdded = Boolean(
+    (raw as any).is_new ||
+    (raw as any).isNew ||
+    (raw as any).is_added ||
+    (raw as any).isAdded ||
+    (raw as any).added ||
+    (raw as any).is_replacement ||
+    (raw as any).isReplacement ||
+    (raw as any).is_exchange ||
+    (raw as any).isExchange ||
+    rawStatusStr === "new" ||
+    rawStatusStr === "added"
+  );
+
   return {
-    id: String(raw.id || raw.name || Math.random()),
+    id: finalLineItemIdStr,
+    line_item_id: finalLineItemIdStr,
+    order_item_id: finalLineItemIdStr,
+    item_id: rawItemId ?? undefined,
     name: raw.name || raw.item_name || "Item",
     sku: raw.sku || raw.item_code || "",
     barcode: raw.custom_barcode || "",
@@ -376,11 +464,47 @@ export function mapErpNextToOrderItem(raw: ERPNextSalesOrderItem): OrderItemType
     fc: "F01",
     fcName: raw.warehouse || "Default Warehouse",
     bin: raw.custom_bin || "—",
-    status:
-      String(raw.custom_status || "").toLowerCase() === "picker_assigned"
-        ? "Picker Assigned"
-        : (raw.custom_status as "Prepared" | "Accepted" | "Allocated" | "Pending") || "Pending",
-    order_item_id: (raw as any).order_item_id || (raw as any).item_id || raw.id,
+    status: isItemCancelled
+        ? "Cancelled"
+        : isItemAdded
+          ? "Added New"
+          : rawStatusStr === "picker_assigned"
+            ? "Picker Assigned"
+            : (raw.custom_status as "Prepared" | "Accepted" | "Allocated" | "Pending") || "Pending",
+      is_cancelled: isItemCancelled,
+      isCancelled: isItemCancelled,
+      is_added: isItemAdded,
+      isAdded: isItemAdded,
+      is_new: isItemAdded,
+      isNew: isItemAdded,
+      raw_status: raw.custom_status || (raw as any).status || null,
+      is_flagged: Boolean(
+        (raw as any).is_flagged === true ||
+        (raw as any).is_flagged === 1 ||
+        (raw as any).is_flagged === "1" ||
+        (raw as any).is_flagged === "true" ||
+        (raw as any).isFlagged === true ||
+        (raw as any).flagged === true ||
+        String((raw as any).status || "").toLowerCase() === "flagged" ||
+        String((raw as any).custom_status || "").toLowerCase() === "flagged"
+      ),
+      isFlagged: Boolean(
+        (raw as any).is_flagged === true ||
+        (raw as any).is_flagged === 1 ||
+        (raw as any).is_flagged === "1" ||
+        (raw as any).is_flagged === "true" ||
+        (raw as any).isFlagged === true ||
+        (raw as any).flagged === true ||
+        String((raw as any).status || "").toLowerCase() === "flagged" ||
+        String((raw as any).custom_status || "").toLowerCase() === "flagged"
+      ),
+      flag_reason: (raw as any).flag_reason ?? (raw as any).flagged_reason ?? (raw as any).flaggedReason ?? null,
+      flagged_reason: (raw as any).flag_reason ?? (raw as any).flagged_reason ?? (raw as any).flaggedReason ?? null,
+      flaggedReason: (raw as any).flag_reason ?? (raw as any).flagged_reason ?? (raw as any).flaggedReason ?? null,
+    flagged_image_url: (raw as any).flagged_image_url ?? (raw as any).flagged_image ?? (raw as any).flag_image_url ?? (raw as any).flag_image ?? null,
+    flaggedImageUrl: (raw as any).flagged_image_url ?? (raw as any).flagged_image ?? (raw as any).flag_image_url ?? (raw as any).flag_image ?? null,
+    flagged_by: (raw as any).flagged_by ?? (raw as any).flagged_user_name ?? null,
+    flagged_at: (raw as any).flagged_at ?? null,
     assigned_to: (raw as any).assigned_to ?? null,
     assigned_user_name: (raw as any).assigned_user_name ?? null,
     assigned_at: (raw as any).assigned_at ?? null,
@@ -603,18 +727,27 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
   } else if (
     normalizedStatus === "ready_to_assign" ||
     normalizedStatus === "readytoassign" ||
+    normalizedStatus === "to_deliver" ||
     normalizedStatus === "packed"
   ) {
-    status = hasDriverAssigned ? "Started" : "Ready to Assign";
+    status = "Ready to Assign";
   } else if (
     normalizedStatus === "assigned_to_driver" ||
+    normalizedStatus === "partial_assigned_driver"
+  ) {
+    status = "Driver Accepted";
+  } else if (
     normalizedStatus === "out_for_delivery" ||
     normalizedStatus === "in_delivery" ||
     normalizedStatus === "started" ||
     normalizedStatus === "driver_accepted"
   ) {
     status = "Started";
-  } else if (normalizedStatus === "delivered") {
+  } else if (
+    normalizedStatus === "delivered" ||
+    normalizedStatus === "completed" ||
+    normalizedStatus === "to_bill"
+  ) {
     status = "Delivered";
   } else if (
     normalizedStatus === "cancelled" ||
@@ -630,13 +763,6 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     normalizedStatus === "installed"
   ) {
     status = "Installation";
-  } else if (
-    hasDriverAssigned &&
-    normalizedStatus !== "delivered" &&
-    normalizedStatus !== "cancelled" &&
-    normalizedStatus !== "installation"
-  ) {
-    status = "Started";
   }
 
   const pickerName =
@@ -752,23 +878,196 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
           ? ["express"]
           : [];
 
+  // Resolving customer details from all potential backend patterns (direct, nested, string, object, shipping address, recipient, etc.)
+  let rawCustomerObj = raw.customer;
+  if (typeof rawCustomerObj === "string" && (rawCustomerObj.trim().startsWith("{") || rawCustomerObj.trim().startsWith("["))) {
+    try {
+      rawCustomerObj = JSON.parse(rawCustomerObj);
+    } catch {
+      // ignore
+    }
+  }
+
+  let orderCustomerObj = raw.order?.customer;
+  if (typeof orderCustomerObj === "string" && (orderCustomerObj.trim().startsWith("{") || orderCustomerObj.trim().startsWith("["))) {
+    try {
+      orderCustomerObj = JSON.parse(orderCustomerObj);
+    } catch {
+      // ignore
+    }
+  }
+
+  const resolvedCustomerName = (() => {
+    // 1. Direct top-level name properties
+    const directName =
+      raw.customer_name ||
+      raw.customerName ||
+      raw.order?.customer_name ||
+      raw.order?.customerName ||
+      raw.client_name ||
+      raw.recipient_name ||
+      raw.receiver_name ||
+      raw.contact_name;
+    if (directName && typeof directName === "string" && directName.trim()) {
+      return directName.trim();
+    }
+
+    // 2. raw.customer as plain string
+    if (typeof raw.customer === "string" && raw.customer.trim() && !raw.customer.trim().startsWith("{")) {
+      return raw.customer.trim();
+    }
+    if (typeof raw.order?.customer === "string" && raw.order.customer.trim() && !raw.order.customer.trim().startsWith("{")) {
+      return raw.order.customer.trim();
+    }
+
+    // 3. Customer object properties
+    const custObj = (rawCustomerObj && typeof rawCustomerObj === "object") ? rawCustomerObj : null;
+    const ordCustObj = (orderCustomerObj && typeof orderCustomerObj === "object") ? orderCustomerObj : null;
+
+    const fromObj =
+      custObj?.name ||
+      custObj?.customer_name ||
+      custObj?.full_name ||
+      ordCustObj?.name ||
+      ordCustObj?.customer_name ||
+      ordCustObj?.full_name;
+    if (fromObj && typeof fromObj === "string" && fromObj.trim()) {
+      return fromObj.trim();
+    }
+
+    // 4. first_name + last_name
+    const first = (custObj?.first_name || ordCustObj?.first_name || "").toString().trim();
+    const last = (custObj?.last_name || ordCustObj?.last_name || "").toString().trim();
+    if (first || last) {
+      const full = `${first} ${last}`.trim();
+      if (full) return full;
+    }
+
+    // 5. Shipping address / delivery address / billing address name
+    const shipName =
+      raw.shipping_address?.name ||
+      raw.delivery_address?.name ||
+      raw.billing_address?.name ||
+      raw.order?.shipping_address?.name ||
+      raw.order?.delivery_address?.name;
+    if (shipName && typeof shipName === "string" && shipName.trim()) {
+      return shipName.trim();
+    }
+
+    const shipFirst = (raw.shipping_address?.first_name || raw.order?.shipping_address?.first_name || "").toString().trim();
+    const shipLast = (raw.shipping_address?.last_name || raw.order?.shipping_address?.last_name || "").toString().trim();
+    if (shipFirst || shipLast) {
+      const full = `${shipFirst} ${shipLast}`.trim();
+      if (full) return full;
+    }
+
+    // 6. User / customer_user
+    const userName = raw.customer_user?.name || raw.user?.name || raw.order?.user?.name;
+    if (userName && typeof userName === "string" && userName.trim()) {
+      return userName.trim();
+    }
+
+    return "Customer";
+  })();
+
+  const resolvedCustomerEmail = (() => {
+    const custObj = (rawCustomerObj && typeof rawCustomerObj === "object") ? rawCustomerObj : null;
+    const ordCustObj = (orderCustomerObj && typeof orderCustomerObj === "object") ? orderCustomerObj : null;
+    const directEmail =
+      raw.customer_email ||
+      raw.customerEmail ||
+      raw.email ||
+      raw.contact_email ||
+      raw.order?.customer_email ||
+      raw.order?.email ||
+      custObj?.email ||
+      ordCustObj?.email ||
+      raw.shipping_address?.email ||
+      raw.billing_address?.email;
+    return typeof directEmail === "string" ? directEmail.trim() : "";
+  })();
+
+  const resolvedCustomerPhone = (() => {
+    const custObj = (rawCustomerObj && typeof rawCustomerObj === "object") ? rawCustomerObj : null;
+    const ordCustObj = (orderCustomerObj && typeof orderCustomerObj === "object") ? orderCustomerObj : null;
+    const directPhone =
+      raw.customer_phone ||
+      raw.customerPhone ||
+      raw.phone ||
+      raw.contact_phone ||
+      raw.mobile ||
+      raw.order?.customer_phone ||
+      raw.order?.phone ||
+      custObj?.phone ||
+      custObj?.mobile ||
+      ordCustObj?.phone ||
+      ordCustObj?.mobile ||
+      raw.shipping_address?.phone ||
+      raw.delivery_address?.phone ||
+      raw.billing_address?.phone;
+    return typeof directPhone === "string" && directPhone.trim() ? directPhone.trim() : "—";
+  })();
+
+  const resolvedDeliveryAddress = (() => {
+    const custObj = (rawCustomerObj && typeof rawCustomerObj === "object") ? rawCustomerObj : null;
+    const ordCustObj = (orderCustomerObj && typeof orderCustomerObj === "object") ? orderCustomerObj : null;
+    const directAddr =
+      raw.delivery_address ||
+      raw.deliveryAddress ||
+      raw.order?.delivery_address ||
+      raw.address ||
+      custObj?.delivery_address ||
+      custObj?.address ||
+      ordCustObj?.delivery_address ||
+      ordCustObj?.address ||
+      raw.shipping_address?.address1 ||
+      raw.shipping_address?.line1 ||
+      raw.shipping_address?.city ||
+      raw.city;
+    return typeof directAddr === "string" && directAddr.trim() ? directAddr.trim() : "—";
+  })();
+
+  const sourceRawItems = (Array.isArray(raw.items) && raw.items.length > 0)
+    ? raw.items
+    : (Array.isArray(raw.line_items) && raw.line_items.length > 0)
+      ? raw.line_items
+      : (Array.isArray(raw.order?.items) && raw.order.items.length > 0)
+        ? raw.order.items
+        : [];
+
   return {
     id: displayId,
     orderNumber: orderNumber || displayId,
     shopifyOrderId,
-    customerId: `cust-${raw.customer?.name?.replace(/\s+/g, "-").toLowerCase() || "unknown"}`,
+    customerId: `cust-${resolvedCustomerName.replace(/\s+/g, "-").toLowerCase() || "unknown"}`,
     tat: calculateTat(raw.created_at),
     date,
     time,
     customer: {
-      name: raw.customer?.name || "Unknown Customer",
-      email: raw.customer?.email || "",
-      phone: raw.customer?.phone || "N/A",
+      name: resolvedCustomerName,
+      email: resolvedCustomerEmail,
+      phone: resolvedCustomerPhone,
     },
+    customer_name: resolvedCustomerName,
+    customer_phone: resolvedCustomerPhone,
+    customer_email: resolvedCustomerEmail,
+    delivery_address: resolvedDeliveryAddress,
     channel: "shopify",
     items: totalItems,
     status,
-    city: raw.customer?.delivery_address || "—",
+    city: resolvedDeliveryAddress,
+    shippingAddress: {
+      line1: raw.shipping_address?.address1 || raw.shipping_address?.line1 || resolvedDeliveryAddress,
+      line2: raw.shipping_address?.address2 || raw.shipping_address?.line2 || "",
+      city: raw.shipping_address?.city || resolvedDeliveryAddress || "Doha",
+      country: raw.shipping_address?.country || "Qatar",
+      lat: raw.latitude ?? raw.lat ?? 25.2854,
+      lng: raw.longitude ?? raw.lng ?? 51.5310,
+      building: raw.building || raw.building_no || "—",
+      unit: raw.unit || raw.unit_no || "—",
+      zone: raw.zone || raw.zone_no || "—",
+      street: raw.street || "—",
+    },
     coordinator: "-",
     driver: (() => {
       const d = raw.driver_user?.name || raw.assigned_user_name || raw.driver_name;
@@ -791,7 +1090,8 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     notes: raw.notes || raw.custom_notes || raw.customer_notes || "",
     shippingMethod: rawShippingMethod || (isExpress ? "Express Delivery" : "Standard Delivery"),
     isExpress,
-    itemsList: (raw.items || []).map((i: any) => {
+    line_items: sourceRawItems,
+    itemsList: sourceRawItems.map((i: any) => {
       const isInstallable = Boolean(
         i.is_installable === true ||
         i.is_installable === 1 ||
@@ -811,10 +1111,67 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
         i.requires_installation === "true",
       );
 
-      const orderItemId = i.order_item_id ?? i.id ?? i.item_id ?? i.line_item_id;
+      const rawLineItemId = (i as any).line_item_id;
+      const rawId = i.id;
+      const rawItemId = (i as any).item_id;
+      const rawOrderItemId = (i as any).order_item_id;
+
+      const resolvedLineItemId = rawLineItemId
+        ? String(rawLineItemId)
+        : rawId && String(rawId).length > 6
+          ? String(rawId)
+          : rawOrderItemId && String(rawOrderItemId).length > 6
+            ? String(rawOrderItemId)
+            : rawLineItemId ?? rawId ?? rawOrderItemId ?? rawItemId;
+
+      const finalLineItemIdStr = resolvedLineItemId ? String(resolvedLineItemId) : String(Math.random());
+
+      const rawStatusStr = String(i.status || (i as any).custom_status || (i as any).raw_status || "").toLowerCase().trim();
+      const isItemCancelled = rawStatusStr === "cancelled" || rawStatusStr === "canceled" || Boolean((i as any).is_cancelled || (i as any).cancelled);
+      const isItemAdded = Boolean(
+        (i as any).is_new ||
+        (i as any).isNew ||
+        (i as any).is_added ||
+        (i as any).isAdded ||
+        (i as any).added ||
+        (i as any).is_replacement ||
+        (i as any).isReplacement ||
+        (i as any).is_exchange ||
+        (i as any).isExchange ||
+        rawStatusStr === "new" ||
+        rawStatusStr === "added"
+      );
+
       return {
-        id: String(orderItemId || Math.random()),
-        order_item_id: orderItemId,
+        id: finalLineItemIdStr,
+        line_item_id: finalLineItemIdStr,
+        order_item_id: finalLineItemIdStr,
+        item_id: rawItemId ?? undefined,
+        is_flagged: Boolean(
+          i.is_flagged === true ||
+          i.is_flagged === 1 ||
+          i.is_flagged === "1" ||
+          i.is_flagged === "true" ||
+          i.isFlagged === true ||
+          i.flagged === true ||
+          String(i.status || "").toLowerCase() === "flagged"
+        ),
+        isFlagged: Boolean(
+          i.is_flagged === true ||
+          i.is_flagged === 1 ||
+          i.is_flagged === "1" ||
+          i.is_flagged === "true" ||
+          i.isFlagged === true ||
+          i.flagged === true ||
+          String(i.status || "").toLowerCase() === "flagged"
+        ),
+        flag_reason: i.flag_reason ?? i.flagged_reason ?? i.flaggedReason ?? null,
+        flagged_reason: i.flag_reason ?? i.flagged_reason ?? i.flaggedReason ?? null,
+        flaggedReason: i.flag_reason ?? i.flagged_reason ?? i.flaggedReason ?? null,
+        flagged_image_url: i.flagged_image_url ?? i.flagged_image ?? i.flag_image_url ?? i.flag_image ?? null,
+        flaggedImageUrl: i.flagged_image_url ?? i.flagged_image ?? i.flag_image_url ?? i.flag_image ?? null,
+        flagged_by: i.flagged_by ?? i.flagged_user_name ?? null,
+        flagged_at: i.flagged_at ?? null,
         assigned_to: i.assigned_to ?? null,
         assigned_user_name: i.assigned_user_name ?? null,
         assigned_at: i.assigned_at ?? null,
@@ -837,12 +1194,22 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
         fc: "F01",
         fcName: "Fulfillment Center Hilal",
         bin: "—",
-        status:
-          String(i.status || "").toLowerCase() === "picker_assigned"
-            ? "Picker Assigned"
-            : i.status === "picked"
-              ? "Prepared"
-              : "Pending",
+        status: isItemCancelled
+          ? "Cancelled"
+          : isItemAdded
+            ? "Added New"
+            : rawStatusStr === "picker_assigned"
+              ? "Picker Assigned"
+              : rawStatusStr === "picked" || rawStatusStr === "packed" || rawStatusStr === "delivered"
+                ? "Prepared"
+                : (i.status || "Pending"),
+        is_cancelled: isItemCancelled,
+        isCancelled: isItemCancelled,
+        is_added: isItemAdded,
+        isAdded: isItemAdded,
+        is_new: isItemAdded,
+        isNew: isItemAdded,
+        raw_status: i.status || null,
         is_installable: isInstallable,
         isInstallable: isInstallable,
         installation_type: i.installation_type || null,
@@ -882,6 +1249,62 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
           null,
       };
     }),
+    returns: (() => {
+      const isWholeOrderCancelled =
+        status === "Cancelled" ||
+        status === "Delivery Failed" ||
+        normalizedStatus === "cancelled" ||
+        normalizedStatus === "canceled" ||
+        normalizedStatus === "cancelled_delivery" ||
+        normalizedStatus === "delivery_cancelled" ||
+        rawStatus === "cancelled" ||
+        rawStatus === "canceled" ||
+        Boolean(raw.cancelled_at);
+      if (isWholeOrderCancelled) return undefined;
+
+      const cancelledCount = sourceRawItems.filter((i: any) => {
+        const s = String(i.status || (i as any).custom_status || (i as any).raw_status || "").toLowerCase().trim();
+        return s === "cancelled" || s === "canceled" || Boolean((i as any).is_cancelled || (i as any).cancelled);
+      }).length;
+      const count = cancelledCount || raw.custom_return_count || raw.return_count || (Array.isArray(raw.returns) ? raw.returns.length : 0);
+      return count > 0 ? { type: "Return" as const, count } : undefined;
+    })(),
+    hasCancelledItems: (() => {
+      const isWholeOrderCancelled =
+        status === "Cancelled" ||
+        status === "Delivery Failed" ||
+        normalizedStatus === "cancelled" ||
+        normalizedStatus === "canceled" ||
+        normalizedStatus === "cancelled_delivery" ||
+        normalizedStatus === "delivery_cancelled" ||
+        rawStatus === "cancelled" ||
+        rawStatus === "canceled" ||
+        Boolean(raw.cancelled_at);
+      if (isWholeOrderCancelled) return false;
+
+      return sourceRawItems.some((i: any) => {
+        const s = String(i.status || (i as any).custom_status || (i as any).raw_status || "").toLowerCase().trim();
+        return s === "cancelled" || s === "canceled" || Boolean((i as any).is_cancelled || (i as any).cancelled);
+      });
+    })(),
+    cancelledItemsCount: (() => {
+      const isWholeOrderCancelled =
+        status === "Cancelled" ||
+        status === "Delivery Failed" ||
+        normalizedStatus === "cancelled" ||
+        normalizedStatus === "canceled" ||
+        normalizedStatus === "cancelled_delivery" ||
+        normalizedStatus === "delivery_cancelled" ||
+        rawStatus === "cancelled" ||
+        rawStatus === "canceled" ||
+        Boolean(raw.cancelled_at);
+      if (isWholeOrderCancelled) return 0;
+
+      return sourceRawItems.filter((i: any) => {
+        const s = String(i.status || (i as any).custom_status || (i as any).raw_status || "").toLowerCase().trim();
+        return s === "cancelled" || s === "canceled" || Boolean((i as any).is_cancelled || (i as any).cancelled);
+      }).length;
+    })(),
     hasInstallation: Boolean(
       raw.has_installation ||
       raw.summary?.has_installation ||
@@ -943,5 +1366,7 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     all_items_vs: Boolean(raw.all_items_vs || raw.summary?.all_items_vs),
     summary: raw.summary,
     rawOrder: raw,
+    backend_status: normalizedStatus,
+    rawStatus: normalizedStatus,
   };
 }

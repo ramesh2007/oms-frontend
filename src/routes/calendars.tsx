@@ -357,7 +357,13 @@ function CalendarsContent() {
               )}
             </div>
             <div className="px-5 pb-4 pt-2 border-t border-border flex flex-wrap gap-2">
-              <button onClick={() => navigate({ to: "/orders/$orderId", params: { orderId: selectedAppt.orderId.replace(/^#/, "") } } as any)}
+              <button onClick={() => {
+                if (typeof window !== "undefined") {
+                  sessionStorage.setItem("last_orders_tab", "Team Calendars");
+                  sessionStorage.setItem("last_orders_from", "/calendars");
+                }
+                navigate({ to: "/orders/$orderId", params: { orderId: selectedAppt.orderId.replace(/^#/, "") }, search: { from: "/calendars" } as any });
+              }}
                 className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors cursor-pointer">
                 <ExternalLink className="h-3.5 w-3.5" /> View Order
               </button>

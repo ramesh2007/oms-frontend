@@ -6,7 +6,7 @@
  * and merge cleanly with live backend technician schedule data.
  */
 
-import type { TechnicianScheduleRecord } from "@/lib/api/services";
+import type { TechnicianScheduleRecord, CompletedInstallationRecord } from "@/lib/api/services";
 
 const STORAGE_KEY = 'hm_scheduled_installations';
 
@@ -81,6 +81,8 @@ export interface ScheduledItem {
   giftMessage?: string | null;
   /** Raw backend payload */
   raw?: any;
+  /** Proof images from installation_images table */
+  proofImages?: any[];
 }
 
 type Listener = () => void;
@@ -548,6 +550,161 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
       if (completedAt && !existing.completedAt) {
         existing.completedAt = completedAt;
         existing.status = "Completed";
+        updated = true;
+      }
+      if (hasChanges || updated) hasChanges = true;
+    }
+  });
+
+  if (hasChanges) {
+    _notify();
+  }
+}
+
+/**
+ * Synchronize completed installation records from /api/admin/installation-completed
+ * into the scheduled installations store so they display in the Completed tab.
+ */
+export function syncCompletedInstallations(records: CompletedInstallationRecord[]): void {
+  if (!Array.isArray(records) || records.length === 0) return;
+
+  let hasChanges = false;
+  const currentMap = new Map<string, ScheduledItem>(_items.map((i) => [i.id, i]));
+  const orderInstallationMap = new Map<string, ScheduledItem>();
+  const orderItemMap = new Map<string, ScheduledItem>();
+
+  _items.forEach((i) => {
+    if (i.orderInstallationId) orderInstallationMap.set(String(i.orderInstallationId), i);
+    if (i.orderItemId) orderItemMap.set(String(i.orderItemId), i);
+  });
+
+  records.forEach((record) => {
+    const rawId = `inst-${record.id}`;
+    const instIdKey = String(record.id || record.order_installation_id || "");
+    const orderItemIdKey = record.order_item_id ? String(record.order_item_id) : null;
+
+    // Check if item already exists by rawId, orderInstallationId, or orderItemId
+    const existing =
+      currentMap.get(rawId) ||
+      (instIdKey ? orderInstallationMap.get(instIdKey) : null) ||
+      (orderItemIdKey ? orderItemMap.get(orderItemIdKey) : null);
+
+    // Extract all images from record.images and proof_images
+    let extractedImages: string[] = [];
+    if (Array.isArray(record.images)) {
+      extractedImages = record.images.filter(Boolean).map(String);
+    }
+    if (Array.isArray(record.proof_images)) {
+      record.proof_images.forEach((img) => {
+        if (img.before_install_image) extractedImages.push(img.before_install_image);
+        if (img.after_install_image) extractedImages.push(img.after_install_image);
+      });
+    }
+    extractedImages = Array.from(new Set(extractedImages));
+
+    if (existing?.images && existing.images.length > 0) {
+      extractedImages = Array.from(new Set([...extractedImages, ...existing.images]));
+    }
+
+    const completedAt =
+      record.completed_at ||
+      existing?.completedAt ||
+      record.updated_at ||
+      new Date().toISOString();
+
+    const timeRange = formatCustomerTimeRange(record.start_time ?? undefined, record.end_time ?? undefined);
+
+    const mappedItem: ScheduledItem = {
+      id: existing ? existing.id : rawId,
+      orderId: String(record.order_number || record.order_id || ""),
+      orderNumber: record.order_number || (record.order_id ? `#${record.order_id}` : undefined),
+      orderItemId: record.order_item_id,
+      orderInstallationId: record.id || record.order_installation_id,
+      productName:
+        record.product_name ||
+        record.order_item?.product_name ||
+        existing?.productName ||
+        "Installation Item",
+      sku: record.product_code || record.order_item?.product_code || existing?.sku || "",
+      barcode: record.barcode || record.order_item?.barcode || existing?.barcode || "",
+      image:
+        record.product_image ||
+        record.order_item?.image ||
+        record.order_item?.image_url ||
+        existing?.image ||
+        "https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?w=100&h=100&fit=crop",
+      customerName:
+        record.customer_name ||
+        record.customer?.name ||
+        record.order?.customer_name ||
+        existing?.customerName ||
+        "Customer",
+      customerPhone:
+        record.customer_phone ||
+        record.customer?.phone ||
+        record.order?.customer_phone ||
+        existing?.customerPhone ||
+        "",
+      address:
+        record.address ||
+        record.customer?.address ||
+        record.order?.delivery_address ||
+        existing?.address ||
+        "",
+      status: "Completed",
+      completedAt,
+      images: extractedImages,
+      proofImages: record.proof_images || [],
+      technicianId: record.technician_id || record.technician?.id,
+      technicianName: record.technician_name || record.technician?.name || "Technician",
+      assignedDriver: existing?.assignedDriver || record.order_item?.delivered_user_name || record.technician_name || null,
+      scheduledDate: record.scheduled_date ? String(record.scheduled_date).slice(0, 10) : (completedAt ? completedAt.slice(0, 10) : existing?.scheduledDate),
+      startTime: record.start_time || existing?.startTime,
+      endTime: record.end_time || existing?.endTime,
+      scheduledTimeRange: timeRange || existing?.scheduledTimeRange,
+      installationMethod:
+        record.installation_type
+          ? `${record.installation_type} (${record.installation_level || "Installation"})`
+          : existing?.installationMethod || "Standard Assembly",
+      installationNotes: record.notes || existing?.installationNotes || null,
+      productTags: record.product_tags || record.order_item?.product_tags || existing?.productTags || null,
+      giftWrap: record.gift_wrap || record.order_item?.gift_wrap || existing?.giftWrap || null,
+      giftMessage: record.gift_message || record.order_item?.gift_message || existing?.giftMessage || null,
+      scheduledAt: record.completed_at || record.created_at || new Date().toISOString(),
+      raw: record,
+    };
+
+    if (!existing) {
+      _items.push(mappedItem);
+      hasChanges = true;
+    } else {
+      let updated = false;
+      if (existing.status !== "Completed") {
+        existing.status = "Completed";
+        updated = true;
+      }
+      if (completedAt && existing.completedAt !== completedAt) {
+        existing.completedAt = completedAt;
+        updated = true;
+      }
+      if (extractedImages.length > (existing.images?.length || 0)) {
+        existing.images = extractedImages;
+        updated = true;
+      }
+      if (record.proof_images && record.proof_images.length > 0) {
+        existing.proofImages = record.proof_images;
+        updated = true;
+      }
+      if (mappedItem.productName && mappedItem.productName !== existing.productName) {
+        existing.productName = mappedItem.productName;
+        updated = true;
+      }
+      if (mappedItem.technicianName && mappedItem.technicianName !== existing.technicianName) {
+        existing.technicianName = mappedItem.technicianName;
+        updated = true;
+      }
+      if (record.notes && record.notes !== existing.installationNotes) {
+        existing.installationNotes = record.notes;
         updated = true;
       }
       if (hasChanges || updated) hasChanges = true;

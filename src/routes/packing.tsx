@@ -20,11 +20,22 @@ function PackingPage() {
   const navigate = useNavigate();
   const [currentPage, setCurrentPage] = useState(1);
   const { data: statusResult, isLoading: loading } = useOrdersByStatus("packing", currentPage, 15);
-  const orders = statusResult?.orders || [];
+  const orders = (statusResult?.orders || []).filter((o) => {
+    const s = String(o.status || "").toLowerCase();
+    return s !== "delivered" && s !== "cancelled" && s !== "started" && s !== "in delivery" && s !== "driver accepted" && s !== "delivery failed";
+  });
   const pagination = statusResult?.pagination;
 
   const goToOrder = (order: Order) => {
-    navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", "Packing");
+      sessionStorage.setItem("last_orders_from", "/packing");
+    }
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId: order.id },
+      search: { tab: "Packing", from: "/packing" } as any,
+    });
   };
 
   return (

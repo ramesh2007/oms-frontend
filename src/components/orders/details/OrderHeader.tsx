@@ -22,6 +22,9 @@ import {
   CheckCircle2,
   User,
   AlertTriangle,
+  Wrench,
+  Sparkles,
+  ArrowLeftRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,7 +70,7 @@ import { StatusBadge } from "@/components/orders/StatusBadge";
 import { PrintInvoiceDialog } from "../PrintInvoiceDialog";
 import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { getOrderItemsCount, type EnrichedOrder, isUnpaidPayLaterOrder } from "@/lib/orders";
+import { getOrderItemsCount, type EnrichedOrder, isUnpaidPayLaterOrder, matchesLegacyTab, orderHasInstallation, orderHasVirtualStock, isOrderReturnAndReplacement, orderHasReturnedItems } from "@/lib/orders";
 import { useQueryClient } from "@tanstack/react-query";
 import { orderKeys } from "@/hooks/useOrders";
 import { ordersApi } from "@/lib/api";
@@ -244,6 +247,25 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
 
   const showForceReadyToAssign = isReadyToAssignAvailable && !isReadyToAssignStatus;
 
+  const isDelivered = Boolean(
+    order.status === "Delivered" ||
+    String(order.status || "").toLowerCase() === "delivered" ||
+    (order as any).driverStatus === "Delivered"
+  );
+
+  const isInDelivery = Boolean(
+    !isDelivered &&
+    order.status !== "Ready to Assign" &&
+    String(order.status || "").toLowerCase() !== "ready to assign" &&
+    (
+      (order as any).backend_status === "assigned_to_driver" ||
+      (order as any).backend_status === "partial_assigned_driver" ||
+      (order as any).rawOrder?.status === "assigned_to_driver" ||
+      (order as any).rawOrder?.status === "partial_assigned_driver" ||
+      matchesLegacyTab(order, "In Delivery")
+    )
+  );
+
   const handleForceReadyToAssign = () => {
     showConfirm(
       "Force Ready to Assign",
@@ -284,7 +306,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               })()}
             </div>
 
-            <div className="flex flex-col items-start gap-2.5 mt-2">
+            <div className="flex flex-wrap items-center gap-2.5 mt-2">
               {/* Dynamic Status Badge */}
               <div className={cn(
                 "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider ring-1 ring-inset shadow-sm",
@@ -295,11 +317,49 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                         "bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-500/10 dark:text-gray-400 dark:ring-gray-500/20"
               )}>
                 {order.status === "Delivered" ? <CheckCircle2 className="h-4 w-4" /> :
-                  order.status === "Delivery Failed" ? <XCircle className="h-4 w-4" /> :
+                  order.status === "Delivery Failed" || order.status === "Cancelled" ? <XCircle className="h-4 w-4" /> :
                     order.status === "Started" ? <Clock className="h-4 w-4" /> :
                       <Package className="h-4 w-4" />}
                 {order.status}
               </div>
+
+              {/* Fulfilled Badge for Delivered orders */}
+              {isDelivered && (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/80 px-2.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 ring-1 ring-inset ring-emerald-600/20 shadow-xs">
+                  <PackageCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  Fulfilled
+                </div>
+              )}
+
+              {/* Installation Badge */}
+              {orderHasInstallation(order) && (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 ring-1 ring-inset ring-sky-300 dark:ring-sky-800 shadow-xs">
+                  <Wrench className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                  Installation
+                </div>
+              )}
+
+              {/* Virtual Stock Badge */}
+              {orderHasVirtualStock(order) && (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-2.5 py-1 text-xs font-bold text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 ring-1 ring-inset ring-purple-300 dark:ring-purple-800 shadow-xs">
+                  <Sparkles className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                  Virtual Stock
+                </div>
+              )}
+
+              {/* Return & Replacement or Return Badge */}
+              {isOrderReturnAndReplacement(order) ? (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 ring-1 ring-inset ring-indigo-300 dark:ring-indigo-800 shadow-xs">
+                  <ArrowLeftRight className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                  Return & Replacement
+                </div>
+              ) : orderHasReturnedItems(order) ? (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 dark:bg-red-950/40 dark:text-red-300 ring-1 ring-inset ring-red-300 dark:ring-red-800 shadow-xs">
+                  <RotateCcw className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                  Return
+                </div>
+              ) : null}
+
 
               {/* Driver Badge */}
               {order.driver && order.driver.toLowerCase() !== "unassigned" && (
@@ -322,6 +382,22 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               >
                 <Zap className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 Force Ready to Assign
+              </Button>
+            )}
+
+            {isInDelivery && order.status !== "Cancelled" && (
+              <Button
+                variant="outline"
+                className="gap-2 bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-900/50 font-semibold shrink-0 whitespace-nowrap shadow-sm"
+                disabled={actionsLoading}
+                onClick={() => {
+                  setCancelReason("");
+                  setSelectedCancelItems([]);
+                  setCancelAllocationOpen(true);
+                }}
+              >
+                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                Cancel Order
               </Button>
             )}
 
@@ -390,13 +466,13 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
 
                   {/* ── Determine active stage for contextual actions ── */}
                   {(() => {
-                    const isNewStage = ["New", "Unfulfilled"].includes(order.status);
-                    const isPickingStage = order.status === "Picking";
-                    const isPickedStage = order.status === "Picked";
-                    const isPackingStage = order.status === "Packing";
-                    const isReadyToAssignStage = order.status === "Ready to Assign";
-                    const isDriverStage = ["Driver Accepted", "Started", "Delivered", "Delivery Failed"].includes(order.status);
-                    const isOtherStage = !isNewStage && !isPickingStage && !isPickedStage && !isPackingStage && !isReadyToAssignStage && !isDriverStage;
+                    const isNewStage = !isDelivered && ["New", "Unfulfilled"].includes(order.status);
+                    const isPickingStage = !isDelivered && order.status === "Picking";
+                    const isPickedStage = !isDelivered && order.status === "Picked";
+                    const isPackingStage = !isDelivered && order.status === "Packing";
+                    const isReadyToAssignStage = !isDelivered && order.status === "Ready to Assign";
+                    const isDriverStage = !isDelivered && ["Driver Accepted", "Started", "Delivery Failed"].includes(order.status);
+                    const isOtherStage = !isDelivered && !isNewStage && !isPickingStage && !isPickedStage && !isPackingStage && !isReadyToAssignStage && !isDriverStage;
 
                     const showForceToPicking = isNewStage || isOtherStage;
                     const showResetPickerAssignment = isPickingStage || isOtherStage;
@@ -440,8 +516,13 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                                       "The currently assigned picker will be removed. The order will remain in its current status but become unassigned.",
                                       "Reset Assignment",
                                       () => handleAction("Reset Picker Assignment", async () => {
-                                        const allItemIds = order.itemsList?.map((i) => i.id) || [];
-                                        const res = await ordersApi.orderWisePickerUnassign(order.id, allItemIds);
+                                        const allItemIds = order.itemsList?.map((i) => String(i.line_item_id ?? i.id)) || [];
+                                        const lineItemsPayload = order.itemsList?.map((i) => ({
+                                          id: !isNaN(Number(i.line_item_id ?? i.id)) ? Number(i.line_item_id ?? i.id) : (i.line_item_id ?? i.id),
+                                          item_id: i.item_id,
+                                          line_item_id: String(i.line_item_id ?? i.id),
+                                        })) || [];
+                                        const res = await ordersApi.orderWisePickerUnassign(order.id, allItemIds, undefined, lineItemsPayload);
                                         if (res && res.success === false) {
                                           throw new Error(res.message || "Failed to unassign picker");
                                         }
@@ -598,40 +679,58 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                           </DropdownMenuItem>
                         </DropdownMenuGroup>
 
-                        <DropdownMenuSeparator className="my-1.5" />
-
                         {/* ── Warehouse Actions ── */}
-                        <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-                          Warehouse
-                        </DropdownMenuLabel>
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem
-                            className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
-                            onClick={() => {
-                              setBypassReasonType("");
-                              setBypassReasonText("");
-                              setBypassOpen(true);
-                            }}
-                          >
-                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400">
-                              <Warehouse className="h-3.5 w-3.5" />
+                        {!isDelivered && (
+                          <>
+                            <DropdownMenuSeparator className="my-1.5" />
+                            <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                              Warehouse
+                            </DropdownMenuLabel>
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+                                onClick={() => {
+                                  setBypassReasonType("");
+                                  setBypassReasonText("");
+                                  setBypassOpen(true);
+                                }}
+                              >
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                                  <Warehouse className="h-3.5 w-3.5" />
+                                </div>
+                                Bypass Warehouse (Direct)
+                              </DropdownMenuItem>
+                              {order.status !== "Cancelled" && (
+                                <DropdownMenuItem
+                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-destructive focus:text-destructive"
+                                  onClick={() => {
+                                    setCancelReason("");
+                                    setSelectedCancelItems([]);
+                                    setCancelAllocationOpen(true);
+                                  }}
+                                >
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
+                                    <XCircle className="h-3.5 w-3.5" />
+                                  </div>
+                                  Cancel Order
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuGroup>
+                          </>
+                        )}
+
+                        {isDelivered && (
+                          <>
+                            <DropdownMenuSeparator className="my-1.5" />
+                            <div className="px-3 py-3 text-center bg-emerald-50/60 dark:bg-emerald-950/20 rounded-lg m-1 border border-emerald-200/50 dark:border-emerald-800/30">
+                              <div className="flex h-7 w-7 mx-auto items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400 mb-1.5">
+                                <CheckCircle2 className="h-4 w-4" />
+                              </div>
+                              <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Order Completed & Fulfilled</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">All items in this order have been successfully fulfilled and delivered.</p>
                             </div>
-                            Bypass Warehouse (Direct)
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-destructive focus:text-destructive"
-                            onClick={() => {
-                              setCancelReason("");
-                              setSelectedCancelItems([]);
-                              setCancelAllocationOpen(true);
-                            }}
-                          >
-                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
-                              <XCircle className="h-3.5 w-3.5" />
-                            </div>
-                            Cancel Allocation
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
+                          </>
+                        )}
                       </>
                     );
                   })()}
@@ -841,11 +940,20 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                     ? (pickerObj.email || pickerObj.name)
                     : selectedPicker;
 
+                  const lineItemsPayload = order.itemsList
+                    ?.filter((i) => selectedPickerItems.includes(i.id) || (i.line_item_id && selectedPickerItems.includes(String(i.line_item_id))))
+                    .map((i) => ({
+                      id: !isNaN(Number(i.line_item_id ?? i.id)) ? Number(i.line_item_id ?? i.id) : (i.line_item_id ?? i.id),
+                      item_id: i.item_id,
+                      line_item_id: String(i.line_item_id ?? i.id),
+                    }));
+
                   const res = await ordersApi.assignPickerItems(
                     order.id,
                     pickerId !== null ? pickerId : selectedPicker,
                     selectedPickerItems,
-                    pickerName
+                    pickerName,
+                    lineItemsPayload
                   );
                   if (res && res.success === false) {
                     throw new Error(res.message || "Failed to assign picker");
@@ -1348,15 +1456,16 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
         </DialogContent>
       </Dialog>
 
-      {/* ── Cancel Allocation Dialog ── */}
+      {/* ── Cancel Order Dialog ── */}
       <Dialog open={cancelAllocationOpen} onOpenChange={setCancelAllocationOpen}>
         <DialogContent className="sm:max-w-[460px] rounded-xl border border-border bg-card shadow-lg p-6">
           <DialogHeader className="space-y-1.5">
-            <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
-              Cancel Allocation
+            <DialogTitle className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-destructive" />
+              Cancel Order
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Provide a reason for the cancellation. Optionally select specific line items to cancel. If no line items are selected, the allocation will be cancelled for the entire order.
+              Provide a reason for the cancellation. Optionally select specific line items to cancel. If no line items are selected, the entire order will be cancelled.
             </DialogDescription>
           </DialogHeader>
 
@@ -1370,7 +1479,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                 id="cancel-reason"
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Reason for cancellation"
+                placeholder="Reason for cancellation (min 10 characters)"
                 minLength={10}
                 maxLength={500}
                 rows={3}
@@ -1379,7 +1488,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               <p className="text-[11px] text-muted-foreground text-right flex justify-between items-center">
                 <span>
                   {cancelReason.length > 0 && cancelReason.length < 10 ? (
-                    <span className="text-destructive">Please provide a reason for cancellation.</span>
+                    <span className="text-destructive">Please provide a reason with at least 10 characters.</span>
                   ) : null}
                 </span>
                 <span className="text-muted-foreground">
@@ -1423,7 +1532,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                 ))}
               </div>
               <p className="text-[11px] text-muted-foreground">
-                If no items are selected, the entire order allocation will be cancelled.
+                If no items are selected, the entire order will be cancelled.
               </p>
             </div>
           </div>
@@ -1445,7 +1554,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               onClick={() => {
                 const reason = cancelReason.trim();
                 setCancelAllocationOpen(false);
-                handleAction("Cancel Allocation", async () => {
+                handleAction("Cancel Order", async () => {
                   const timestamp = new Date().toISOString();
                   const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
                   const timeStr = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
@@ -1462,7 +1571,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
 
                   // Capture audit info in logs
                   console.info(
-                    `[AUDIT] Allocation Cancelled | Order: ${order.id} | User ID: admin_user_1 | User Name: Admin User | Reason: ${reason} | Items: ${selectedCancelItems.length > 0 ? selectedCancelItems.join(", ") : "Entire Order"} | Timestamp: ${timestamp}`
+                    `[AUDIT] Order Cancelled | Order: ${order.id} | User ID: admin_user_1 | User Name: Admin User | Reason: ${reason} | Items: ${selectedCancelItems.length > 0 ? selectedCancelItems.join(", ") : "Entire Order"} | Timestamp: ${timestamp}`
                   );
 
                   // Append timeline event
@@ -1473,25 +1582,28 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   customEvents.push({
                     orderId: order.id,
                     id: `custom-tl-${Date.now()}`,
-                    title: "Allocation Cancelled",
+                    title: "Order Cancelled",
                     date: dateStr,
                     time: timeStr,
                     description: `Reason: ${reason}\nCancelled By: Admin User\nDate: ${timestamp}\n${
                       selectedItemsList.length > 0
-                        ? `Allocation cancelled for:\n${selectedItemsList.map((item) => `- ${item.name}`).join("\n")}`
-                        : "Allocation cancelled for the entire order."
+                        ? `Order items cancelled:\n${selectedItemsList.map((item) => `- ${item.name}`).join("\n")}`
+                        : "Order was cancelled completely."
                     }`,
                     actor: "Admin User",
                     actorRole: "admin",
                     type: "cancelled",
                   });
                   localStorage.setItem("hm_custom_timeline_events", JSON.stringify(customEvents));
-                  navigate({ to: "/orders", search: { tab: "New" } as any });
+
+                  if (selectedCancelItems.length === 0) {
+                    navigate({ to: "/orders", search: { tab: "Cancelled" } as any });
+                  }
                 });
               }}
               className="rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold transition-all shadow-md"
             >
-              Cancel Allocation
+              {selectedCancelItems.length > 0 ? "Cancel Selected Items" : "Cancel Order"}
             </Button>
           </DialogFooter>
         </DialogContent>

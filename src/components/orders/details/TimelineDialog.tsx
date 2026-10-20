@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { EnrichedOrder, OrderTimelineEvent } from "@/lib/orders";
 import {
+  AlertTriangle,
   Box,
   CheckCircle2,
   Clock,
@@ -12,6 +13,7 @@ import {
   PackageCheck,
   Play,
   Plus,
+  ShieldAlert,
   ShieldCheck,
   ShoppingCart,
   Truck,
@@ -28,6 +30,9 @@ type EventType = OrderTimelineEvent["type"];
 /** Colour class for the event node circle. */
 function colourForEvent(type: EventType): string {
   switch (type) {
+    case "item_flagged":
+    case "flagged":
+      return "bg-rose-600";
     case "picking_started":
     case "picker_assigned":
     case "item_picked":
@@ -72,6 +77,9 @@ function colourForEvent(type: EventType): string {
 function getIcon(eventType: EventType) {
   const cls = "h-4 w-4 text-white";
   switch (eventType) {
+    case "item_flagged":
+    case "flagged":
+      return <ShieldAlert className={cls} />;
     case "added":
     case "line_item_updated":
       return <Plus className={cls} />;
@@ -227,15 +235,66 @@ export function TimelineDialog({
   );
 }
 
+function isItemFlagged(item: EnrichedOrder["itemsList"][number]): boolean {
+  if (!item) return false;
+  const statusStr = String(item.status || "").toLowerCase().trim();
+  const rawStatus = String((item as any).custom_status || "").toLowerCase().trim();
+  return Boolean(
+    (item as any).is_flagged ||
+    (item as any).isFlagged ||
+    (item as any).flagged ||
+    statusStr === "flagged" ||
+    rawStatus === "flagged" ||
+    Boolean((item as any).flag_reason) ||
+    Boolean((item as any).flagged_reason) ||
+    Boolean((item as any).flaggedReason)
+  );
+}
+
+function getItemFlagReason(item: EnrichedOrder["itemsList"][number]): string {
+  return (
+    (item as any).flag_reason ||
+    (item as any).flagged_reason ||
+    (item as any).flaggedReason ||
+    (item as any).reason ||
+    "Flagged item exception recorded during fulfillment"
+  );
+}
+
+function getItemFlaggedImageUrl(item: EnrichedOrder["itemsList"][number]): string {
+  return (
+    (item as any).flagged_image_url ||
+    (item as any).flagged_image ||
+    (item as any).flag_image_url ||
+    (item as any).flag_image ||
+    ""
+  );
+}
+
+function resolveItemId(item: EnrichedOrder["itemsList"][number]): string {
+  const raw = (item as any).item_id ?? (item as any).order_item_id ?? item.id;
+  return String(raw ?? "").replace(/^#+/, "") || item.id;
+}
+
 function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
   const itemEvents = order.itemsList.flatMap((item) => {
     const events: OrderTimelineEvent[] = [];
+    const resolvedItemId = resolveItemId(item);
+    const itemIsFlagged = isItemFlagged(item);
+    const flagReason = getItemFlagReason(item);
+    const flaggedImageUrl = getItemFlaggedImageUrl(item);
+
     const addItemEvent = (
       id: string,
       title: string,
       actor: string | null | undefined,
       timestamp: string | null | undefined,
       type: OrderTimelineEvent["type"],
+      extra?: {
+        isFlagged?: boolean;
+        flagReason?: string | null;
+        flaggedImageUrl?: string | null;
+      },
     ) => {
       const date = timestamp ? new Date(timestamp) : null;
       events.push({
@@ -253,8 +312,15 @@ function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
             ? "picker"
             : type === "item_packed"
               ? "packer"
-              : "driver",
+              : type === "item_flagged"
+                ? "admin"
+                : "driver",
         type,
+        itemId: resolvedItemId,
+        itemName: item.name,
+        isFlagged: extra?.isFlagged !== undefined ? extra.isFlagged : itemIsFlagged,
+        flagReason: extra?.flagReason !== undefined ? extra.flagReason : (itemIsFlagged ? flagReason : undefined),
+        flaggedImageUrl: extra?.flaggedImageUrl !== undefined ? extra.flaggedImageUrl : (itemIsFlagged ? flaggedImageUrl : undefined),
       });
     };
 
@@ -271,6 +337,7 @@ function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
         "picker_assigned",
       );
     }
+
     if (
       item.picked_at ||
       item.picked_user_name ||
@@ -284,6 +351,23 @@ function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
         "item_picked",
       );
     }
+
+    // Flagged event in timeline along with picking, packing, delivery process
+    if (itemIsFlagged) {
+      addItemEvent(
+        `${item.id}-flagged`,
+        `Item flagged: ${item.name}`,
+        (item as any).flagged_by || item.picked_user_name || item.assigned_user_name || "Quality Assurance / Staff",
+        (item as any).flagged_at || item.packed_at || item.picked_at || item.assigned_at,
+        "item_flagged",
+        {
+          isFlagged: true,
+          flagReason,
+          flaggedImageUrl,
+        },
+      );
+    }
+
     if (
       item.packed_at ||
       item.packed_user_name ||
@@ -297,6 +381,7 @@ function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
         "item_packed",
       );
     }
+
     if (
       item.delivered_at ||
       item.delivered_user_name ||
@@ -310,6 +395,7 @@ function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
         "delivered",
       );
     }
+
     return events;
   });
 
@@ -317,8 +403,11 @@ function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
 
   return (
     <section className="mb-8 border-b border-border/50 pb-5">
-      <h3 className="mb-3 px-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-        Item Fulfillment Timeline
+      <h3 className="mb-3 px-2 text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+        <span>Item Fulfillment Timeline</span>
+        <span className="text-[11px] font-normal text-muted-foreground">
+          {itemEvents.length} event{itemEvents.length === 1 ? "" : "s"}
+        </span>
       </h3>
       {itemEvents.map((event, index) => (
         <TimelineEventRow
@@ -360,9 +449,22 @@ function TimelineEventRow({ event, isLast }: { event: OrderTimelineEvent; isLast
       {/* Content Card */}
       <div className="flex-1 min-w-0 bg-transparent rounded-lg pb-1">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 mb-1.5">
-          <h4 className="text-[15px] font-semibold text-foreground leading-snug tracking-tight">
-            {event.title}
-          </h4>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="text-[15px] font-semibold text-foreground leading-snug tracking-tight">
+              {event.title}
+            </h4>
+            {event.itemId && (
+              <span className="inline-flex items-center gap-1 rounded bg-muted/70 px-2 py-0.5 text-[11px] font-mono font-medium text-muted-foreground border border-border/50">
+                Item ID: <strong className="text-foreground">{event.itemId}</strong>
+              </span>
+            )}
+            {event.isFlagged && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                <AlertTriangle className="h-3 w-3 text-rose-600 dark:text-rose-400" />
+                Flagged
+              </span>
+            )}
+          </div>
           <time className="shrink-0 text-[11px] font-medium text-muted-foreground/80 sm:mt-1 bg-muted/50 px-2 py-0.5 rounded-md whitespace-nowrap">
             {event.date}, {event.time}
           </time>
@@ -380,6 +482,83 @@ function TimelineEventRow({ event, isLast }: { event: OrderTimelineEvent; isLast
                 </span>
               </>
             )}
+          </div>
+        )}
+
+        {/* Dedicated Flagged Details Panel if is_flagged is true */}
+        {event.isFlagged && (
+          <div className="mt-2.5 mb-3 rounded-xl border border-rose-200 bg-rose-50/70 p-3.5 text-xs dark:border-rose-900/50 dark:bg-rose-950/20 shadow-xs">
+            <div className="flex items-center gap-1.5 font-bold text-rose-700 dark:text-rose-400 mb-2.5">
+              <ShieldAlert className="h-4 w-4 shrink-0" />
+              <span className="uppercase tracking-wider text-[11px]">Flagged Exception Details</span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-start gap-3.5">
+              {/* Flagged Image Preview: Click opens new window */}
+              {event.flaggedImageUrl && (
+                <div className="shrink-0">
+                  <a
+                    href={event.flaggedImageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group relative block h-20 w-20 overflow-hidden rounded-lg border-2 border-rose-300 bg-muted shadow-sm transition-all hover:border-rose-500 hover:ring-2 hover:ring-rose-400/40 dark:border-rose-800"
+                    title="Click to open image in new window"
+                  >
+                    <img
+                      src={event.flaggedImageUrl}
+                      alt="Flagged Proof"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
+                    />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                      <ExternalLink className="h-4 w-4 text-white drop-shadow" />
+                      <span className="mt-0.5 text-[9px] font-bold text-white uppercase tracking-tight">
+                        View
+                      </span>
+                    </div>
+                  </a>
+                </div>
+              )}
+
+              <div className="min-w-0 space-y-2 flex-1">
+                {/* Item ID */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-semibold text-muted-foreground">Item ID:</span>
+                  <span className="font-mono font-bold text-foreground bg-background px-2 py-0.5 rounded border border-border/60 text-[11px]">
+                    #{event.itemId}
+                  </span>
+                  {event.itemName && (
+                    <span className="text-muted-foreground text-[11px] truncate max-w-[220px]" title={event.itemName}>
+                      ({event.itemName})
+                    </span>
+                  )}
+                </div>
+
+                {/* Flagged Reason */}
+                <div className="text-xs leading-relaxed">
+                  <span className="font-semibold text-rose-800 dark:text-rose-300">Flagged Reason: </span>
+                  <span className="font-medium text-foreground dark:text-rose-100 bg-rose-100/60 dark:bg-rose-900/40 px-2 py-0.5 rounded text-[12px]">
+                    {event.flagReason || "Flagged for manual review"}
+                  </span>
+                </div>
+
+                {/* Image URL link (Click opens new window) */}
+                {event.flaggedImageUrl && (
+                  <div className="pt-0.5 flex items-start gap-1.5 flex-wrap">
+                    <span className="font-semibold text-muted-foreground text-[11px] shrink-0 mt-0.5">Image URL:</span>
+                    <a
+                      href={event.flaggedImageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 underline underline-offset-2 break-all text-[11px] group/url"
+                      title="Click to open image in new window"
+                    >
+                      <span className="break-all">{event.flaggedImageUrl}</span>
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0 transition-transform group-hover/url:translate-x-0.5 group-hover/url:-translate-y-0.5" />
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 

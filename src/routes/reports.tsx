@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { AppSidebar } from "@/components/dashboard/AppSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
-import { MOCK_ORDERS, type Order } from "@/lib/orders";
-import { getSharedOrders } from "@/lib/sync";
+import { type Order } from "@/lib/orders";
+import { useOrders } from "@/hooks/useOrders";
 import { cn } from "@/lib/utils";
 import {
   Download,
@@ -79,34 +79,6 @@ function getPresetRange(preset: QuickPreset): [string, string] {
       return [fmtDate(s), fmtDate(e)];
     }
   }
-}
-
-function getOrders(): Order[] {
-  let baseOrders: Order[] = [];
-  try {
-    baseOrders = getSharedOrders();
-  } catch {
-    baseOrders = MOCK_ORDERS;
-  }
-
-  const now = new Date();
-  
-  // Dynamically normalize and distribute order dates across the last 45 days
-  // so that the date range presets ("Today", "Last 7 Days", etc.) are fully populated.
-  return baseOrders.map((o, index) => {
-    const orderDate = new Date(now);
-    
-    // Distribute nicely: index 0 is today, index 1 is yesterday, etc.
-    const daysOffset = index % 45;
-    orderDate.setDate(now.getDate() - daysOffset);
-    
-    const dateStr = orderDate.toISOString().split("T")[0];
-    
-    return {
-      ...o,
-      date: dateStr,
-    };
-  });
 }
 
 /* ── CSV generation ────────────────────────────────────────────────── */
@@ -239,7 +211,7 @@ function getDriverRow(o: Order): string[] {
 /* ── Main Page ─────────────────────────────────────────────────────── */
 
 function ReportsPage() {
-  const orders = useMemo(() => getOrders(), []);
+  const { data: orders = [] } = useOrders();
 
   const [domain, setDomain] = useState<ReportDomain>("picker");
   const [preset, setPreset] = useState<QuickPreset>("last_month");

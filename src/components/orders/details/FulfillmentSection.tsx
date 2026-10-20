@@ -8,11 +8,15 @@ import {
   Package,
   Truck,
   X,
+  XCircle,
   UserPlus,
   UserMinus,
+  User,
   Sparkles,
   Gift,
   MessageSquareQuote,
+  Loader2,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +26,11 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import type { EnrichedOrder } from "@/lib/orders";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useQueryClient } from "@tanstack/react-query";
+import { orderKeys } from "@/hooks/useOrders";
+import { type EnrichedOrder, matchesLegacyTab, isItemCancelledOrReturned, isItemAddedNew, isOrderCancelled, isOrderReturnAndReplacement } from "@/lib/orders";
 import { cn } from "@/lib/utils";
 import {
   scheduleItem,
@@ -31,7 +39,7 @@ import {
   getSnapshot,
   subscribe,
 } from "@/lib/scheduled-installations";
-import { assignItemSchedule, assignItemToPicker, unassignItemFromPicker } from "@/lib/api/services";
+import { assignItemSchedule, assignItemToPicker, unassignItemFromPicker, updateOrderStatus } from "@/lib/api/services";
 import { toast } from "sonner";
 import {
   Select,
@@ -171,11 +179,77 @@ function parseProductTags(
   return { hasVs, otherTags, allTags };
 }
 
-export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
+export function FulfillmentSection({
+  order,
+  from,
+  initialTab,
+}: {
+  order: EnrichedOrder;
+  from?: string;
+  initialTab?: string;
+}) {
   const fcs = Array.from(new Set(order.itemsList.map((item) => item.fc)));
   const itemIndexMap = new Map<string, number>(
     order.itemsList.map((item, idx) => [item.id, idx + 1]),
   );
+
+  const effectiveFrom = from || (typeof window !== "undefined" ? sessionStorage.getItem("last_orders_from") : null);
+  const effectiveTab = initialTab || (typeof window !== "undefined" ? sessionStorage.getItem("last_orders_tab") : null);
+
+  const isPickingStage = Boolean(
+    (effectiveTab && effectiveTab.toLowerCase() === "picking") ||
+    (effectiveFrom && effectiveFrom.includes("/picking")) ||
+    (
+      (
+        order.status === "Picking" ||
+        String(order.status || "").toLowerCase() === "picking" ||
+        matchesLegacyTab(order, "Picking")
+      ) &&
+      !effectiveFrom?.includes("/packing") &&
+      !effectiveFrom?.includes("/in-delivery") &&
+      !effectiveFrom?.includes("/delivered") &&
+      !effectiveFrom?.includes("/ready") &&
+      !effectiveFrom?.includes("/returns") &&
+      !effectiveFrom?.includes("/cancelled") &&
+      effectiveTab?.toLowerCase() !== "packing" &&
+      effectiveTab?.toLowerCase() !== "delivered" &&
+      effectiveTab?.toLowerCase() !== "in delivery" &&
+      effectiveTab?.toLowerCase() !== "ready to assign" &&
+      effectiveTab?.toLowerCase() !== "returns" &&
+      effectiveTab?.toLowerCase() !== "cancelled"
+    )
+  );
+
+  const isNewStage = Boolean(
+    (effectiveTab && (effectiveTab.toLowerCase() === "new" || effectiveTab.toLowerCase() === "unfulfilled")) ||
+    (effectiveFrom && (effectiveFrom.includes("/new") || effectiveFrom.includes("tab=New") || effectiveFrom.includes("tab=Unfulfilled"))) ||
+    (
+      (
+        order.status === "New" ||
+        order.status === "Unfulfilled" ||
+        String(order.status || "").toLowerCase() === "new" ||
+        String(order.status || "").toLowerCase() === "unfulfilled" ||
+        matchesLegacyTab(order, "New") ||
+        matchesLegacyTab(order, "Unfulfilled")
+      ) &&
+      !effectiveFrom?.includes("/picking") &&
+      !effectiveFrom?.includes("/packing") &&
+      !effectiveFrom?.includes("/in-delivery") &&
+      !effectiveFrom?.includes("/delivered") &&
+      !effectiveFrom?.includes("/ready") &&
+      !effectiveFrom?.includes("/returns") &&
+      !effectiveFrom?.includes("/cancelled") &&
+      effectiveTab?.toLowerCase() !== "picking" &&
+      effectiveTab?.toLowerCase() !== "packing" &&
+      effectiveTab?.toLowerCase() !== "delivered" &&
+      effectiveTab?.toLowerCase() !== "in delivery" &&
+      effectiveTab?.toLowerCase() !== "ready to assign" &&
+      effectiveTab?.toLowerCase() !== "returns" &&
+      effectiveTab?.toLowerCase() !== "cancelled"
+    )
+  );
+
+  const isNewOrPickingStage = isPickingStage || isNewStage;
 
   // Subscribe to scheduled installations store for reactivity
   const scheduled = useSyncExternalStore(subscribe, getSnapshot);
@@ -193,6 +267,108 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
   const [itemStatuses, setItemStatuses] = useState<Record<string, string>>({});
   const [unassignedItems, setUnassignedItems] = useState<Record<string, boolean>>({});
   const [assigningItemId, setAssigningItemId] = useState<string | null>(null);
+  const [readyAssigningItemId, setReadyAssigningItemId] = useState<string | null>(null);
+
+  const handleItemReadyToAssign = async (item: EnrichedOrder["itemsList"][number]) => {
+    setReadyAssigningItemId(item.id);
+    try {
+      setItemStatuses((prev) => ({ ...prev, [item.id]: "Prepared" }));
+      const targetOrderId = order.order_id || order.id;
+      await updateOrderStatus(String(targetOrderId), "ready_to_assign");
+      queryClient.invalidateQueries({ queryKey: orderKeys.all });
+      toast.success(`"${item.name}" (VS) marked as Ready to Assign`);
+    } catch (err: any) {
+      console.error("[FulfillmentSection] Failed to mark Ready to Assign:", err);
+      toast.error(err?.message || "Failed to update status to Ready to Assign");
+    } finally {
+      setReadyAssigningItemId(null);
+    }
+  };
+
+  const queryClient = useQueryClient();
+  const [cancelledItems, setCancelledItems] = useState<Record<string, boolean>>(() => {
+    try {
+      const list = JSON.parse(localStorage.getItem("hm_cancelled_items") || "[]");
+      const map: Record<string, boolean> = {};
+      if (Array.isArray(list)) {
+        list.forEach((id: string) => {
+          map[id] = true;
+        });
+      }
+      return map;
+    } catch {
+      return {};
+    }
+  });
+  const [cancelItemModalOpen, setCancelItemModalOpen] = useState(false);
+  const [itemToCancelFromOrder, setItemToCancelFromOrder] = useState<EnrichedOrder["itemsList"][number] | null>(null);
+  const [cancelItemReason, setCancelItemReason] = useState("");
+  const [isCancellingItem, setIsCancellingItem] = useState(false);
+
+  const isDelivered = Boolean(
+    order.status === "Delivered" ||
+    String(order.status || "").toLowerCase() === "delivered" ||
+    (order as any).driverStatus === "Delivered"
+  );
+
+  const isInDelivery = Boolean(
+    !isDelivered &&
+    order.status !== "Ready to Assign" &&
+    String(order.status || "").toLowerCase() !== "ready to assign" &&
+    (
+      (order as any).backend_status === "assigned_to_driver" ||
+      (order as any).backend_status === "partial_assigned_driver" ||
+      (order as any).rawOrder?.status === "assigned_to_driver" ||
+      (order as any).rawOrder?.status === "partial_assigned_driver" ||
+      matchesLegacyTab(order, "In Delivery")
+    )
+  );
+
+  const handleConfirmCancelItem = async () => {
+    if (!itemToCancelFromOrder) return;
+    setIsCancellingItem(true);
+    try {
+      const itemId = itemToCancelFromOrder.id;
+      const reason = cancelItemReason.trim() || "Item cancelled by admin during delivery";
+
+      const existingCancelled: string[] = JSON.parse(localStorage.getItem("hm_cancelled_items") || "[]");
+      if (!existingCancelled.includes(itemId)) {
+        existingCancelled.push(itemId);
+        localStorage.setItem("hm_cancelled_items", JSON.stringify(existingCancelled));
+      }
+
+      setCancelledItems((prev) => ({ ...prev, [itemId]: true }));
+      setItemStatuses((prev) => ({ ...prev, [itemId]: "Cancelled" }));
+
+      const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const timeStr = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
+      const timestamp = new Date().toISOString();
+
+      const customEvents = JSON.parse(localStorage.getItem("hm_custom_timeline_events") || "[]");
+      customEvents.push({
+        orderId: order.id,
+        id: `custom-tl-${Date.now()}`,
+        title: "Item Cancelled",
+        date: dateStr,
+        time: timeStr,
+        description: `Item "${itemToCancelFromOrder.name}" (${itemToCancelFromOrder.qty}x) cancelled from delivery.\nReason: ${reason}\nTimestamp: ${timestamp}`,
+        actor: "Admin User",
+        actorRole: "admin",
+        type: "cancelled",
+      });
+      localStorage.setItem("hm_custom_timeline_events", JSON.stringify(customEvents));
+
+      toast.success(`Item "${itemToCancelFromOrder.name}" has been cancelled`);
+      setCancelItemModalOpen(false);
+      setItemToCancelFromOrder(null);
+      queryClient.invalidateQueries({ queryKey: orderKeys.all });
+    } catch (err: any) {
+      console.error("Failed to cancel item:", err);
+      toast.error(err?.message || "Failed to cancel item");
+    } finally {
+      setIsCancellingItem(false);
+    }
+  };
 
   useEffect(() => {
     getPickers().then((data) => setPickers(Array.isArray(data) ? data : []));
@@ -201,21 +377,23 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
   // Order-level flagged condition
   const isOrderFlagged =
     order.status === "Flagged" ||
-    order.status === "Delivery Failed" ||
-    Boolean(order.returns && order.returns.count > 0);
+    order.status === "Delivery Failed";
 
   const isItemFlagged = (item: EnrichedOrder["itemsList"][number]) => {
-    const statusStr = String(item.status || "");
-    const rawStatus =
-      (item as any).custom_status || (item as any).is_flagged || (item as any).flagged;
+    const statusStr = String(item.status || "").toLowerCase();
+    const rawStatus = String((item as any).custom_status || "").toLowerCase();
+    const isExplicitlyFlagged = Boolean(
+      item.is_flagged === true ||
+      (item as any).is_flagged === 1 ||
+      (item as any).is_flagged === "1" ||
+      (item as any).is_flagged === "true" ||
+      (item as any).isFlagged === true ||
+      (item as any).flagged === true
+    );
     return (
-      statusStr === "Flagged" ||
-      statusStr === "Delivery Failed" ||
-      Boolean((item as any).isFlagged) ||
-      Boolean((item as any).flaggedReason) ||
-      Boolean((item as any).reason) ||
-      rawStatus === "Flagged" ||
-      rawStatus === true
+      statusStr === "flagged" ||
+      rawStatus === "flagged" ||
+      isExplicitlyFlagged
     );
   };
 
@@ -300,15 +478,15 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
     setSelectedPickers((current) => ({ ...current, [item.id]: pickerValue }));
     setAssigningItemId(item.id);
     try {
-      const orderLineItemId = item.id;
       const pickerId = !isNaN(Number(picker.id)) ? Number(picker.id) : picker.id;
 
-      const response = await assignItemToPicker(orderLineItemId, pickerId);
+      const response = await assignItemToPicker(item, pickerId, order.id);
       setUnassignedItems((current) => ({ ...current, [item.id]: false }));
       const assignedStatus = response?.data?.status;
       if (String(assignedStatus || "").toLowerCase() === "picker_assigned") {
         setItemStatuses((current) => ({ ...current, [item.id]: assignedStatus }));
       }
+      queryClient.invalidateQueries({ queryKey: orderKeys.all });
       toast.success(`${picker.name} assigned to ${item.name}`);
     } catch (error) {
       console.error("[FulfillmentSection] picker assignment failed:", error);
@@ -326,7 +504,7 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
   const handleUnassignPicker = async (item: EnrichedOrder["itemsList"][number]) => {
     setAssigningItemId(item.id);
     try {
-      await unassignItemFromPicker(item.id);
+      await unassignItemFromPicker(item, order.id);
       setUnassignedItems((current) => ({ ...current, [item.id]: true }));
       setItemStatuses((current) => ({ ...current, [item.id]: "Pending" }));
       setSelectedPickers((current) => {
@@ -334,6 +512,7 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
         delete next[item.id];
         return next;
       });
+      queryClient.invalidateQueries({ queryKey: orderKeys.all });
       toast.success(`Picker unassigned from ${item.name}`);
     } catch (error) {
       console.error("[FulfillmentSection] picker unassignment failed:", error);
@@ -367,6 +546,21 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                   : "border-border bg-card",
               )}
             >
+              {isDelivered && (
+                <div className="flex items-center justify-between border-b border-border/60 bg-emerald-50/50 px-4 py-2.5 text-xs dark:bg-emerald-950/20">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="font-semibold text-emerald-900 dark:text-emerald-300">
+                      Fulfilled & Delivered
+                    </span>
+                    <span className="text-muted-foreground">•</span>
+                    <span className="text-muted-foreground">{info.name}</span>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100/90 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
+                    Completed
+                  </span>
+                </div>
+              )}
               <div className="divide-y divide-border">
                 {items.map((item) => {
                   const itemIsScheduled = isItemScheduled(order.id, item.sku);
@@ -375,15 +569,77 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                   const selectedPicker = pickers.find(
                     (picker) =>
                       picker.id === selectedPickers[item.id] ||
-                      picker.email === selectedPickers[item.id],
+                      picker.email === selectedPickers[item.id] ||
+                      picker.name === selectedPickers[item.id],
                   );
+
+                  const assignedPickerName = (() => {
+                    if (unassignedItems[item.id]) return null;
+                    if (selectedPicker?.name) return selectedPicker.name;
+                    if (item.assigned_user_name && String(item.assigned_user_name).trim()) {
+                      return String(item.assigned_user_name).trim();
+                    }
+                    if ((item as any).picker_name && String((item as any).picker_name).trim()) {
+                      return String((item as any).picker_name).trim();
+                    }
+                    if ((item as any).picker && typeof (item as any).picker === "string" && String((item as any).picker).trim()) {
+                      return String((item as any).picker).trim();
+                    }
+                    if ((item as any).assignedUser?.name) {
+                      return (item as any).assignedUser.name;
+                    }
+                    if ((item as any).pickedUser?.name) {
+                      return (item as any).pickedUser.name;
+                    }
+                    if (item.picked_user_name && String(item.picked_user_name).trim()) {
+                      return String(item.picked_user_name).trim();
+                    }
+                    if (item.assigned_to) {
+                      const matched = pickers.find(
+                        (p) =>
+                          String(p.id) === String(item.assigned_to) ||
+                          p.email === item.assigned_to ||
+                          p.name === item.assigned_to,
+                      );
+                      if (matched?.name) return matched.name;
+                      if (typeof item.assigned_to === "string" && isNaN(Number(item.assigned_to))) {
+                        return item.assigned_to;
+                      }
+                    }
+                    if (selectedPickers[item.id]) {
+                      const matched = pickers.find(
+                        (p) =>
+                          String(p.id) === String(selectedPickers[item.id]) ||
+                          p.email === selectedPickers[item.id],
+                      );
+                      return matched?.name || selectedPickers[item.id];
+                    }
+                    if (
+                      order.picker &&
+                      typeof order.picker === "string" &&
+                      order.picker.trim() &&
+                      order.picker.toLowerCase() !== "unassigned" &&
+                      (String(itemStatus || "").toLowerCase() === "picker assigned" ||
+                       String(itemStatus || "").toLowerCase() === "picker_assigned" ||
+                       String(itemStatus || "").toLowerCase() === "prepared" ||
+                       String(order.status || "").toLowerCase() === "picking")
+                    ) {
+                      return order.picker.trim();
+                    }
+                    return null;
+                  })();
+
                   const hasAssignedPicker =
                     !unassignedItems[item.id] &&
-                    Boolean(item.assigned_to || selectedPickers[item.id]);
-                  const flagReason =
-                    (item as any).flaggedReason ||
-                    (item as any).reason ||
-                    (item as any).flag_reason;
+                    Boolean(
+                      assignedPickerName ||
+                      item.assigned_to ||
+                      item.assigned_user_name ||
+                      selectedPickers[item.id],
+                    );
+                  const flagReason = itemHasFlag
+                    ? (item as any).flag_reason || (item as any).flagged_reason || (item as any).flaggedReason || (item as any).flagReason || null
+                    : null;
 
                   const isInstallable = Boolean(
                     item.is_installable === true ||
@@ -500,14 +756,33 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
 
                   const hasGiftMessage = Boolean(giftMessageValue);
 
+                  const isWholeOrderCancelled = isOrderCancelled(order);
+                  const isItemCancelled = isWholeOrderCancelled || isItemCancelledOrReturned(item) || Boolean(
+                    cancelledItems[item.id] ||
+                    itemStatuses[item.id] === "Cancelled" ||
+                    (item as any).is_cancelled ||
+                    (item as any).isCancelled ||
+                    String(item.status || "").toLowerCase() === "cancelled" ||
+                    String(item.status || "").toLowerCase() === "canceled" ||
+                    String((item as any).custom_status || "").toLowerCase() === "cancelled" ||
+                    String((item as any).raw_status || "").toLowerCase() === "cancelled" ||
+                    String((item as any).raw_status || "").toLowerCase() === "canceled"
+                  );
+
+                  const isAddedNew = !isWholeOrderCancelled && isItemAddedNew(item, order);
+
                   return (
                     <article
                       key={item.id}
                       className={cn(
                         "grid gap-4 p-4 transition-colors sm:grid-cols-[72px_72px_1fr_auto] sm:p-5 border-l-4",
-                        itemHasFlag
-                          ? "bg-red-500/[0.05] dark:bg-red-950/25 hover:bg-red-500/[0.09] border-l-red-500 border-b border-b-red-200/40 dark:border-b-red-950/40"
-                          : "hover:bg-muted/10 border-l-transparent",
+                        isItemCancelled
+                          ? "bg-red-500/[0.06] dark:bg-red-950/30 hover:bg-red-500/[0.1] border-l-red-500 border-b border-b-red-200/50 dark:border-b-red-900/40"
+                          : isAddedNew
+                            ? "bg-sky-500/[0.05] dark:bg-sky-950/25 hover:bg-sky-500/[0.09] border-l-sky-500 border-b border-b-sky-200/40 dark:border-b-sky-900/40"
+                            : itemHasFlag
+                              ? "bg-amber-500/[0.05] dark:bg-amber-950/25 hover:bg-amber-500/[0.09] border-l-amber-500 border-b border-b-amber-200/40 dark:border-b-amber-950/40"
+                              : "hover:bg-muted/10 border-l-transparent",
                       )}
                     >
                       {/* SL No. */}
@@ -518,9 +793,13 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                       <div
                         className={cn(
                           "h-20 w-20 overflow-hidden rounded-lg border bg-muted/30 sm:h-[72px] sm:w-[72px]",
-                          itemHasFlag
+                          isItemCancelled
                             ? "border-red-400/60 dark:border-red-500/40 ring-2 ring-red-500/20"
-                            : "border-border",
+                            : isAddedNew
+                              ? "border-sky-400/60 dark:border-sky-500/40 ring-2 ring-sky-500/20"
+                              : itemHasFlag
+                                ? "border-amber-400/60 dark:border-amber-500/40 ring-2 ring-amber-500/20"
+                                : "border-border",
                         )}
                       >
                         <img
@@ -533,9 +812,36 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                       <div className="min-w-0 space-y-2">
                         <div className="space-y-1">
                           <div className="flex items-center flex-wrap gap-2">
-                            <h4 className="font-semibold leading-snug text-foreground">
+                            <h4 className={cn("font-semibold leading-snug text-foreground", isItemCancelled && "line-through text-muted-foreground")}>
                               {item.name}
                             </h4>
+                            {isItemCancelled && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300 border border-red-300 dark:border-red-800/80 px-2.5 py-0.5 text-[11px] font-bold tracking-tight shadow-2xs select-none"
+                                title={isWholeOrderCancelled ? "Order Cancelled" : "Cancelled Before Delivery (Return)"}
+                              >
+                                {isWholeOrderCancelled ? (
+                                  <>
+                                    <XCircle className="h-3 w-3 text-red-600 dark:text-red-400 shrink-0" />
+                                    (Cancelled)
+                                  </>
+                                ) : (
+                                  <>
+                                    <RotateCcw className="h-3 w-3 text-red-600 dark:text-red-400 shrink-0" />
+                                    (Return)
+                                  </>
+                                )}
+                              </span>
+                            )}
+                            {isAddedNew && (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 text-sky-800 dark:bg-sky-950/70 dark:text-sky-300 border border-sky-300 dark:border-sky-800/80 px-2.5 py-0.5 text-[11px] font-bold tracking-tight shadow-2xs select-none"
+                                title={isOrderReturnAndReplacement(order) ? "Replacement Item" : "Newly Added Item"}
+                              >
+                                <Sparkles className="h-3 w-3 text-sky-600 dark:text-sky-400 shrink-0" />
+                                {isOrderReturnAndReplacement(order) ? "(Replacement)" : "(Added New)"}
+                              </span>
+                            )}
                             {hasVsTag && (
                               <span
                                 className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800/80 px-2.5 py-0.5 text-[11px] font-bold tracking-tight shadow-2xs select-none"
@@ -577,6 +883,16 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                           {item.barcode && (
                             <p className="text-xs text-muted-foreground">Barcode: {item.barcode}</p>
                           )}
+                          {isPickingStage && !hasVsTag && hasAssignedPicker && assignedPickerName && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20 dark:bg-blue-950/50 dark:text-blue-300 dark:ring-blue-500/30">
+                                <User className="h-3 w-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                                <span>
+                                  Picker Name : <strong className="font-semibold text-blue-800 dark:text-blue-200">{assignedPickerName}</strong>
+                                </span>
+                              </span>
+                            </div>
+                          )}
                           {hasGiftWrap && (
                             <p className="text-xs font-semibold text-pink-600 dark:text-pink-400 flex items-center gap-1.5 mt-0.5">
                               <Gift className="h-3.5 w-3.5 shrink-0" />
@@ -608,72 +924,159 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 pt-1">
-                          {/* Fulfillment status — always visible */}
-                          <ItemStatus
-                            status={itemStatus}
-                            assignedUserName={
-                              hasAssignedPicker
-                                ? item.assigned_user_name || selectedPicker?.name
-                                : null
+                          {/* Fulfillment status */}
+                          {(() => {
+                            if (isWholeOrderCancelled) {
+                              return (
+                                <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-red-300 bg-red-100 px-3 py-0.5 text-xs font-bold text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-300 shadow-2xs">
+                                  <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                                  Cancelled
+                                </span>
+                              );
                             }
-                            isFlagged={itemHasFlag}
-                          />
 
-                          {hasAssignedPicker ? (
-                            <button
-                              type="button"
-                              onClick={() => handleUnassignPicker(item)}
-                              disabled={assigningItemId === item.id}
-                              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-orange-300 bg-orange-50/70 px-3 text-xs font-semibold text-orange-700 shadow-sm transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-orange-800 dark:bg-orange-950/20 dark:text-orange-400"
-                            >
-                              <UserMinus className="h-3.5 w-3.5" />
-                              Unassign
-                            </button>
-                          ) : (
-                            /* Virtual Stock (VS) items do not need a picker */
-                            !hasVsTag &&
-                            String(itemStatus || "").toLowerCase() === "pending" && (
-                              <Select
-                                value={selectedPickers[item.id] || ""}
-                                onValueChange={(value) => handleAssignPicker(item, value)}
-                                disabled={assigningItemId === item.id}
-                              >
-                                <SelectTrigger className="inline-flex h-7 w-auto shrink-0 gap-1.5 rounded-full border border-rose-300 bg-rose-50/70 px-3 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-400">
-                                  <UserPlus className="h-3.5 w-3.5" />
-                                  <SelectValue placeholder="Assign to Picker" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {pickers.length === 0 ? (
-                                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                                      No pickers available
-                                    </div>
+                            if (isDelivered) {
+                              if (isItemCancelled) {
+                                return (
+                                  <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-red-300 bg-red-100 px-3 py-0.5 text-xs font-bold text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-300 shadow-2xs">
+                                    <RotateCcw className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                                    Cancelled Before Delivery (Return)
+                                  </span>
+                                );
+                              }
+                              if (isAddedNew) {
+                                return (
+                                  <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-sky-300 bg-sky-100 px-3 py-0.5 text-xs font-bold text-sky-800 dark:border-sky-800/60 dark:bg-sky-950/50 dark:text-sky-300 shadow-2xs">
+                                    <Sparkles className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                                    {isOrderReturnAndReplacement(order) ? "Replacement" : "Added New"}
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-0.5 text-xs font-bold text-emerald-800 dark:border-emerald-700/60 dark:bg-emerald-950/50 dark:text-emerald-300 shadow-2xs">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                                  Fulfilled
+                                </span>
+                              );
+                            }
+
+                            return (
+                              <>
+                                <ItemStatus
+                                  status={isItemCancelled ? "Cancelled" : isAddedNew ? (isOrderReturnAndReplacement(order) ? "Replacement" : "Added New") : itemStatus}
+                                  isFlagged={itemHasFlag && !isItemCancelled && !isAddedNew}
+                                />
+
+                                {isItemCancelled && (
+                                  <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-red-300 bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-300 shadow-2xs">
+                                    <RotateCcw className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                                    (Return)
+                                  </span>
+                                )}
+
+                                {isAddedNew && (
+                                  <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-sky-300 bg-sky-100 px-2.5 py-0.5 text-xs font-bold text-sky-800 dark:border-sky-800/60 dark:bg-sky-950/50 dark:text-sky-300 shadow-2xs">
+                                    <Sparkles className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                                    {isOrderReturnAndReplacement(order) ? "(Replacement)" : "(Added New)"}
+                                  </span>
+                                )}
+
+                                {isInDelivery ? (
+                                  !isItemCancelled ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setItemToCancelFromOrder(item);
+                                        setCancelItemReason("");
+                                        setCancelItemModalOpen(true);
+                                      }}
+                                      className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-red-300 bg-red-50/70 px-3 text-xs font-semibold text-red-700 shadow-sm transition-colors hover:bg-red-100 cursor-pointer dark:border-red-800 dark:bg-red-950/20 dark:text-red-400"
+                                    >
+                                      <XCircle className="h-3.5 w-3.5" />
+                                      Cancel Item
+                                    </button>
+                                  ) : null
+                                ) : isPickingStage && hasAssignedPicker && !hasVsTag ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUnassignPicker(item)}
+                                    disabled={assigningItemId === item.id}
+                                    className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-orange-300 bg-orange-50/70 px-3 text-xs font-semibold text-orange-700 shadow-sm transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-orange-800 dark:bg-orange-950/20 dark:text-orange-400 cursor-pointer"
+                                    title={assignedPickerName ? `Unassign ${assignedPickerName} from this item` : "Unassign picker"}
+                                  >
+                                    {assigningItemId === item.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <UserMinus className="h-3.5 w-3.5" />
+                                    )}
+                                    Unassign
+                                  </button>
+                                ) : isNewOrPickingStage ? (
+                                  hasVsTag ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleItemReadyToAssign(item)}
+                                      disabled={readyAssigningItemId === item.id}
+                                      className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50/80 px-3 text-xs font-semibold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400 cursor-pointer"
+                                      title={`Mark ${item.name} as Ready to Assign`}
+                                    >
+                                      {readyAssigningItemId === item.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                                      )}
+                                      Ready to Assign
+                                    </button>
                                   ) : (
-                                    pickers.map((picker) => (
-                                      <SelectItem key={picker.id} value={picker.email || picker.id}>
-                                        {picker.name}
-                                      </SelectItem>
-                                    ))
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            )
-                          )}
+                                    /* Virtual Stock (VS) items do not need a picker, regular pending items do */
+                                    String(itemStatus || "").toLowerCase() === "pending" && (
+                                      <Select
+                                        value={selectedPickers[item.id] || ""}
+                                        onValueChange={(value) => handleAssignPicker(item, value)}
+                                        disabled={assigningItemId === item.id}
+                                      >
+                                        <SelectTrigger className="inline-flex h-7 w-auto shrink-0 gap-1.5 rounded-full border border-rose-300 bg-rose-50/70 px-3 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-400">
+                                          <UserPlus className="h-3.5 w-3.5" />
+                                          <SelectValue placeholder="Assign to Picker" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {pickers.length === 0 ? (
+                                            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                              No pickers available
+                                            </div>
+                                          ) : (
+                                            pickers.map((picker) => (
+                                              <SelectItem key={picker.id} value={picker.email || picker.id}>
+                                                {picker.name}
+                                              </SelectItem>
+                                            ))
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    )
+                                  )
+                                ) : null}
+                              </>
+                            );
+                          })()}
 
                           {/* Installation status — shown only if item is installable or already scheduled */}
                           {itemIsScheduled ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400">
                               <CheckCircle2 className="h-3.5 w-3.5" />
                               Scheduled
-                              <button
-                                type="button"
-                                onClick={() => handleCancelClick(item)}
-                                className="ml-0.5 rounded-full p-0.5 cursor-pointer transition-colors hover:bg-destructive/10 hover:text-destructive"
-                                aria-label="Cancel scheduled installation"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
+                              {!isDelivered && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelClick(item)}
+                                  className="ml-0.5 rounded-full p-0.5 cursor-pointer transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label="Cancel scheduled installation"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
                             </span>
-                          ) : isInstallable ? (
+                          ) : !isDelivered && isInstallable ? (
                             <button
                               type="button"
                               onClick={() => handleScheduleClick(item)}
@@ -702,6 +1105,11 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
             </div>
           );
         })}
+        {fcs.length === 0 && (
+          <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm font-medium text-muted-foreground">
+            No items found for this order.
+          </div>
+        )}
       </div>
 
       {/* Confirm Installation Dialog */}
@@ -808,6 +1216,92 @@ export function FulfillmentSection({ order }: { order: EnrichedOrder }) {
           </div>
         </DialogContent>
       </Dialog>
+      {/* ── Cancel Item from Order Dialog ── */}
+      <Dialog open={cancelItemModalOpen} onOpenChange={setCancelItemModalOpen}>
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-[480px] p-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50 rounded-2xl shadow-2xl">
+          <div className="p-5 sm:p-7">
+            <DialogHeader className="mb-4 text-left">
+              <DialogTitle className="text-xl sm:text-2xl font-bold tracking-tight text-destructive flex items-center gap-2">
+                <XCircle className="h-6 w-6" />
+                Cancel Item
+              </DialogTitle>
+              <DialogDescription className="text-xs sm:text-sm text-muted-foreground mt-1">
+                Are you sure you want to cancel this item from the delivery order?
+              </DialogDescription>
+            </DialogHeader>
+
+            {itemToCancelFromOrder && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 sm:gap-4 rounded-xl border border-border bg-muted/30 p-3 sm:p-4">
+                  <div className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 overflow-hidden rounded-lg border border-border bg-background">
+                    {itemToCancelFromOrder.image ? (
+                      <img
+                        src={itemToCancelFromOrder.image}
+                        alt={itemToCancelFromOrder.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center bg-muted">
+                        <Package className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground truncate">
+                      {itemToCancelFromOrder.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Qty: <span className="font-semibold text-foreground">{itemToCancelFromOrder.qty}</span> • SKU: <span className="font-mono">{itemToCancelFromOrder.sku}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Price: QAR {itemToCancelFromOrder.price.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="cancel-item-reason" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Reason for Cancellation <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    id="cancel-item-reason"
+                    value={cancelItemReason}
+                    onChange={(e) => setCancelItemReason(e.target.value)}
+                    placeholder="E.g., Customer requested cancellation, damaged, out of stock..."
+                    className="h-10 text-xs bg-background border-border rounded-lg"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-3 border-t border-border/40 bg-muted/20 px-5 sm:px-7 py-4 sm:py-5">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCancelItemModalOpen(false);
+                setItemToCancelFromOrder(null);
+              }}
+              className="w-full sm:w-auto rounded-xl font-semibold h-10 text-xs sm:text-sm border-border/60"
+              disabled={isCancellingItem}
+            >
+              Keep Item
+            </Button>
+            <Button
+              onClick={handleConfirmCancelItem}
+              disabled={isCancellingItem}
+              className="w-full sm:w-auto rounded-xl bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-md font-semibold h-10 text-xs sm:text-sm px-6 transition-all"
+            >
+              {isCancellingItem ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+              ) : (
+                <XCircle className="h-4 w-4 mr-1.5" />
+              )}
+              Cancel Item
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -848,30 +1342,64 @@ function ItemStatus({
   assignedUserName?: string | null;
   isFlagged?: boolean;
 }) {
+  const normStatus = String(status || "").toLowerCase().replace(/_/g, " ").trim();
   const displayStatus = isFlagged
     ? "Flagged"
-    : assignedUserName && String(status).toLowerCase() === "picker assigned"
-      ? assignedUserName
-      : String(status).toLowerCase() === "picker_assigned"
-        ? "Picker Assigned"
-        : status;
+    : normStatus === "cancelled"
+      ? "Cancelled"
+      : normStatus === "replacement"
+        ? "Replacement"
+        : normStatus === "added new" || normStatus === "added"
+          ? "Added New"
+        : normStatus === "fulfilled" || normStatus === "delivered"
+          ? "Fulfilled"
+          : assignedUserName && normStatus === "picker assigned"
+            ? assignedUserName
+            : normStatus === "picker assigned"
+              ? "Picker Assigned"
+              : normStatus === "ready to assign"
+                ? "Ready to Assign"
+                : normStatus === "prepared"
+                  ? "Prepared"
+                : normStatus === "allocated"
+                  ? "Allocated"
+                  : normStatus === "accepted"
+                    ? "Accepted"
+                    : normStatus === "pending"
+                      ? "Pending"
+                      : status;
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        (displayStatus === "Fulfilled" || displayStatus === "Delivered") &&
+          "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-600/40 dark:bg-emerald-950/60 dark:text-emerald-300 shadow-xs",
+        (displayStatus === "Cancelled" || normStatus === "cancelled") &&
+          "border-red-300 bg-red-100 text-red-800 dark:border-red-500/40 dark:bg-red-950/70 dark:text-red-300 shadow-sm",
+        (displayStatus === "Added New" || normStatus === "added new" || normStatus === "added" || displayStatus === "Replacement" || normStatus === "replacement") &&
+          "border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-700/50 dark:bg-sky-950/70 dark:text-sky-300 shadow-xs",
         displayStatus === "Flagged" &&
           "border-red-300 bg-red-100 text-red-800 dark:border-red-500/40 dark:bg-red-950/70 dark:text-red-300 shadow-sm",
-        displayStatus === "Prepared" &&
+        (displayStatus === "Prepared" || displayStatus === "Ready to Assign" || normStatus === "ready to assign") &&
           "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400",
         displayStatus === "Allocated" &&
           "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400",
         displayStatus === "Accepted" &&
           "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400",
         displayStatus === "Pending" && "border-border bg-muted text-muted-foreground",
-        displayStatus === "Picker Assigned" &&
+        (displayStatus === "Picker Assigned" || normStatus === "picker assigned") &&
           "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-400",
       )}
     >
+      {displayStatus === "Cancelled" || normStatus === "cancelled" ? (
+        <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+      ) : null}
+      {displayStatus === "Added New" || normStatus === "added new" || normStatus === "added" || displayStatus === "Replacement" || normStatus === "replacement" ? (
+        <Sparkles className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+      ) : null}
+      {displayStatus === "Fulfilled" || displayStatus === "Delivered" ? (
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+      ) : null}
       {displayStatus === "Flagged" ? (
         <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
       ) : null}

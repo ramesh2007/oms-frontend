@@ -1,6 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Order } from "@/lib/orders";
-import { tatColorClass, statusDotClass } from "@/lib/orders";
+import { tatColorClass, statusDotClass, orderHasInstallation, orderHasVirtualStock } from "@/lib/orders";
 import { cn } from "@/lib/utils";
 import {
   Eye,
@@ -12,6 +12,8 @@ import {
   ShieldAlert,
   CheckCircle2,
   ChevronRight,
+  Wrench,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -214,12 +216,26 @@ export function FlagsTable({
                 )}
               >
                 <td className="py-3 pl-4 pr-3 align-middle">
-                  <span
-                    className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer"
-                    onClick={() => onViewOrder(order)}
-                  >
-                    {order.id}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className="font-mono text-sm font-semibold text-primary hover:underline cursor-pointer"
+                      onClick={() => onViewOrder(order)}
+                    >
+                      {order.orderNumber || order.id}
+                    </span>
+                    {orderHasInstallation(order) && (
+                      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200 dark:border-sky-800/60 shadow-2xs">
+                        <Wrench className="h-3 w-3 shrink-0 text-sky-600 dark:text-sky-400" />
+                        Installation
+                      </span>
+                    )}
+                    {orderHasVirtualStock(order) && (
+                      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shadow-2xs">
+                        <Sparkles className="h-3 w-3 shrink-0 text-purple-600 dark:text-purple-400" />
+                        Virtual Stock
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="whitespace-nowrap py-3 pr-3 align-middle">
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">

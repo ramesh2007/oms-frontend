@@ -27,7 +27,7 @@ import {
   type CustomerStageSummary,
 } from "@/lib/orders";
 import { getSharedOrders } from "@/lib/sync";
-import { ordersApi } from "@/lib/api";
+import { ordersApi, isDemoMode } from "@/lib/api";
 import {
   useOrders,
   useOrdersByStatus,
@@ -54,6 +54,20 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<LegacyTabId>(initialTab || "New");
+
+  const handleTabChange = (targetTab: LegacyTabId) => {
+    setActiveTab(targetTab);
+    setShowCrossTabOrders(false);
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", targetTab);
+      sessionStorage.setItem("last_orders_from", `/orders?tab=${encodeURIComponent(targetTab)}`);
+    }
+    navigate({
+      to: "/orders",
+      search: (prev: any) => ({ ...prev, tab: targetTab }),
+      replace: true,
+    });
+  };
 
   const statusSlug = useMemo(() => {
     switch (activeTab) {
@@ -128,10 +142,18 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const [singleActionOrder, setSingleActionOrder] = useState<Order | null>(null);
 
   useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
+    const nextTab = initialTab || "New";
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
     }
   }, [initialTab]);
+
+  useEffect(() => {
+    if (activeTab && typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", activeTab);
+      sessionStorage.setItem("last_orders_from", `/orders?tab=${encodeURIComponent(activeTab)}`);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -141,7 +163,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
   // Prime status queries into queryClient so that clicking any tab has instantaneous data
   useEffect(() => {
-    const sourceOrders = (allOrders && allOrders.length > 0) ? allOrders : getSharedOrders();
+    const sourceOrders = (allOrders && allOrders.length > 0) ? allOrders : (isDemoMode() ? getSharedOrders() : EMPTY_ORDERS);
     if (!sourceOrders || sourceOrders.length === 0) return;
 
     const tabsToPrime: { slug: string; tab: LegacyTabId }[] = [
@@ -196,7 +218,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   }, [queryClient]);
 
   const sourceOrders = useMemo(() => {
-    return (allOrders && allOrders.length > 0) ? allOrders : getSharedOrders();
+    return (allOrders && allOrders.length > 0) ? allOrders : (isDemoMode() ? getSharedOrders() : EMPTY_ORDERS);
   }, [allOrders]);
 
   const activeQuery = search.trim();
@@ -278,9 +300,17 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
      (statusSlug === "express" && (statusResult.statusFilter === "express" || statusResult.statusFilter === "express_orders")))
   );
 
-  const rawTabOrders = (hasFreshServerDataForTab && statusOrders && statusOrders.length > 0)
-    ? statusOrders
-    : ((statusOrders && statusOrders.length > 0) ? statusOrders : instantTabOrders);
+  const rawTabOrders = useMemo(() => {
+    const list = (hasFreshServerDataForTab && statusOrders && statusOrders.length > 0)
+      ? statusOrders
+      : ((statusOrders && statusOrders.length > 0) ? statusOrders : instantTabOrders);
+
+    if (activeTab === "All") return list;
+    if (activeTab === "Flags & Exceptions") {
+      return list.filter((o) => o.status === "Flagged" || o.status === "Delivery Failed");
+    }
+    return list.filter((o) => matchesLegacyTab(o, activeTab));
+  }, [hasFreshServerDataForTab, statusOrders, instantTabOrders, activeTab]);
 
   // Apply any optimistic manual overrides (driver, zone)
   const tabOrders = useMemo(() => {
@@ -468,7 +498,11 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const selectedCount = selectedIds.size;
 
   const goToOrder = (order: Order) => {
-    navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId: order.id },
+      search: { tab: activeTab, from: `/orders?tab=${encodeURIComponent(activeTab)}` } as any,
+    });
   };
 
   const handleRefresh = () => {
@@ -496,7 +530,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
       baseOrders.find((o) => o.id === id) ||
       tabOrders.find((o) => o.id === id) ||
       allOrders.find((o) => o.id === id) ||
-      MOCK_ORDERS.find((o) => o.id === id);
+      (isDemoMode() ? MOCK_ORDERS.find((o) => o.id === id) : undefined);
 
     if (currentStateOrder) {
       return toEnrichedOrder(currentStateOrder);
@@ -541,8 +575,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
           <OrdersTabs
             activeTab={activeTab}
             onTabChange={(tab) => {
-              setActiveTab(tab);
-              setShowCrossTabOrders(false);
+              handleTabChange(tab);
             }}
             tabCounts={tabCounts}
             searchActive={isSearchActive}
@@ -578,9 +611,8 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab("All");
+                  handleTabChange("All");
                   setFilters((f) => ({ ...f, customer: customerBreakdown.customerName }));
-                  setShowCrossTabOrders(false);
                 }}
                 className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
               >
@@ -610,11 +642,10 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                   key={st.tab}
                   type="button"
                   onClick={() => {
-                    setActiveTab(st.tab);
+                    handleTabChange(st.tab);
                     if (!filters.customer) {
                       setFilters((f) => ({ ...f, customer: customerBreakdown.customerName }));
                     }
-                    setShowCrossTabOrders(false);
                     toast.info(`Switched to "${st.label}" tab (${st.count} orders for ${customerBreakdown.customerName})`);
                   }}
                   className={cn(
@@ -687,8 +718,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                   className="bg-primary hover:bg-primary/95 text-primary-foreground font-bold shadow-sm h-8 px-3 text-xs gap-1"
                   onClick={() => {
                     const target = getOrderPrimaryTab(otherStageOrders[0]);
-                    setActiveTab(target);
-                    setShowCrossTabOrders(false);
+                    handleTabChange(target);
                     toast.success(`Switched to "${target}" tab for order #${String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}`);
                   }}
                 >
@@ -786,8 +816,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                   className="font-bold shadow-md bg-primary text-primary-foreground gap-1.5"
                   onClick={() => {
                     const target = getOrderPrimaryTab(otherStageOrders[0]);
-                    setActiveTab(target);
-                    setShowCrossTabOrders(false);
+                    handleTabChange(target);
                     toast.success(`Switched to "${target}" tab for order #${String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}`);
                   }}
                 >
@@ -799,8 +828,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                   type="button"
                   className="font-bold shadow-md bg-primary text-primary-foreground gap-1.5"
                   onClick={() => {
-                    setActiveTab("All");
-                    setShowCrossTabOrders(false);
+                    handleTabChange("All");
                   }}
                 >
                   <span>View in "All" Tab</span>
@@ -819,8 +847,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
-            <p className="text-sm font-medium text-foreground">No orders match your filters</p>
-            <p className="mt-1 text-sm text-muted-foreground">Try another status tab or clear search.</p>
+            <p className="text-sm font-semibold text-foreground">
+              {isSearchActive ? "No orders match your filters" : "No orders found"}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {isSearchActive ? "Try another status tab or clear search." : "No orders available in this stage."}
+            </p>
           </div>
         )
       ) : (
@@ -1108,7 +1140,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                           key={st.tab}
                           type="button"
                           onClick={() => {
-                            setActiveTab(st.tab);
+                            handleTabChange(st.tab);
                             setFilters(f => ({ ...f, customer: sheetCustomerBreakdown.customerName }));
                             setFiltersOpen(false);
                             toast.info(`Switched to "${st.label}" tab for ${sheetCustomerBreakdown.customerName}`);
@@ -1130,7 +1162,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                     className="w-full h-9 rounded-lg font-bold bg-primary text-primary-foreground shadow-sm gap-1.5"
                     onClick={() => {
                       const target = getOrderPrimaryTab(sheetMatchedOrder);
-                      setActiveTab(target);
+                      handleTabChange(target);
                       setSearch(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id);
                       setFiltersOpen(false);
                       toast.success(`Switched to "${target}" tab for order #${String(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id).replace(/^#+/, "")}`);
@@ -1186,7 +1218,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                       key={st.tab}
                       type="button"
                       onClick={() => {
-                        setActiveTab(st.tab);
+                        handleTabChange(st.tab);
                         setFiltersOpen(false);
                         toast.info(`Showing "${st.label}" orders for ${sheetCustomerBreakdown.customerName}`);
                       }}

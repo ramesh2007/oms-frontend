@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Order, LegacyTabId } from "@/lib/orders";
+import { matchesLegacyTab } from "@/lib/orders";
 import { useNavigate } from "@tanstack/react-router";
 
 interface PipelineTrackerProps {
@@ -71,13 +72,13 @@ export function PipelineTracker({ orders }: PipelineTrackerProps) {
     {
       key: "ready",
       label: "Ready to Assign",
-      count: orders.filter((o) => o.status === "Ready to Assign").length,
+      count: orders.filter((o) => matchesLegacyTab(o, "Ready to Assign")).length,
       tab: "Ready to Assign",
     },
     {
       key: "out",
       label: "Out for Delivery",
-      count: orders.filter((o) => o.status === "Driver Accepted" || o.status === "Started").length,
+      count: orders.filter((o) => matchesLegacyTab(o, "In Delivery")).length,
       tab: "In Delivery",
     },
     {

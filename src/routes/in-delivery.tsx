@@ -35,7 +35,15 @@ function InDeliveryPage() {
   const pagination = statusResult?.pagination;
 
   const goToOrder = (order: Order) => {
-    navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", "In Delivery");
+      sessionStorage.setItem("last_orders_from", "/in-delivery");
+    }
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId: order.id },
+      search: { tab: "In Delivery", from: "/in-delivery" } as any,
+    });
   };
 
   const onSelect = (id: string, selected: boolean) => {

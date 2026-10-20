@@ -1,14 +1,17 @@
 import { useState } from "react";
 import {
+  AlertTriangle,
   Box,
   CheckCircle2,
   Clock,
   CreditCard,
   Edit3,
+  ExternalLink,
   Package,
   PackageCheck,
   Play,
   Plus,
+  ShieldAlert,
   ShieldCheck,
   ShoppingCart,
   Truck,
@@ -29,6 +32,22 @@ type EventType = OrderTimelineEvent["type"];
 
 export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  const flaggedItems = order.itemsList.filter((item) => {
+    const statusStr = String(item.status || "").toLowerCase().trim();
+    const rawStatus = String((item as any).custom_status || "").toLowerCase().trim();
+    return Boolean(
+      (item as any).is_flagged ||
+      (item as any).isFlagged ||
+      (item as any).flagged ||
+      statusStr === "flagged" ||
+      rawStatus === "flagged" ||
+      Boolean((item as any).flag_reason) ||
+      Boolean((item as any).flagged_reason) ||
+      Boolean((item as any).flaggedReason)
+    );
+  });
+
   const mainTimeline = order.timeline.filter(
     (event) =>
       ![
@@ -106,13 +125,86 @@ export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
           </div>
         </div>
 
-        {/* <div className="px-4 py-4">
+        {/* Flagged Item Notification in Timeline card */}
+        {flaggedItems.length > 0 && (
+          <div className="border-b border-rose-200/80 bg-rose-50/70 p-3.5 dark:border-rose-900/60 dark:bg-rose-950/20">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-rose-700 dark:text-rose-400">
+                <ShieldAlert className="h-4 w-4 shrink-0" />
+                <span>Flagged Item Exception</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDialogOpen(true)}
+                className="text-[11px] font-semibold text-rose-700 hover:text-rose-800 dark:text-rose-300 underline underline-offset-2 flex items-center gap-0.5"
+              >
+                Timeline ↗
+              </button>
+            </div>
+            {flaggedItems.slice(0, 2).map((item) => {
+              const rawId = (item as any).item_id ?? (item as any).order_item_id ?? item.id;
+              const resolvedId = String(rawId ?? "").replace(/^#+/, "") || item.id;
+              const reason =
+                (item as any).flag_reason ||
+                (item as any).flagged_reason ||
+                (item as any).flaggedReason ||
+                (item as any).reason ||
+                "Flagged item exception";
+              const imgUrl =
+                (item as any).flagged_image_url ||
+                (item as any).flagged_image ||
+                (item as any).flag_image_url ||
+                (item as any).flag_image ||
+                null;
+
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-lg border border-rose-200/90 bg-background/95 p-2.5 text-xs shadow-2xs dark:border-rose-900/60 dark:bg-card mb-2 last:mb-0 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-semibold text-foreground truncate max-w-[190px]" title={item.name}>
+                      {item.name}
+                    </span>
+                    <span className="font-mono text-[10px] font-bold text-foreground bg-muted px-1.5 py-0.5 rounded border border-border/50">
+                      ID: #{resolvedId}
+                    </span>
+                  </div>
+                  <div className="text-[11px] leading-snug text-rose-800 dark:text-rose-300">
+                    <span className="font-semibold text-muted-foreground">Reason:</span> {reason}
+                  </div>
+                  {imgUrl && (
+                    <div className="pt-0.5 flex items-center justify-between gap-2">
+                      <a
+                        href={imgUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400 underline underline-offset-2 break-all"
+                        title="Click to view image in new window"
+                      >
+                        <ExternalLink className="h-3 w-3 shrink-0" />
+                        <span>View Flagged Image</span>
+                      </a>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        (New Window)
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="px-4 py-4">
           {latestEvent ? (
             <TimelineEvent event={latestEvent} />
           ) : (
-            <p className="text-sm text-muted-foreground">No activity recorded.</p>
+            <p className="text-xs text-muted-foreground text-center py-1">
+              Click &ldquo;View Full Timeline&rdquo; to see all item events.
+            </p>
           )}
-        </div> */}
+        </div>
       </section>
 
       <TimelineDialog order={order} open={isDialogOpen} onOpenChange={setIsDialogOpen} />
@@ -122,6 +214,9 @@ export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
 
 function colourForEvent(type: EventType): string {
   switch (type) {
+    case "item_flagged":
+    case "flagged":
+      return "bg-rose-600";
     case "picking_started":
     case "picker_assigned":
     case "item_picked":
@@ -166,6 +261,9 @@ function colourForEvent(type: EventType): string {
 /** Return the appropriate Lucide icon for a given timeline event type. */
 function iconForEvent(type: EventType) {
   switch (type) {
+    case "item_flagged":
+    case "flagged":
+      return ShieldAlert;
     case "added":
     case "line_item_updated":
       return Plus;
@@ -235,9 +333,22 @@ function TimelineEvent({ event }: { event: OrderTimelineEvent }) {
       {/* Content Card */}
       <div className="flex-1 min-w-0 bg-transparent rounded-lg">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 mb-1.5">
-          <h4 className="text-[15px] font-semibold text-foreground leading-snug tracking-tight">
-            {event.title}
-          </h4>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <h4 className="text-[15px] font-semibold text-foreground leading-snug tracking-tight">
+              {event.title}
+            </h4>
+            {event.itemId && (
+              <span className="inline-flex items-center gap-1 rounded bg-muted/70 px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground border border-border/50">
+                ID: #{event.itemId}
+              </span>
+            )}
+            {event.isFlagged && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                <AlertTriangle className="h-3 w-3 text-rose-600 dark:text-rose-400" />
+                Flagged
+              </span>
+            )}
+          </div>
           <time className="shrink-0 text-[11px] font-medium text-muted-foreground/80 sm:mt-0.5 bg-muted/50 px-2 py-0.5 rounded-md whitespace-nowrap">
             {event.date}, {event.time}
           </time>
@@ -255,6 +366,55 @@ function TimelineEvent({ event }: { event: OrderTimelineEvent }) {
                 </span>
               </>
             )}
+          </div>
+        )}
+
+        {/* Flagged Item Details Card if event is flagged */}
+        {event.isFlagged && (
+          <div className="mt-2 mb-2.5 rounded-xl border border-rose-200 bg-rose-50/70 p-3 text-xs dark:border-rose-900/50 dark:bg-rose-950/20 shadow-xs">
+            <div className="flex items-center gap-1.5 font-bold text-rose-700 dark:text-rose-400 mb-2">
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              <span className="uppercase tracking-wider text-[11px]">Flagged Exception Details</span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-muted-foreground">Item ID:</span>
+                <span className="font-mono font-bold text-foreground bg-background px-1.5 py-0.5 rounded border border-border/60 text-[11px]">
+                  #{event.itemId}
+                </span>
+                {event.itemName && (
+                  <span className="text-muted-foreground text-[11px] truncate max-w-[180px]" title={event.itemName}>
+                    ({event.itemName})
+                  </span>
+                )}
+              </div>
+
+              <div className="text-xs leading-snug">
+                <span className="font-semibold text-rose-800 dark:text-rose-300">Flagged Reason: </span>
+                <span className="font-medium text-foreground dark:text-rose-100 bg-rose-100/60 dark:bg-rose-900/40 px-1.5 py-0.5 rounded">
+                  {event.flagReason || "Flagged for manual review"}
+                </span>
+              </div>
+
+              {event.flaggedImageUrl && (
+                <div className="pt-1 flex items-center justify-between gap-2 flex-wrap">
+                  <a
+                    href={event.flaggedImageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400 underline underline-offset-2 break-all text-[11px]"
+                    title="Click to view image in new window"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                    <span>View Flagged Image</span>
+                  </a>
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    (Opens in new window)
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

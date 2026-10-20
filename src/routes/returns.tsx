@@ -3,8 +3,8 @@ import { AppSidebar } from "@/components/dashboard/AppSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
 import { ReturnsTable } from "@/components/orders/tables/ReturnsTable";
 import { type Order } from "@/lib/orders";
-import { getSharedOrders } from "@/lib/sync";
-import { useState, useEffect, useMemo } from "react";
+import { useOrders } from "@/hooks/useOrders";
+import { useState, useMemo } from "react";
 import { Search, Filter } from "lucide-react";
 
 export const Route = createFileRoute("/returns")({
@@ -20,37 +20,20 @@ type ReturnFilterStatus = "all" | "pending" | "picked up" | "completed";
 
 function ReturnsPage() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [allOrders, setAllOrders] = useState<Order[]>([]);
+  const { data: allOrders = [], isLoading: loading } = useOrders();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ReturnFilterStatus>("all");
 
-  const loadOrders = () => {
-    const shared = getSharedOrders();
-    setAllOrders(shared);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      loadOrders();
-    }, 300);
-
-    // Listen for sync changes
-    const handler = (event: StorageEvent) => {
-      if (event.key === "hm_shared_orders" || event.key === "hm_sync_signal") {
-        loadOrders();
-      }
-    };
-    window.addEventListener("storage", handler);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener("storage", handler);
-    };
-  }, []);
-
   const goToOrder = (order: Order) => {
-    navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("last_orders_tab", "Returns & Replacements");
+      sessionStorage.setItem("last_orders_from", "/returns");
+    }
+    navigate({
+      to: "/orders/$orderId",
+      params: { orderId: order.id },
+      search: { tab: "Returns & Replacements", from: "/returns" } as any,
+    });
   };
 
   // Filter to orders that have returns/replacements/exchanges
