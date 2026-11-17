@@ -118,6 +118,7 @@ export interface MisSummary {
   picking: SlaSummary;
   packing: SlaSummary;
   delivery: SlaSummary;
+  packedToDriver: SlaSummary;
   operationalGaps: GapSummary;
   /** Total unique orders evaluated. */
   totalOrders: number;
@@ -132,7 +133,7 @@ export interface MisSummary {
 /** A single delayed order row for the Delayed Orders table. */
 export interface DelayedOrderEntry {
   orderId: string;
-  slaType: SlaType;
+  slaType: SlaType | "packedToDriver";
   warehouse: string;
   warehouseCode: string;
   assignedTo: string;
@@ -155,12 +156,16 @@ export interface MisDataProvider {
   /** Get aggregated summary. */
   getSummary(filters: MisFilters, orders?: Order[]): MisSummary;
   /** Get delayed orders for a specific SLA type. */
-  getDelayedOrders(filters: MisFilters, slaType: SlaType, orders?: Order[]): DelayedOrderEntry[];
+  getDelayedOrders(
+    filters: MisFilters,
+    slaType: SlaType | "packedToDriver",
+    orders?: Order[],
+  ): DelayedOrderEntry[];
 }
 
 /** Filters applied to MIS queries. */
 export interface MisFilters {
-  dateStart: string;   // ISO date "YYYY-MM-DD"
-  dateEnd: string;     // ISO date "YYYY-MM-DD"
-  warehouse: string;   // "all" or warehouse code (e.g. "F01")
+  dateStart: string; // ISO date "YYYY-MM-DD"
+  dateEnd: string; // ISO date "YYYY-MM-DD"
+  warehouse: string; // "all" or warehouse code (e.g. "F01")
 }

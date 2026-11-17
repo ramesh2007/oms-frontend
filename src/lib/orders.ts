@@ -14,17 +14,26 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { isDemoMode } from "@/lib/api/config";
+import { hasTaskForOrder } from "@/lib/tasks";
 
 export type OrderStatus =
   | "New"
   | "Unfulfilled"
   | "Picking"
   | "Picked"
+  | "Partialy picked"
+  | "Partially Picked"
   | "Packing"
+  | "Partialy packed"
+  | "Partially Packed"
+  | "Packed"
   | "Ready to Assign"
   | "Driver Accepted"
+  | "Assigned to driver"
   | "Started"
   | "Delivered"
+  | "Partialy delivered"
+  | "Partially Delivered"
   | "Delivery Failed"
   | "Flagged"
   | "Cancelled"
@@ -36,6 +45,7 @@ export type OrderStatus =
 export type LegacyTabId =
   | "New"
   | "Express"
+  | "My Tasks"
   | "Installation"
   | "Unfulfilled"
   | "Picking"
@@ -63,6 +73,7 @@ export interface LegacyTab {
 export const LEGACY_TABS: LegacyTab[] = [
   { id: "New", label: "New", color: "text-sky-600 dark:text-sky-400", activeColor: "bg-sky-500" },
   { id: "Express", label: "Express", color: "text-amber-600 dark:text-amber-400", activeColor: "bg-amber-500" },
+  { id: "My Tasks", label: "My Tasks", color: "text-teal-600 dark:text-teal-400", activeColor: "bg-teal-500" },
   { id: "All", label: "All", color: "text-foreground", activeColor: "bg-primary" },
   {
     id: "Picking",
@@ -202,6 +213,8 @@ export interface Order {
   deliveryType?: string;
   timeline?: OrderTimelineEvent[];
   flags?: string[];
+  is_flagged?: boolean;
+  isFlagged?: boolean;
   order_id?: number | string;
   ready_to_assign?: boolean;
   is_ready_to_assign?: boolean;
@@ -386,6 +399,7 @@ export interface OrderTimelineEvent {
     | "flagged";
   /** Item-level identifiers & flagged information */
   itemId?: string | number;
+  lineItemId?: string | number;
   itemName?: string;
   isFlagged?: boolean;
   flagReason?: string | null;
@@ -847,6 +861,44 @@ function buildTimelineFor(base: Order, items?: OrderItemType[]): OrderTimelineEv
     } catch (e) {
       console.warn("Failed to load custom timeline events", e);
     }
+  }
+  // Flagged items events
+  if (items && items.length > 0) {
+    items.forEach((item) => {
+      const isFlagged = Boolean(
+        item.is_flagged ||
+        item.isFlagged ||
+        (item as any).flagged ||
+        String(item.status || "").toLowerCase() === "flagged" ||
+        item.flag_reason ||
+        item.flagged_reason
+      );
+      if (isFlagged) {
+        const lineId =
+          item.line_item_id ??
+          (item as any).lineItemId ??
+          (item as any).order_line_item_id ??
+          item.order_item_id ??
+          item.id ??
+          (item as any).item_id;
+        const cleanLineId = String(lineId ?? "").replace(/^#+/, "") || String(item.id);
+        ev.push({
+          id: `tl-item-flagged-${item.id}`,
+          title: `Item flagged: ${item.name}`,
+          ...t5,
+          description: `By: ${(item as any).flagged_by || "Staff"}\nReason: ${(item as any).flag_reason || (item as any).flagged_reason || (item as any).flaggedReason || "Flagged item exception"}`,
+          actor: (item as any).flagged_by || "Quality Assurance / Staff",
+          actorRole: "admin",
+          type: "item_flagged",
+          isFlagged: true,
+          itemId: cleanLineId,
+          lineItemId: cleanLineId,
+          itemName: item.name,
+          flagReason: (item as any).flag_reason || (item as any).flagged_reason || (item as any).flaggedReason || "Flagged item exception",
+          flaggedImageUrl: (item as any).flagged_image_url || (item as any).flagged_image || (item as any).flag_image_url || null,
+        });
+      }
+    });
   }
 
   return ev;
@@ -1368,9 +1420,15 @@ export const ACTIVE_STATUSES: OrderStatus[] = [
   "New",
   "Unfulfilled",
   "Picked",
+  "Partialy picked",
+  "Packing",
+  "Packed",
+  "Partialy packed",
   "Ready to Assign",
   "Driver Accepted",
+  "Assigned to driver",
   "Started",
+  "Partialy delivered",
 ];
 
 /**
@@ -1455,16 +1513,118 @@ export const ORDER_STATS = [
   },
 ];
 
+export function isPartiallyPickedStatus(status?: string | null): boolean {
+  if (!status) return false;
+  const s = status.toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
+  return (
+    s === "partialy_picked" ||
+    s === "partially_picked" ||
+    s === "partial_picked"
+  );
+}
+
+export function isPartiallyPackedStatus(status?: string | null): boolean {
+  if (!status) return false;
+  const s = status.toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
+  return (
+    s === "partialy_packed" ||
+    s === "partially_packed" ||
+    s === "partial_packed"
+  );
+}
+
+export function isPartiallyDeliveredStatus(status?: string | null): boolean {
+  if (!status) return false;
+  const s = status.toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
+  return (
+    s === "partialy_deliverd" ||
+    s === "partialy_delivered" ||
+    s === "partially_delivered" ||
+    s === "partially_deliverd" ||
+    s === "partial_delivered" ||
+    s === "partial_deliverd"
+  );
+}
+
+export function orderHasPacker(order: Order): boolean {
+  if (
+    order.packer &&
+    typeof order.packer === "string" &&
+    order.packer.trim() !== "" &&
+    order.packer.toLowerCase() !== "unassigned" &&
+    order.packer.toLowerCase() !== "null" &&
+    order.packer.toLowerCase() !== "none"
+  ) {
+    return true;
+  }
+  const rawAny = order as any;
+  if (Array.isArray(rawAny.packers) && rawAny.packers.length > 0) return true;
+  if (rawAny.packer_user_id || rawAny.assigned_packer_user_id || rawAny.packer_assignment || rawAny.packed_by) return true;
+  if (rawAny.rawOrder) {
+    const ro = rawAny.rawOrder;
+    if (Array.isArray(ro.packers) && ro.packers.length > 0) return true;
+    if (ro.packer_user_id || ro.assigned_packer_user_id || ro.packer_assignment || ro.packed_by) return true;
+    if (typeof ro.packer === "string" && ro.packer.trim() && ro.packer.toLowerCase() !== "unassigned") return true;
+    if (typeof ro.custom_packer === "string" && ro.custom_packer.trim()) return true;
+  }
+  if (Array.isArray(order.itemsList) && order.itemsList.length > 0) {
+    return order.itemsList.some(
+      (item) =>
+        Boolean(item.packed_by) ||
+        (typeof item.packed_user_name === "string" && item.packed_user_name.trim() !== "") ||
+        Boolean((item as any).packer_id) ||
+        Boolean((item as any).packer_name)
+    );
+  }
+  return false;
+}
+
+export function orderHasDriver(order: Order): boolean {
+  if (
+    order.driver &&
+    typeof order.driver === "string" &&
+    order.driver.trim() !== "" &&
+    order.driver.toLowerCase() !== "unassigned" &&
+    order.driver.toLowerCase() !== "null" &&
+    order.driver.toLowerCase() !== "none"
+  ) {
+    return true;
+  }
+  const rawAny = order as any;
+  if (rawAny.driver_assignment || rawAny.driver_user || rawAny.assigned_driver_user_id || rawAny.delivered_by) return true;
+  if (rawAny.rawOrder) {
+    const ro = rawAny.rawOrder;
+    if (ro.driver_assignment || ro.driver_user || ro.assigned_driver_user_id || ro.delivered_by) return true;
+    if (typeof ro.driver === "string" && ro.driver.trim() && ro.driver.toLowerCase() !== "unassigned") return true;
+  }
+  if (Array.isArray(order.itemsList) && order.itemsList.length > 0) {
+    return order.itemsList.some(
+      (item) =>
+        Boolean(item.delivered_by) ||
+        (typeof item.delivered_user_name === "string" && item.delivered_user_name.trim() !== "")
+    );
+  }
+  return false;
+}
+
 export const statusIcon: Record<OrderStatus, LucideIcon> = {
   New: Sparkles,
   Unfulfilled: Clock3,
   Picking: PackageCheck,
   Picked: PackageCheck,
+  "Partialy picked": PackageCheck,
+  "Partially Picked": PackageCheck,
   Packing: Package,
+  "Partialy packed": Package,
+  "Partially Packed": Package,
+  Packed: PackageCheck,
   "Ready to Assign": Truck,
   "Driver Accepted": Truck,
+  "Assigned to driver": Truck,
   Started: RefreshCw,
   Delivered: CheckCircle2,
+  "Partialy delivered": Truck,
+  "Partially Delivered": Truck,
   "Delivery Failed": XCircle,
   Flagged: Flag,
   Cancelled: XCircle,
@@ -1489,15 +1649,24 @@ export function statusDotClass(status: OrderStatus): string {
     case "Picking":
       return "bg-fuchsia-500";
     case "Picked":
+    case "Partialy picked":
+    case "Partially Picked":
       return "bg-violet-500";
     case "Packing":
+    case "Partialy packed":
+    case "Partially Packed":
+    case "Packed":
       return "bg-indigo-500";
     case "Ready to Assign":
       return "bg-amber-500";
     case "Driver Accepted":
+    case "Assigned to driver":
       return "bg-blue-500";
     case "Started":
       return "bg-orange-500";
+    case "Partialy delivered":
+    case "Partially Delivered":
+      return "bg-blue-500";
     case "Flagged":
       return "bg-rose-500";
     case "Replacement":
@@ -1556,9 +1725,9 @@ export function matchesSearch(order: Order, query: string): boolean {
 }
 
 export function getOrderPrimaryTab(order: Order): LegacyTabId {
-  if (isUnpaidPayLaterOrder(order)) return "PayLater";
+  if (order.status === "Flagged" || matchesLegacyTab(order, "Flags & Exceptions")) return "Flags & Exceptions";
   if (order.status === "Cancelled" || order.status === "Delivery Failed") return "Cancelled";
-  if (order.status === "Delivered") return "Delivered";
+  if (order.status === "Delivered" || (order as any).status === "Completed") return "Delivered";
 
   const raw = (
     (order as any).backend_status ||
@@ -1568,28 +1737,77 @@ export function getOrderPrimaryTab(order: Order): LegacyTabId {
     ""
   ).toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
 
-  if (raw === "assigned_to_driver" || raw === "partial_assigned_driver") {
+  if (
+    raw === "delivered" ||
+    raw === "completed" ||
+    raw === "delivered_completed" ||
+    raw === "delivery_completed" ||
+    raw === "to_bill"
+  ) {
+    return "Delivered";
+  }
+
+  if (
+    raw === "assigned_to_driver" ||
+    raw === "partial_assigned_driver" ||
+    raw === "started" ||
+    raw === "driver_started" ||
+    raw === "in_delivery" ||
+    raw === "out_for_delivery" ||
+    raw === "driver_accepted" ||
+    isPartiallyDeliveredStatus(raw) ||
+    order.status === "Driver Accepted" ||
+    order.status === "Started" ||
+    order.status === "Assigned to driver" ||
+    order.status === "Partialy delivered" ||
+    (order.status as string) === "Partially Delivered" ||
+    (order.status as string) === "In Delivery"
+  ) {
     return "In Delivery";
   }
   if (
     raw === "ready_to_assign" ||
+    raw === "ready_assign" ||
     raw === "readytoassign" ||
     raw === "to_deliver" ||
     raw === "packed" ||
-    order.status === "Ready to Assign"
+    raw === "partial_packed" ||
+    raw === "partialy_packed" ||
+    raw === "partially_packed" ||
+    isPartiallyPackedStatus(raw) ||
+    order.status === "Ready to Assign" ||
+    order.status === "Packed" ||
+    order.status === "Partialy packed" ||
+    (order.status as string) === "Partially Packed"
   ) {
     return "Ready to Assign";
   }
-  if (order.status === "Driver Accepted" || order.status === "Started") {
-    return "In Delivery";
+  if (
+    order.status === "Packing" ||
+    raw === "packing" ||
+    (orderHasPacker(order) && (
+      order.status === "Picked" ||
+      raw === "picked" ||
+      order.status === "Partialy picked" ||
+      (order.status as string) === "Partially Picked" ||
+      isPartiallyPickedStatus(raw)
+    ))
+  ) {
+    return "Packing";
   }
-  if (order.status === "Packing") return "Packing";
-  if (order.status === "Picked") return "Picked";
+  if (
+    order.status === "Picked" ||
+    order.status === "Partialy picked" ||
+    (order.status as string) === "Partially Picked" ||
+    raw === "picked" ||
+    isPartiallyPickedStatus(raw)
+  ) {
+    return "Picked";
+  }
   if (order.status === "Picking") return "Picking";
   if (isExpressOrder(order) && (order.status === "New" || order.status === "Unfulfilled")) return "Express";
   if (matchesLegacyTab(order, "Installation")) return "Installation";
   if (order.status === "New" || order.status === "Unfulfilled") return "New";
-  if (order.status === "Flagged") return "Flags & Exceptions";
   return "All";
 }
 
@@ -1964,12 +2182,7 @@ export function orderHasReturnedOrCancelledItems(order: Order): boolean {
 }
 
 export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
-  const isPayLater = isUnpaidPayLaterOrder(order);
-  if (isPayLater) {
-    return tab === "PayLater";
-  } else {
-    if (tab === "PayLater") return false;
-  }
+  if (tab === "PayLater") return false;
 
   const raw = (
     (order as any).backend_status ||
@@ -1995,6 +2208,10 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
     );
   }
 
+  if (tab === "My Tasks") {
+    return hasTaskForOrder(order);
+  }
+
   if (tab === "Unfulfilled") {
     return order.status !== "Delivered" && order.status !== "Cancelled";
   }
@@ -2014,7 +2231,9 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
       s === "packing" ||
       s === "packed" ||
       s === "ready to assign" ||
-      s === "picked"
+      s === "picked" ||
+      isPartiallyPickedStatus(s) ||
+      isPartiallyPackedStatus(s)
     ) {
       return false;
     }
@@ -2023,66 +2242,182 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
 
   if (tab === "Picked") {
     if (raw) {
-      return raw === "picked";
+      return raw === "picked" || isPartiallyPickedStatus(raw);
     }
-    return order.status === "Picked";
+    return (
+      order.status === "Picked" ||
+      isPartiallyPickedStatus(order.status)
+    );
   }
 
   if (tab === "Packing") {
+    const isDirectPackingRaw = raw === "packing";
+
+    const isPartialPickedRaw =
+      raw === "picked" ||
+      isPartiallyPickedStatus(raw);
+
     if (raw) {
-      return raw === "packing";
+      if (isDirectPackingRaw) return true;
+      if (isPartialPickedRaw && orderHasPacker(order)) return true;
+      return false;
     }
+
     const s = String(order.status || "").toLowerCase();
     if (
       s === "delivered" ||
+      s === "completed" ||
       s === "started" ||
       s === "driver accepted" ||
       s === "in delivery" ||
       s === "cancelled" ||
       s === "delivery failed" ||
-      s === "ready to assign"
+      s === "ready to assign" ||
+      s === "packed" ||
+      isPartiallyPackedStatus(s)
     ) {
       return false;
     }
-    return order.status === "Packing";
+
+    if (order.status === "Packing") {
+      return true;
+    }
+
+    if (
+      (order.status === "Picked" || isPartiallyPickedStatus(order.status)) &&
+      orderHasPacker(order)
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   if (tab === "Ready to Assign") {
     if (raw) {
       return (
         raw === "ready_to_assign" ||
+        raw === "ready_assign" ||
         raw === "readytoassign" ||
         raw === "to_deliver" ||
-        raw === "packed"
+        raw === "packed" ||
+        raw === "partial_packed" ||
+        raw === "partialy_packed" ||
+        raw === "partially_packed" ||
+        isPartiallyPackedStatus(raw)
       );
     }
     const s = String(order.status || "").toLowerCase();
     if (
       s === "delivered" ||
+      s === "completed" ||
       s === "started" ||
       s === "driver accepted" ||
       s === "in delivery" ||
       s === "cancelled" ||
+      s === "delivery failed" ||
+      s === "picking" ||
+      s === "new" ||
+      s === "unfulfilled" ||
+      isPartiallyPickedStatus(s)
+    ) {
+      return false;
+    }
+    return (
+      order.status === "Ready to Assign" ||
+      order.status === "Packed" ||
+      order.status === "Partialy packed" ||
+      (order.status as string) === "Partially Packed" ||
+      isPartiallyPackedStatus(order.status)
+    );
+  }
+
+  if (tab === "In Delivery") {
+    if (raw) {
+      if (
+        raw === "new" ||
+        raw === "unfulfilled" ||
+        raw === "pending" ||
+        raw === "draft" ||
+        raw === "picking" ||
+        raw === "picked" ||
+        isPartiallyPickedStatus(raw) ||
+        raw === "packing" ||
+        raw === "ready_to_assign" ||
+        raw === "ready_assign" ||
+        raw === "readytoassign" ||
+        raw === "to_deliver" ||
+        raw === "packed" ||
+        raw === "partial_packed" ||
+        raw === "partialy_packed" ||
+        raw === "partially_packed" ||
+        isPartiallyPackedStatus(raw) ||
+        raw === "delivered" ||
+        raw === "completed" ||
+        raw === "delivered_completed" ||
+        raw === "delivery_completed" ||
+        raw === "to_bill" ||
+        raw === "cancelled" ||
+        raw === "flagged"
+      ) {
+        return false;
+      }
+      return (
+        raw === "assigned_to_driver" ||
+        raw === "partial_assigned_driver" ||
+        raw === "started" ||
+        raw === "driver_started" ||
+        raw === "in_delivery" ||
+        raw === "out_for_delivery" ||
+        raw === "driver_accepted" ||
+        isPartiallyDeliveredStatus(raw) ||
+        orderHasDriver(order)
+      );
+    }
+    const s = String(order.status || "").toLowerCase();
+    if (
+      s === "new" ||
+      s === "unfulfilled" ||
+      s === "picking" ||
+      s === "picked" ||
+      isPartiallyPickedStatus(s) ||
+      s === "packing" ||
+      s === "ready to assign" ||
+      s === "packed" ||
+      isPartiallyPackedStatus(s) ||
+      s === "delivered" ||
+      s === "completed" ||
+      s === "cancelled" ||
+      s === "flagged" ||
       s === "delivery failed"
     ) {
       return false;
     }
-    return order.status === "Ready to Assign";
-  }
-
-  if (tab === "In Delivery") {
-    // In Delivery strictly shows only 2 statuses: 'partial_assigned_driver', 'assigned_to_driver'
-    if (raw) {
-      return raw === "assigned_to_driver" || raw === "partial_assigned_driver";
-    }
-    return order.status === "Driver Accepted" || order.status === "Started";
+    return (
+      order.status === "Driver Accepted" ||
+      order.status === "Started" ||
+      order.status === "Assigned to driver" ||
+      order.status === "Partialy delivered" ||
+      (order.status as string) === "Partially Delivered" ||
+      (order.status as string) === "In Delivery" ||
+      orderHasDriver(order)
+    );
   }
 
   if (tab === "Delivered") {
     if (raw) {
-      return raw === "delivered" || raw === "completed" || raw === "to_bill";
+      return (
+        raw === "delivered" ||
+        raw === "delivered_completed" ||
+        raw === "delivery_completed" ||
+        raw === "completed" ||
+        raw === "to_bill"
+      );
     }
-    return order.status === "Delivered";
+    return (
+      order.status === "Delivered" ||
+      (order.status as string) === "Completed"
+    );
   }
 
   if (tab === "Cancelled") {
@@ -2115,7 +2450,30 @@ export function matchesLegacyTab(order: Order, tab: LegacyTabId): boolean {
       order.status === "Exchange"
     );
   if (tab === "Flags & Exceptions") {
-    return order.status === "Flagged" || order.status === "Delivery Failed";
+    const rawStatus = (
+      (order as any).backend_status ||
+      (order as any).rawStatus ||
+      (order as any).rawOrder?.status ||
+      (order as any).rawOrder?.order_status ||
+      (order as any).status_filter ||
+      ""
+    ).toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
+
+    const hasFlaggedItems = Boolean(
+      (order as any).has_flagged_items ||
+      (Array.isArray((order as any).items) && (order as any).items.some((i: any) => i && (i.is_flagged || i.isFlagged || i.flagged))) ||
+      (Array.isArray(order.itemsList) && order.itemsList.some((i: any) => i && (i.is_flagged || i.isFlagged || i.flagged))) ||
+      (Array.isArray(order.line_items) && order.line_items.some((i: any) => i && (i.is_flagged || i.isFlagged || i.flagged))) ||
+      (Array.isArray((order as any).rawOrder?.items) && (order as any).rawOrder.items.some((i: any) => i && (i.is_flagged || i.isFlagged || i.flagged)))
+    );
+
+    return (
+      order.status === "Flagged" ||
+      rawStatus === "flagged" ||
+      Boolean((order as any).is_flagged) ||
+      Boolean((order as any).isFlagged) ||
+      hasFlaggedItems
+    );
   }
   if (tab === "Replacement") return order.status === "Replacement" || isOrderReturnAndReplacement(order);
   if (tab === "Exchange") return order.status === "Exchange";

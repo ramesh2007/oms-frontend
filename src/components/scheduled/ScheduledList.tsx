@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock, Calendar, Package, Truck, RotateCcw } from "lucide-react";
+import { CheckCircle2, Clock, Calendar, Package, Truck, RotateCcw, PackageCheck, Wrench } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { ScheduledRow } from "./ScheduledRow";
@@ -16,6 +16,9 @@ export interface ScheduledListProps {
   onToggleSelectAll: () => void;
   onRemoveItem: (item: ScheduledItem) => void;
   onViewOrder: (orderId: string) => void;
+  onConfirmSchedule?: (item: ScheduledItem) => void;
+  onMarkPicked?: (item: ScheduledItem) => void;
+  onTechnicianReceive?: (item: ScheduledItem) => void;
   onAssignDriver?: (item: ScheduledItem) => void;
   onCompleteInstallation?: (item: ScheduledItem) => void;
   onUploadPhotos?: (item: ScheduledItem) => void;
@@ -35,6 +38,9 @@ export function ScheduledList({
   onToggleSelectAll,
   onRemoveItem,
   onViewOrder,
+  onConfirmSchedule,
+  onMarkPicked,
+  onTechnicianReceive,
   onAssignDriver,
   onCompleteInstallation,
   onUploadPhotos,
@@ -60,7 +66,7 @@ export function ScheduledList({
         <div>Customer</div>
         <div>Customer Time & Tech</div>
         <div>
-          {activeTab === "Completed" ? "Status & Proof Photos" : "Status & Assignment"}
+          {activeTab === "Completed" ? "Status & Proof Photos" : "Status & Stage"}
         </div>
         <div className="text-right">Actions</div>
       </div>
@@ -68,6 +74,44 @@ export function ScheduledList({
       {/* Table Body */}
       {items.length === 0 ? (
         <div className="px-6 py-16 text-center">
+          {activeTab === "Pending Scheduled" && (
+            <>
+              <Clock className="mx-auto h-12 w-12 text-amber-400/80 dark:text-amber-500/60" />
+              {selectedDate ? (
+                <>
+                  <p className="mt-4 text-base font-bold text-slate-800 dark:text-slate-100">
+                    No Installation Pending (Scheduled Items) for {formatDisplayDate(selectedDate)}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-400 dark:text-slate-500 max-w-md mx-auto">
+                    There are no items awaiting scheduling for this date. You can choose another date or view all items.
+                  </p>
+                  {onShowAllDates && (
+                    <div className="mt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onShowAllDates}
+                        className="h-8.5 rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 cursor-pointer"
+                      >
+                        <Calendar className="h-3.5 w-3.5 mr-1.5" />
+                        View All Dates
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="mt-4 text-base font-bold text-slate-800 dark:text-slate-100">
+                    No Installation Pending (Scheduled Items)
+                  </p>
+                  <p className="mt-1 text-sm text-slate-400 dark:text-slate-500 max-w-md mx-auto">
+                    Items that require installation but are awaiting schedule confirmation will appear here.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+
           {activeTab === "Scheduled" && (
             <>
               <Clock className="mx-auto h-12 w-12 text-amber-400/80 dark:text-amber-500/60" />
@@ -117,16 +161,16 @@ export function ScheduledList({
             </>
           )}
 
-          {activeTab === "Driver Assigned" && (
+          {activeTab === "Main Warehouse Picked" && (
             <>
-              <Truck className="mx-auto h-12 w-12 text-blue-400/80 dark:text-blue-500/60" />
+              <PackageCheck className="mx-auto h-12 w-12 text-sky-400/80 dark:text-sky-500/60" />
               {selectedDate ? (
                 <>
                   <p className="mt-4 text-base font-bold text-slate-800 dark:text-slate-100">
-                    No driver-assigned installations for {formatDisplayDate(selectedDate)}
+                    No picked items for {formatDisplayDate(selectedDate)}
                   </p>
                   <p className="mt-1 text-sm text-slate-400 dark:text-slate-500 max-w-md mx-auto">
-                    No installations are currently assigned to drivers on this scheduled date.
+                    No scheduled items have been marked as picked by the Main Warehouse Picker for this date.
                   </p>
                   {onShowAllDates && (
                     <div className="mt-4">
@@ -145,10 +189,48 @@ export function ScheduledList({
               ) : (
                 <>
                   <p className="mt-4 text-base font-bold text-slate-800 dark:text-slate-100">
-                    No driver-assigned installations
+                    No picked installations in Main Warehouse
                   </p>
                   <p className="mt-1 text-sm text-slate-400 dark:text-slate-500 max-w-md mx-auto">
-                    Select items in the "Scheduled" tab and click "Assign Driver" to assign drivers and dispatch them.
+                    Select items in the "Scheduled" tab and click "Mark as Picked" when the warehouse picker finishes picking.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+
+          {(activeTab === "Technician Received" || activeTab === "Driver Assigned") && (
+            <>
+              <Wrench className="mx-auto h-12 w-12 text-indigo-400/80 dark:text-indigo-500/60" />
+              {selectedDate ? (
+                <>
+                  <p className="mt-4 text-base font-bold text-slate-800 dark:text-slate-100">
+                    No technician-received items for {formatDisplayDate(selectedDate)}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-400 dark:text-slate-500 max-w-md mx-auto">
+                    No installations are currently in progress or received by technicians on this date.
+                  </p>
+                  {onShowAllDates && (
+                    <div className="mt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onShowAllDates}
+                        className="h-8.5 rounded-xl text-xs font-bold cursor-pointer"
+                      >
+                        <Calendar className="h-3.5 w-3.5 mr-1.5" />
+                        View All Dates
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="mt-4 text-base font-bold text-slate-800 dark:text-slate-100">
+                    No installations received by technicians
+                  </p>
+                  <p className="mt-1 text-sm text-slate-400 dark:text-slate-500 max-w-md mx-auto">
+                    Move items from "Main Warehouse Picked" to "Technician Received" when the technician receives or starts the installation.
                   </p>
                 </>
               )}
@@ -204,6 +286,9 @@ export function ScheduledList({
               onToggle={() => onToggleSelect(item.id)}
               onRemove={() => onRemoveItem(item)}
               onViewOrder={() => onViewOrder(item.orderId)}
+              onConfirmSchedule={() => onConfirmSchedule?.(item)}
+              onMarkPicked={() => onMarkPicked?.(item)}
+              onTechnicianReceive={() => onTechnicianReceive?.(item)}
               onAssignDriver={() => onAssignDriver?.(item)}
               onCompleteInstallation={() => onCompleteInstallation?.(item)}
               onUploadPhotos={() => onUploadPhotos?.(item)}

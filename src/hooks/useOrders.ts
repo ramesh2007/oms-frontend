@@ -39,6 +39,9 @@ import type {
   TechnicianSchedulesResponse,
   CompletedInstallationRecord,
   CompletedInstallationsResponse,
+  MainWarehousePickedRecord,
+  MainWarehousePickedResponse,
+  RescheduleTechnicianPayload,
 } from "@/lib/api/services";
 
 // ─── Query Keys ──────────────────────────────────────────────────────────
@@ -66,14 +69,14 @@ export function useOrders() {
     queryKey: orderKeys.list(),
     queryFn: () => ordersApi.fetchOrders(),
 
-    // Keep data fresh for 30 seconds before refetching in background
-    staleTime: 30 * 1000,
+    // Keep data fresh for 3 seconds before refetching in background
+    staleTime: 3 * 1000,
 
     // Keep cached data for 10 minutes even if the component unmounts
     gcTime: 10 * 60 * 1000,
 
-    // Auto-refetch every 15 seconds for live real-time dashboard dynamic updates
-    refetchInterval: 15 * 1000,
+    // Auto-refetch every 5 seconds for real-time order sync
+    refetchInterval: 5 * 1000,
 
     // Refetch when the browser tab regains focus
     refetchOnWindowFocus: true,
@@ -123,13 +126,13 @@ export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
       };
 
       return {
-        orders: mappedOrders,
+        orders: mappedOrders.slice(0, perPage),
         pagination,
         statusFilter: statusName,
         rawData: res,
       };
     },
-    staleTime: 30 * 1000,
+    staleTime: 3 * 1000,
     gcTime: 10 * 60 * 1000,
     placeholderData: (previousData, previousQuery) => {
       // 1. If we are paginating within the EXACT same status, keep previous data
@@ -178,7 +181,7 @@ export function useOrdersByStatus(statusName: string, page = 1, perPage = 15) {
 
       return undefined;
     },
-    refetchInterval: 15 * 1000,
+    refetchInterval: 5 * 1000,
     refetchOnWindowFocus: true,
   });
 }
@@ -210,9 +213,9 @@ export function useFlaggedOrders(page = 1, perPage = 15) {
         rawData: res,
       };
     },
-    staleTime: 10 * 1000,
+    staleTime: 3 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchInterval: 15 * 1000,
+    refetchInterval: 5 * 1000,
     refetchOnWindowFocus: true,
   });
 }
@@ -340,6 +343,29 @@ export function useCompletedInstallations(params?: {
   return useQuery<CompletedInstallationsResponse, Error>({
     queryKey: [...orderKeys.all, "installation-completed", params] as const,
     queryFn: () => ordersApi.fetchCompletedInstallations(params),
+    staleTime: 10 * 1000,
+  });
+}
+
+// ─── useMainWarehousePickedItems ─────────────────────────────────────────
+
+/**
+ * Hook to fetch main warehouse picked items from /api/admin/installation-itmes/main-warehouse-picked
+ */
+export function useMainWarehousePickedItems(params?: {
+  scheduled_date?: string;
+  status?: string;
+  search?: string;
+  order_id?: number | string;
+  order_number?: string;
+  picker_id?: number | string;
+  per_page?: number;
+  page?: number;
+  all?: boolean;
+}) {
+  return useQuery<MainWarehousePickedResponse, Error>({
+    queryKey: [...orderKeys.all, "main-warehouse-picked", params] as const,
+    queryFn: () => ordersApi.fetchMainWarehousePickedItems(params),
     staleTime: 10 * 1000,
   });
 }
@@ -630,3 +656,21 @@ export function useUpdateOrderDetails() {
     },
   });
 }
+
+// ─── useRescheduleTechnician ──────────────────────────────────────────────
+
+/**
+ * Hook to reschedule a technician installation schedule via /api/admin/technician-schedule/reschedule
+ */
+export function useRescheduleTechnician() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: RescheduleTechnicianPayload) =>
+      ordersApi.rescheduleTechnicianSchedule(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: orderKeys.all });
+    },
+  });
+}
+

@@ -54,19 +54,19 @@ export function PipelineTracker({ orders }: PipelineTrackerProps) {
     {
       key: "new",
       label: "New Orders",
-      count: orders.filter((o) => o.status === "New" || o.status === "Unfulfilled").length,
+      count: orders.filter((o) => matchesLegacyTab(o, "New")).length,
       tab: "New",
     },
     {
       key: "picked",
       label: "Picking / Picked",
-      count: orders.filter((o) => o.status === "Picking" || o.status === "Picked").length,
+      count: orders.filter((o) => matchesLegacyTab(o, "Picking") || matchesLegacyTab(o, "Picked")).length,
       tab: "Picking",
     },
     {
       key: "packed",
       label: "Packing",
-      count: orders.filter((o) => o.status === "Packing").length,
+      count: orders.filter((o) => matchesLegacyTab(o, "Packing")).length,
       tab: "Packing",
     },
     {
@@ -84,7 +84,7 @@ export function PipelineTracker({ orders }: PipelineTrackerProps) {
     {
       key: "delivered",
       label: "Delivered",
-      count: orders.filter((o) => o.status === "Delivered").length,
+      count: orders.filter((o) => matchesLegacyTab(o, "Delivered")).length,
       tab: "Delivered",
     },
   ];

@@ -15,7 +15,7 @@ import { getSharedOrders } from "@/lib/sync";
 import { isDemoMode } from "@/lib/api";
 import { evaluateSla, summarizeSla } from "./sla-evaluator";
 import { parseOrderDateTime } from "./business-time";
-import { DEFAULT_SLA_CONFIG } from "./sla-config";
+import { DEFAULT_SLA_CONFIG, getStoredOperationalBenchmarks } from "./sla-config";
 import type {
   MisDataProvider,
   MisFilters,
@@ -45,10 +45,7 @@ interface TimelineTimestamps {
 /**
  * Extract key SLA timestamps from an order's timeline events.
  */
-function extractTimestamps(
-  order: Order,
-  timeline: OrderTimelineEvent[],
-): TimelineTimestamps {
+function extractTimestamps(order: Order, timeline: OrderTimelineEvent[]): TimelineTimestamps {
   const result: TimelineTimestamps = {
     orderCreated: null,
     pickerAssigned: null,
@@ -105,7 +102,7 @@ const WAREHOUSE_MAP: Record<string, { name: string; code: string }> = {
   F01: { name: "Fulfillment Center Hilal", code: "F01" },
   F02: { name: "Main Warehouse - Safety Stock", code: "F02" },
   MWO: { name: "Main Warehouse Outdoor", code: "MWO" },
-  VS:  { name: "Virtual Stock", code: "VS" },
+  VS: { name: "Virtual Stock", code: "VS" },
 };
 
 function resolveWarehouse(order: Order): { name: string; code: string } {
@@ -120,11 +117,7 @@ function resolveWarehouse(order: Order): { name: string; code: string } {
 
 // ─── Delay Reason Inference ──────────────────────────────────────────────────
 
-function inferDelayReason(
-  slaType: SlaType,
-  order: Order,
-  timestamps: TimelineTimestamps,
-): string {
+function inferDelayReason(slaType: SlaType, order: Order, timestamps: TimelineTimestamps): string {
   switch (slaType) {
     case "picking": {
       if (!timestamps.pickerAssigned) return "No picker assigned";
@@ -169,21 +162,13 @@ function computeOrderMetrics(order: Order): MisOrderMetrics | null {
   // ── Picking SLA ──
   let pickingEval: SlaEvaluation | null = null;
   if (timestamps.orderCreated && timestamps.pickingCompleted) {
-    pickingEval = evaluateSla(
-      timestamps.orderCreated,
-      timestamps.pickingCompleted,
-      "picking",
-    );
+    pickingEval = evaluateSla(timestamps.orderCreated, timestamps.pickingCompleted, "picking");
   }
 
   // ── Packing SLA ──
   let packingEval: SlaEvaluation | null = null;
   if (timestamps.pickingCompleted && timestamps.packingCompleted) {
-    packingEval = evaluateSla(
-      timestamps.pickingCompleted,
-      timestamps.packingCompleted,
-      "packing",
-    );
+    packingEval = evaluateSla(timestamps.pickingCompleted, timestamps.packingCompleted, "packing");
   }
 
   // ── Delivery SLA ──
@@ -191,11 +176,7 @@ function computeOrderMetrics(order: Order): MisOrderMetrics | null {
   let deliveryEval: SlaEvaluation | null = null;
   const deliveryEnd = timestamps.delivered || timestamps.deliveryFailed;
   if (timestamps.driverStarted && deliveryEnd) {
-    deliveryEval = evaluateSla(
-      timestamps.driverStarted,
-      deliveryEnd,
-      "delivery",
-    );
+    deliveryEval = evaluateSla(timestamps.driverStarted, deliveryEnd, "delivery");
   }
 
   // ── Operational Gaps ──
@@ -302,29 +283,52 @@ class MockMisDataProvider implements MisDataProvider {
 
     const gapSummary: GapSummary = {
       pickToPack: {
-        avgMinutes: pickToPackValues.length > 0
-          ? Math.round((pickToPackValues.reduce((s, v) => s + v, 0) / pickToPackValues.length) * 10) / 10
-          : 0,
-        maxMinutes: pickToPackValues.length > 0
-          ? Math.round(Math.max(...pickToPackValues) * 10) / 10
-          : 0,
+        avgMinutes:
+          pickToPackValues.length > 0
+            ? Math.round(
+                (pickToPackValues.reduce((s, v) => s + v, 0) / pickToPackValues.length) * 10,
+              ) / 10
+            : 0,
+        maxMinutes:
+          pickToPackValues.length > 0 ? Math.round(Math.max(...pickToPackValues) * 10) / 10 : 0,
         count: pickToPackValues.length,
       },
       packToDriver: {
-        avgMinutes: packToDriverValues.length > 0
-          ? Math.round((packToDriverValues.reduce((s, v) => s + v, 0) / packToDriverValues.length) * 10) / 10
-          : 0,
-        maxMinutes: packToDriverValues.length > 0
-          ? Math.round(Math.max(...packToDriverValues) * 10) / 10
-          : 0,
+        avgMinutes:
+          packToDriverValues.length > 0
+            ? Math.round(
+                (packToDriverValues.reduce((s, v) => s + v, 0) / packToDriverValues.length) * 10,
+              ) / 10
+            : 0,
+        maxMinutes:
+          packToDriverValues.length > 0 ? Math.round(Math.max(...packToDriverValues) * 10) / 10 : 0,
         count: packToDriverValues.length,
       },
+    };
+
+    // Packed → Driver SLA calculation
+    const p2dBenchmark = getStoredOperationalBenchmarks().packedToDriver || 30;
+    const p2dTotal = packToDriverValues.length;
+    const p2dMet = packToDriverValues.filter((v) => v <= p2dBenchmark).length;
+    const p2dMissed = p2dTotal - p2dMet;
+    const p2dMetPercent = p2dTotal > 0 ? (p2dMet / p2dTotal) * 100 : 0;
+    const p2dAvg = p2dTotal > 0 ? packToDriverValues.reduce((s, v) => s + v, 0) / p2dTotal : 0;
+
+    const packedToDriverSummary: SlaSummary = {
+      totalOrders: p2dTotal,
+      metCount: p2dMet,
+      missedCount: p2dMissed,
+      metPercent: Math.round(p2dMetPercent * 10) / 10,
+      avgDurationMinutes: Math.round(p2dAvg * 10) / 10,
+      benchmarkMinutes: p2dBenchmark,
+      trendPercent: null,
     };
 
     return {
       picking: pickingSummary,
       packing: packingSummary,
       delivery: deliverySummary,
+      packedToDriver: packedToDriverSummary,
       operationalGaps: gapSummary,
       totalOrders: allMetrics.length,
       dateRange: { start: filters.dateStart, end: filters.dateEnd },
@@ -332,9 +336,38 @@ class MockMisDataProvider implements MisDataProvider {
     };
   }
 
-  getDelayedOrders(filters: MisFilters, slaType: SlaType, orders?: Order[]): DelayedOrderEntry[] {
+  getDelayedOrders(
+    filters: MisFilters,
+    slaType: SlaType | "packedToDriver",
+    orders?: Order[],
+  ): DelayedOrderEntry[] {
     const allMetrics = this.getOrderMetrics(filters, orders);
     const delayed: DelayedOrderEntry[] = [];
+
+    if (slaType === "packedToDriver") {
+      const p2dBenchmark = getStoredOperationalBenchmarks().packedToDriver || 30;
+      for (const m of allMetrics) {
+        const gap = m.operationalGaps.packToDriverMinutes;
+        if (gap !== null && gap > p2dBenchmark) {
+          delayed.push({
+            orderId: m.orderId,
+            slaType: "packedToDriver",
+            warehouse: m.warehouse,
+            warehouseCode: m.warehouseCode,
+            assignedTo: m.driverName || m.packerName || "—",
+            actualDurationMinutes: gap,
+            businessDurationMinutes: gap,
+            benchmarkMinutes: p2dBenchmark,
+            overshootFactor: Math.round((gap / p2dBenchmark) * 100) / 100,
+            delayMinutes: Math.round((gap - p2dBenchmark) * 10) / 10,
+            delayReason: "Driver assignment delayed after packing",
+            status: "FAIL",
+          });
+        }
+      }
+      delayed.sort((a, b) => b.overshootFactor - a.overshootFactor);
+      return delayed;
+    }
 
     for (const m of allMetrics) {
       const eval_ = m[slaType];
@@ -352,13 +385,15 @@ class MockMisDataProvider implements MisDataProvider {
       if (orders) {
         originalOrders = orders;
       } else {
-        try { originalOrders = isDemoMode() ? getSharedOrders() : []; } catch { originalOrders = []; }
+        try {
+          originalOrders = isDemoMode() ? getSharedOrders() : [];
+        } catch {
+          originalOrders = [];
+        }
       }
       const order = originalOrders.find((o) => o.id === m.orderId);
       const enriched = order ? getEnrichedOrder(order.id) : null;
-      const timestamps = order && enriched
-        ? extractTimestamps(order, enriched.timeline)
-        : null;
+      const timestamps = order && enriched ? extractTimestamps(order, enriched.timeline) : null;
 
       delayed.push({
         orderId: m.orderId,
@@ -371,9 +406,7 @@ class MockMisDataProvider implements MisDataProvider {
         benchmarkMinutes: eval_.benchmarkMinutes,
         overshootFactor: eval_.overshootFactor,
         delayMinutes: eval_.delayMinutes,
-        delayReason: order && timestamps
-          ? inferDelayReason(slaType, order, timestamps)
-          : "Unknown",
+        delayReason: order && timestamps ? inferDelayReason(slaType, order, timestamps) : "Unknown",
         status: "FAIL",
       });
     }

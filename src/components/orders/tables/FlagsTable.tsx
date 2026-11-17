@@ -321,6 +321,7 @@ export function FlagsTable({
 export interface FlaggedItem {
   id: number | string;
   order_id: string;
+  line_item_id?: number | string;
   item_id?: number | string;
   item_name?: string;
   name?: string;
@@ -390,6 +391,11 @@ export function FlaggedItemsTable({
                 <span className="font-semibold text-foreground">
                   {item.item_name || item.name || "—"}
                 </span>
+                {item.line_item_id && (
+                  <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                    Line Item ID: #{String(item.line_item_id).replace(/^#+/, "")}
+                  </div>
+                )}
               </td>
               <td className="py-3 pr-3 align-middle font-mono text-xs text-muted-foreground">
                 {item.sku || "—"}

@@ -6,30 +6,44 @@ import {
   getSnapshot,
   subscribe,
   removeItem,
+  markAsScheduled,
+  markItemsAsPicked,
+  markTechnicianReceived,
+  revertItemStatus,
   assignDriver,
   completeInstallation,
   addInstallationImages,
   syncTechnicianSchedules,
+  syncAwaitingScheduledItems,
   AVAILABLE_DRIVERS,
   getTodayDateStr,
   getTomorrowDateStr,
   formatDisplayDate,
   syncCompletedInstallations,
+  syncMainWarehousePickedItems,
+  normalizeDateStr,
   type ScheduledItem,
   type ScheduledTabType,
 } from "@/lib/scheduled-installations";
-import { useTechnicianSchedules, useCompletedInstallations } from "@/hooks/useOrders";
+import {
+  useTechnicianSchedules,
+  useCompletedInstallations,
+  useScheduledItems,
+  useMainWarehousePickedItems,
+} from "@/hooks/useOrders";
 import { ordersApi } from "@/lib/api";
 import { getUsers } from "@/lib/sync";
 import { ScheduledList } from "@/components/scheduled/ScheduledList";
 import {
   Calendar,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   Clock,
   ExternalLink,
   ImageIcon,
   Package,
+  PackageCheck,
   Plus,
   RefreshCw,
   Search,
@@ -106,6 +120,22 @@ function ScheduledInstallationsContent() {
     refetch: refetchCompleted,
   } = useCompletedInstallations({ per_page: 100 });
 
+  // 3. Fetch awaiting scheduled order items from backend (/api/admin/orders/scheduled-items)
+  const {
+    data: liveAwaitingData,
+    isLoading: isLoadingAwaiting,
+    isRefetching: isRefetchingAwaiting,
+    refetch: refetchAwaiting,
+  } = useScheduledItems({ is_scheduled_assigned: 1, per_page: 100 });
+
+  // 4. Fetch live main warehouse picked items from backend (/api/admin/installation-itmes/main-warehouse-picked)
+  const {
+    data: livePickedData,
+    isLoading: isLoadingPicked,
+    isRefetching: isRefetchingPicked,
+    refetch: refetchPicked,
+  } = useMainWarehousePickedItems({ per_page: 100 });
+
   // Sync live backend technician schedule records into the store
   useEffect(() => {
     if (liveSchedulesData?.data && Array.isArray(liveSchedulesData.data)) {
@@ -120,8 +150,23 @@ function ScheduledInstallationsContent() {
     }
   }, [liveCompletedData]);
 
-  // Drivers list from users sync
+  // Sync live awaiting scheduled records into the store
+  useEffect(() => {
+    if (liveAwaitingData?.data && Array.isArray(liveAwaitingData.data)) {
+      syncAwaitingScheduledItems(liveAwaitingData.data);
+    }
+  }, [liveAwaitingData]);
+
+  // Sync live backend main warehouse picked installation items into the store
+  useEffect(() => {
+    if (livePickedData?.data && Array.isArray(livePickedData.data)) {
+      syncMainWarehousePickedItems(livePickedData.data);
+    }
+  }, [livePickedData]);
+
+  // Drivers and Technicians list from users sync
   const [driversList, setDriversList] = useState<string[]>(AVAILABLE_DRIVERS);
+  const [techniciansList, setTechniciansList] = useState<{ id?: string | number; name: string }[]>([]);
 
   useEffect(() => {
     getUsers()
@@ -133,14 +178,21 @@ function ScheduledInstallationsContent() {
           if (activeDrivers.length > 0) {
             setDriversList(Array.from(new Set([...activeDrivers, ...AVAILABLE_DRIVERS])));
           }
+
+          const activeTechs = users
+            .filter((u) => (u.role === "technician" || u.role === "driver") && u.status === "active")
+            .map((u) => ({ id: u.id, name: u.name }));
+          if (activeTechs.length > 0) {
+            setTechniciansList(activeTechs);
+          }
         }
       })
       .catch((err) => {
-        console.error("Failed to fetch drivers:", err);
+        console.error("Failed to fetch drivers & technicians:", err);
       });
   }, []);
 
-  // Tabs: "Scheduled", "Driver Assigned", "Completed"
+  // 4 Tabs: "Scheduled", "Main Warehouse Picked", "Technician Received", "Completed"
   const [activeTab, setActiveTab] = useState<ScheduledTabType>("Scheduled");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -152,10 +204,15 @@ function ScheduledInstallationsContent() {
   const tomorrowStr = useMemo(() => getTomorrowDateStr(), []);
   const [selectedScheduledDate, setSelectedScheduledDate] = useState<string | null>(todayStr);
 
-  // Assign Driver State
+  // Assign Driver State (fallback / direct assignment)
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [targetAssignItems, setTargetAssignItems] = useState<string[]>([]);
   const [selectedAssignDriver, setSelectedAssignDriver] = useState<string | null>(null);
+
+  // Technician Received / Started State
+  const [techReceiveDialogOpen, setTechReceiveDialogOpen] = useState(false);
+  const [targetTechItems, setTargetTechItems] = useState<string[]>([]);
+  const [selectedTechName, setSelectedTechName] = useState<string | null>(null);
 
   // Complete Installation State
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
@@ -204,15 +261,32 @@ function ScheduledInstallationsContent() {
 
   // Filter items based on activeTab, selectedScheduledDate, search, and driver
   const filtered = useMemo(() => {
-    let result = items.filter((i) => i.status === activeTab);
+    let result = items.filter((i) => {
+      if (activeTab === "Technician Received") {
+        return i.status === "Technician Received" || i.status === "Driver Assigned";
+      }
+      return i.status === activeTab;
+    });
 
     // Scheduled date filter (defaults to today for Scheduled tab)
     if (selectedScheduledDate) {
       result = result.filter((i) => {
-        const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-        const completedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+        const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+        const itemDate = normalizeDateStr(rawDate) || rawDate;
+        const rawCompletedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+        const completedDate = normalizeDateStr(rawCompletedDate) || rawCompletedDate;
         if (activeTab === "Completed") {
           return itemDate === selectedScheduledDate || completedDate === selectedScheduledDate;
+        }
+        if (activeTab === "Pending Scheduled") {
+          return !itemDate || itemDate === selectedScheduledDate;
+        }
+        if (activeTab === "Main Warehouse Picked") {
+          const pickedDate = normalizeDateStr(i.pickedAt) || (i.pickedAt ? i.pickedAt.slice(0, 10) : "");
+          return itemDate === selectedScheduledDate || pickedDate === selectedScheduledDate || !itemDate;
+        }
+        if (activeTab === "Scheduled") {
+          return !itemDate || itemDate === selectedScheduledDate;
         }
         return itemDate === selectedScheduledDate;
       });
@@ -228,30 +302,54 @@ function ScheduledInstallationsContent() {
           (i.orderNumber && i.orderNumber.toLowerCase().includes(q)) ||
           i.customerName.toLowerCase().includes(q) ||
           (i.technicianName && i.technicianName.toLowerCase().includes(q)) ||
+          (i.pickerName && i.pickerName.toLowerCase().includes(q)) ||
           (i.assignedDriver && i.assignedDriver.toLowerCase().includes(q)),
       );
     }
 
     // Driver filter applies to all tabs if a driver is chosen
     if (selectedDriver) {
-      result = result.filter((i) => i.assignedDriver === selectedDriver);
+      result = result.filter(
+        (i) => i.assignedDriver === selectedDriver || i.technicianName === selectedDriver,
+      );
     }
 
     return result;
   }, [items, activeTab, selectedScheduledDate, searchQuery, selectedDriver]);
 
-  // Tab stats & date counts
+  // Tab stats & date counts across all 5 stages
+  const pendingScheduledAll = useMemo(() => items.filter((i) => i.status === "Pending Scheduled"), [items]);
   const scheduledAll = useMemo(() => items.filter((i) => i.status === "Scheduled"), [items]);
-  const driverAssignedAll = useMemo(() => items.filter((i) => i.status === "Driver Assigned"), [items]);
+  const pickedAll = useMemo(() => items.filter((i) => i.status === "Main Warehouse Picked"), [items]);
+  const techReceivedAll = useMemo(
+    () => items.filter((i) => i.status === "Technician Received" || i.status === "Driver Assigned"),
+    [items],
+  );
   const completedAll = useMemo(() => items.filter((i) => i.status === "Completed"), [items]);
 
   const todayCount = useMemo(() => {
     return items.filter((i) => {
-      if (i.status !== activeTab) return false;
-      const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-      const completedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+      const matchesTab =
+        activeTab === "Technician Received"
+          ? i.status === "Technician Received" || i.status === "Driver Assigned"
+          : i.status === activeTab;
+      if (!matchesTab) return false;
+      const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+      const itemDate = normalizeDateStr(rawDate) || rawDate;
+      const rawCompletedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+      const completedDate = normalizeDateStr(rawCompletedDate) || rawCompletedDate;
       if (activeTab === "Completed") {
         return itemDate === todayStr || completedDate === todayStr;
+      }
+      if (activeTab === "Pending Scheduled") {
+        return !itemDate || itemDate === todayStr;
+      }
+      if (activeTab === "Main Warehouse Picked") {
+        const pickedDate = normalizeDateStr(i.pickedAt) || (i.pickedAt ? i.pickedAt.slice(0, 10) : "");
+        return itemDate === todayStr || pickedDate === todayStr || !itemDate;
+      }
+      if (activeTab === "Scheduled") {
+        return !itemDate || itemDate === todayStr;
       }
       return itemDate === todayStr;
     }).length;
@@ -259,26 +357,63 @@ function ScheduledInstallationsContent() {
 
   const tomorrowCount = useMemo(() => {
     return items.filter((i) => {
-      if (i.status !== activeTab) return false;
-      const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-      const completedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+      const matchesTab =
+        activeTab === "Technician Received"
+          ? i.status === "Technician Received" || i.status === "Driver Assigned"
+          : i.status === activeTab;
+      if (!matchesTab) return false;
+      const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+      const itemDate = normalizeDateStr(rawDate) || rawDate;
+      const rawCompletedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
+      const completedDate = normalizeDateStr(rawCompletedDate) || rawCompletedDate;
       if (activeTab === "Completed") {
         return itemDate === tomorrowStr || completedDate === tomorrowStr;
+      }
+      if (activeTab === "Pending Scheduled") {
+        return itemDate === tomorrowStr;
+      }
+      if (activeTab === "Main Warehouse Picked") {
+        const pickedDate = normalizeDateStr(i.pickedAt) || (i.pickedAt ? i.pickedAt.slice(0, 10) : "");
+        return itemDate === tomorrowStr || pickedDate === tomorrowStr;
       }
       return itemDate === tomorrowStr;
     }).length;
   }, [items, tomorrowStr, activeTab]);
 
   const allActiveTabCount = useMemo(() => {
-    return items.filter((i) => i.status === activeTab).length;
+    return items.filter((i) => {
+      if (activeTab === "Technician Received") {
+        return i.status === "Technician Received" || i.status === "Driver Assigned";
+      }
+      return i.status === activeTab;
+    }).length;
   }, [items, activeTab]);
 
+  const pendingScheduledCount = selectedScheduledDate
+    ? pendingScheduledAll.filter((i) => {
+        const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+        const itemDate = normalizeDateStr(rawDate) || rawDate;
+        return !itemDate || itemDate === selectedScheduledDate;
+      }).length
+    : pendingScheduledAll.length;
   const scheduledCount = selectedScheduledDate
-    ? scheduledAll.filter((i) => (i.scheduledDate || i.scheduledAt?.slice(0, 10)) === selectedScheduledDate).length
+    ? scheduledAll.filter((i) => {
+        const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+        const itemDate = normalizeDateStr(rawDate) || rawDate;
+        return !itemDate || itemDate === selectedScheduledDate;
+      }).length
     : scheduledAll.length;
-  const driverAssignedCount = selectedScheduledDate
-    ? driverAssignedAll.filter((i) => (i.scheduledDate || i.scheduledAt?.slice(0, 10)) === selectedScheduledDate).length
-    : driverAssignedAll.length;
+  const pickedCount = selectedScheduledDate
+    ? pickedAll.filter((i) => {
+        const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
+        const itemDate = normalizeDateStr(rawDate) || rawDate;
+        const pickedDate = normalizeDateStr(i.pickedAt) || (i.pickedAt ? i.pickedAt.slice(0, 10) : "");
+        return itemDate === selectedScheduledDate || pickedDate === selectedScheduledDate || !itemDate;
+      }).length
+    : pickedAll.length;
+  const techReceivedCount = selectedScheduledDate
+    ? techReceivedAll.filter((i) => (i.scheduledDate || i.scheduledAt?.slice(0, 10)) === selectedScheduledDate).length
+    : techReceivedAll.length;
   const completedCount = selectedScheduledDate
     ? completedAll.filter((i) => {
         const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
@@ -320,7 +455,96 @@ function ScheduledInstallationsContent() {
     }
   };
 
-  // Open Assign Driver Dialog
+  // 0. Confirm schedule for pending items -> transitions to "Scheduled"
+  const handleConfirmSchedule = (singleItem?: ScheduledItem) => {
+    const ids = singleItem ? [singleItem.id] : Array.from(selectedIds);
+    if (ids.length === 0) {
+      toast.error("Please select at least one item to confirm schedule.");
+      return;
+    }
+    markAsScheduled(ids);
+    toast.success(
+      singleItem
+        ? `Moved "${singleItem.productName}" to Scheduled`
+        : `Moved ${ids.length} item(s) to Scheduled`,
+    );
+    setSelectedIds(new Set());
+  };
+
+  // 1. Warehouse Picker marks items as picked -> transitions to "Main Warehouse Picked"
+  const handleMarkPicked = (singleItem?: ScheduledItem) => {
+    const ids = singleItem ? [singleItem.id] : Array.from(selectedIds);
+    if (ids.length === 0) {
+      toast.error("Please select at least one item to mark as picked.");
+      return;
+    }
+    markItemsAsPicked(ids);
+    toast.success(
+      singleItem
+        ? `Marked "${singleItem.productName}" as Main Warehouse Picked`
+        : `Marked ${ids.length} item(s) as Main Warehouse Picked`,
+    );
+    setSelectedIds(new Set());
+  };
+
+  // 2. Open Technician Receive / Started Dialog -> transitions to "Technician Received"
+  const handleOpenTechReceive = (singleItem?: ScheduledItem) => {
+    if (singleItem) {
+      setTargetTechItems([singleItem.id]);
+      setSelectedTechName(
+        singleItem.technicianName ||
+          singleItem.assignedDriver ||
+          (techniciansList[0]?.name ?? driversList[0] ?? null),
+      );
+    } else {
+      const ids = Array.from(selectedIds);
+      if (ids.length === 0) {
+        toast.error("Please select at least one item.");
+        return;
+      }
+      setTargetTechItems(ids);
+      setSelectedTechName(techniciansList[0]?.name ?? driversList[0] ?? null);
+    }
+    setTechReceiveDialogOpen(true);
+  };
+
+  // Execute Technician Receive / Start
+  const handleConfirmTechReceive = async () => {
+    if (!selectedTechName) {
+      toast.error("Please select a technician or driver.");
+      return;
+    }
+    const ids = targetTechItems;
+    if (ids.length === 0) return;
+
+    markTechnicianReceived(ids, selectedTechName);
+
+    // Also attempt backend order assignment for orders represented in these items
+    const targetOrders = Array.from(
+      new Set(
+        items
+          .filter((i) => ids.includes(i.id))
+          .map((i) => i.orderNumber || i.orderId)
+          .filter(Boolean),
+      ),
+    );
+
+    targetOrders.forEach(async (ord) => {
+      try {
+        await ordersApi.assignDriver(ord, selectedTechName);
+      } catch (err) {
+        console.warn(`[Scheduled] Backend assignDriver for ${ord} fallback:`, err);
+      }
+    });
+
+    toast.success(`Technician ${selectedTechName} received ${ids.length} installation(s)`);
+    setSelectedIds(new Set());
+    setTechReceiveDialogOpen(false);
+    setSelectedTechName(null);
+    setTargetTechItems([]);
+  };
+
+  // Open Assign Driver Dialog (legacy / optional driver assign)
   const handleOpenAssignDriver = (singleItem?: ScheduledItem) => {
     if (singleItem) {
       setTargetAssignItems([singleItem.id]);
@@ -474,9 +698,9 @@ function ScheduledInstallationsContent() {
               Live Operations
             </span>
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            View customer appointments scheduled from Customer Care, manage driver dispatch, and verify completed installations with proof photos.
-          </p>
+          {/* <p className="text-sm text-slate-500 dark:text-slate-400">
+            Track scheduled orders across the 5-stage pipeline: Scheduled appointments, Main Warehouse picker picked, Technician received & started, Photo-verified completion, and Installation Pending (Scheduled Items).
+          </p> */}
         </div>
 
         {/* Sync / Refresh Button */}
@@ -487,24 +711,46 @@ function ScheduledInstallationsContent() {
             onClick={() => {
               refetchSchedules();
               refetchCompleted();
+              refetchAwaiting();
+              refetchPicked();
             }}
-            disabled={isRefetchingSchedules || isLoadingSchedules || isRefetchingCompleted || isLoadingCompleted}
+            disabled={
+              isRefetchingSchedules ||
+              isLoadingSchedules ||
+              isRefetchingCompleted ||
+              isLoadingCompleted ||
+              isRefetchingAwaiting ||
+              isLoadingAwaiting ||
+              isRefetchingPicked ||
+              isLoadingPicked
+            }
             className="h-9 gap-2 rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer"
           >
             <RefreshCw
               className={cn(
                 "h-3.5 w-3.5 text-slate-500",
-                (isRefetchingSchedules || isLoadingSchedules || isRefetchingCompleted || isLoadingCompleted) && "animate-spin text-primary",
+                (isRefetchingSchedules ||
+                  isLoadingSchedules ||
+                  isRefetchingCompleted ||
+                  isLoadingCompleted ||
+                  isRefetchingAwaiting ||
+                  isLoadingAwaiting ||
+                  isRefetchingPicked ||
+                  isLoadingPicked) && "animate-spin text-primary",
               )}
             />
-            <span>{isRefetchingSchedules || isRefetchingCompleted ? "Syncing..." : "Sync Schedules"}</span>
+            <span>
+              {isRefetchingSchedules || isRefetchingCompleted || isRefetchingAwaiting || isRefetchingPicked
+                ? "Syncing..."
+                : "Sync Schedules"}
+            </span>
           </Button>
         </div>
       </div>
 
-      {/* 4 Summary Stat Cards */}
-      <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Scheduled Card */}
+      {/* 5 Summary Stat Cards */}
+      <div className="grid gap-3.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+        {/* 1. Scheduled Card */}
         <div
           onClick={() => {
             setActiveTab("Scheduled");
@@ -513,11 +759,11 @@ function ScheduledInstallationsContent() {
           className={cn(
             "flex items-center gap-4 rounded-2xl border p-4.5 shadow-2xs transition-all cursor-pointer",
             activeTab === "Scheduled"
-              ? "border-amber-400 bg-amber-50/50 dark:border-amber-700/80 dark:bg-amber-950/20 ring-2 ring-amber-400/20"
-              : "border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-amber-300 dark:hover:border-amber-800",
+              ? "border-blue-500 bg-blue-50/50 dark:border-blue-600/80 dark:bg-blue-950/20 ring-2 ring-blue-500/20"
+              : "border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-400 dark:hover:border-blue-700",
           )}
         >
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
             <Clock className="h-5 w-5" />
           </div>
           <div className="min-w-0">
@@ -525,38 +771,64 @@ function ScheduledInstallationsContent() {
               {scheduledCount}
             </div>
             <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-0.5">
-              Scheduled Items
+              Scheduled Orders
             </div>
           </div>
         </div>
 
-        {/* Driver Assigned Card */}
+        {/* 2. Main Warehouse Picked Card */}
         <div
           onClick={() => {
-            setActiveTab("Driver Assigned");
+            setActiveTab("Main Warehouse Picked");
             setSelectedIds(new Set());
           }}
           className={cn(
             "flex items-center gap-4 rounded-2xl border p-4.5 shadow-2xs transition-all cursor-pointer",
-            activeTab === "Driver Assigned"
-              ? "border-blue-400 bg-blue-50/50 dark:border-blue-700/80 dark:bg-blue-950/20 ring-2 ring-blue-400/20"
-              : "border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300 dark:hover:border-blue-800",
+            activeTab === "Main Warehouse Picked"
+              ? "border-sky-400 bg-sky-50/50 dark:border-sky-700/80 dark:bg-sky-950/20 ring-2 ring-sky-400/20"
+              : "border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-sky-300 dark:hover:border-sky-800",
           )}
         >
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-            <Truck className="h-5 w-5" />
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+            <PackageCheck className="h-5 w-5" />
           </div>
           <div className="min-w-0">
             <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              {driverAssignedCount}
+              {pickedCount}
             </div>
             <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-0.5">
-              Driver Assigned
+              Warehouse Picked
             </div>
           </div>
         </div>
 
-        {/* Completed Card */}
+        {/* 3. Technician Received / Started Card */}
+        <div
+          onClick={() => {
+            setActiveTab("Technician Received");
+            setSelectedIds(new Set());
+          }}
+          className={cn(
+            "flex items-center gap-4 rounded-2xl border p-4.5 shadow-2xs transition-all cursor-pointer",
+            activeTab === "Technician Received"
+              ? "border-indigo-400 bg-indigo-50/50 dark:border-indigo-700/80 dark:bg-indigo-950/20 ring-2 ring-indigo-400/20"
+              : "border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-800",
+          )}
+        >
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+            <Wrench className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              {techReceivedCount}
+            </div>
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-0.5">
+              Tech Received / Started
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Completed Card */}
         <div
           onClick={() => {
             setActiveTab("Completed");
@@ -577,22 +849,33 @@ function ScheduledInstallationsContent() {
               {completedCount}
             </div>
             <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-0.5">
-              Completed Installations
+              Completed
             </div>
           </div>
         </div>
 
-        {/* Unique Orders Card */}
-        <div className="flex items-center gap-4 rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-2xs">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
-            <ShoppingCart className="h-5 w-5" />
+        {/* 5. Installation Pending (Scheduled Items) Card */}
+        <div
+          onClick={() => {
+            setActiveTab("Pending Scheduled");
+            setSelectedIds(new Set());
+          }}
+          className={cn(
+            "flex items-center gap-4 rounded-2xl border p-4.5 shadow-2xs transition-all cursor-pointer",
+            activeTab === "Pending Scheduled"
+              ? "border-amber-500 bg-amber-50/50 dark:border-amber-600/80 dark:bg-amber-950/20 ring-2 ring-amber-500/20"
+              : "border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-amber-400 dark:hover:border-amber-700",
+          )}
+        >
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <CalendarClock className="h-5 w-5" />
           </div>
           <div className="min-w-0">
             <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              {uniqueOrders}
+              {pendingScheduledCount}
             </div>
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-0.5">
-              Orders in {activeTab}
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-0.5 leading-tight">
+              Installation Pending (Scheduled Items)
             </div>
           </div>
         </div>
@@ -626,8 +909,8 @@ function ScheduledInstallationsContent() {
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {selectedScheduledDate
-                  ? `Showing scheduled installations for ${formatDisplayDate(selectedScheduledDate)} • ${filtered.length} item(s) in ${activeTab}`
-                  : `Showing scheduled installations across all dates • ${filtered.length} item(s) in ${activeTab}`}
+                  ? `Showing scheduled installations for ${formatDisplayDate(selectedScheduledDate)} • ${filtered.length} item(s) in ${activeTab === "Pending Scheduled" ? "Installation Pending (Scheduled Items)" : activeTab}`
+                  : `Showing scheduled installations across all dates • ${filtered.length} item(s) in ${activeTab === "Pending Scheduled" ? "Installation Pending (Scheduled Items)" : activeTab}`}
               </p>
             </div>
           </div>
@@ -731,36 +1014,48 @@ function ScheduledInstallationsContent() {
 
       {/* Tabs & Filter Bar */}
       <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
-        {/* 3 Main Tabs: Scheduled, Driver Assigned, Completed */}
-        <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 border border-slate-200/60 dark:border-slate-700/60">
-          {(["Scheduled", "Driver Assigned", "Completed"] as const).map((tab) => {
+        {/* 5 Main Tabs: Scheduled, Main Warehouse Picked, Technician Received / Started, Completed, Installation Pending (Scheduled Items) */}
+        <div className="flex flex-wrap rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 border border-slate-200/60 dark:border-slate-700/60">
+          {(
+            [
+              { id: "Scheduled", label: "Scheduled" },
+              { id: "Main Warehouse Picked", label: "Main Warehouse Picked" },
+              { id: "Technician Received", label: "Technician Received / Started" },
+              { id: "Completed", label: "Completed" },
+              { id: "Pending Scheduled", label: "Installation Pending (Scheduled Items)" },
+            ] as const
+          ).map((tab) => {
             const count =
-              tab === "Scheduled"
-                ? scheduledCount
-                : tab === "Driver Assigned"
-                  ? driverAssignedCount
-                  : completedCount;
+              tab.id === "Pending Scheduled"
+                ? pendingScheduledCount
+                : tab.id === "Scheduled"
+                  ? scheduledCount
+                  : tab.id === "Main Warehouse Picked"
+                    ? pickedCount
+                    : tab.id === "Technician Received"
+                      ? techReceivedCount
+                      : completedCount;
 
             return (
               <button
-                key={tab}
+                key={tab.id}
                 type="button"
                 onClick={() => {
-                  setActiveTab(tab);
+                  setActiveTab(tab.id);
                   setSelectedIds(new Set());
                 }}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-4 sm:px-6 py-2 text-xs sm:text-sm font-bold transition-all cursor-pointer select-none",
-                  activeTab === tab
+                  "flex items-center gap-2 rounded-lg px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold transition-all cursor-pointer select-none",
+                  activeTab === tab.id
                     ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200",
                 )}
               >
-                <span>{tab}</span>
+                <span>{tab.label}</span>
                 <span
                   className={cn(
                     "rounded-full px-2 py-0.5 text-[11px] font-bold",
-                    activeTab === tab
+                    activeTab === tab.id
                       ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100"
                       : "bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-400",
                   )}
@@ -832,8 +1127,38 @@ function ScheduledInstallationsContent() {
             )}
           </div>
 
-          {/* Bulk Driver Assign Button (active when items selected in Scheduled tab) */}
+          {/* Bulk Action Buttons based on Active Tab */}
+          {selectedIds.size > 0 && activeTab === "Pending Scheduled" && (
+            <Button
+              onClick={() => handleConfirmSchedule()}
+              className="gap-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-2xs font-bold h-9 px-4 text-xs sm:text-sm cursor-pointer"
+            >
+              <Calendar className="h-4 w-4" />
+              Confirm Schedule ({selectedIds.size})
+            </Button>
+          )}
+
           {selectedIds.size > 0 && activeTab === "Scheduled" && (
+            <Button
+              onClick={() => handleMarkPicked()}
+              className="gap-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white shadow-2xs font-bold h-9 px-4 text-xs sm:text-sm cursor-pointer"
+            >
+              <PackageCheck className="h-4 w-4" />
+              Mark as Picked ({selectedIds.size})
+            </Button>
+          )}
+
+          {selectedIds.size > 0 && activeTab === "Main Warehouse Picked" && (
+            <Button
+              onClick={() => handleOpenTechReceive()}
+              className="gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs font-bold h-9 px-4 text-xs sm:text-sm cursor-pointer"
+            >
+              <Wrench className="h-4 w-4" />
+              Technician Receive ({selectedIds.size})
+            </Button>
+          )}
+
+          {selectedIds.size > 0 && activeTab === "Technician Received" && (
             <Button
               onClick={() => handleOpenAssignDriver()}
               className="gap-2 rounded-xl bg-primary hover:bg-primary/95 text-primary-foreground shadow-2xs font-bold h-9 px-4 text-xs sm:text-sm cursor-pointer"
@@ -880,6 +1205,9 @@ function ScheduledInstallationsContent() {
             search: { tab: "Scheduled Installation", from: "/scheduled" } as any,
           });
         }}
+        onConfirmSchedule={handleConfirmSchedule}
+        onMarkPicked={handleMarkPicked}
+        onTechnicianReceive={(item) => handleOpenTechReceive(item)}
         onAssignDriver={(item) => handleOpenAssignDriver(item)}
         onCompleteInstallation={(item) => handleOpenCompleteDialog(item)}
         onUploadPhotos={(item) => handleOpenUploadPhotos(item)}
@@ -892,7 +1220,10 @@ function ScheduledInstallationsContent() {
         <div className="flex items-center justify-between rounded-xl border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-3.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400 shadow-2xs">
           <span>
             Showing <span className="font-bold text-slate-800 dark:text-slate-200">{filtered.length}</span>{" "}
-            {activeTab.toLowerCase()} installation(s)
+            {activeTab === "Pending Scheduled"
+              ? "installation pending (scheduled items)"
+              : activeTab.toLowerCase()}{" "}
+            installation(s)
           </span>
           {selectedIds.size > 0 && (
             <span className="font-semibold text-primary">
@@ -953,6 +1284,64 @@ function ScheduledInstallationsContent() {
               className="rounded-xl h-11 cursor-pointer bg-primary hover:bg-primary/95 font-bold"
             >
               Assign to Driver
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── MODAL 1B: Technician Received / Started Dialog ─────────────── */}
+      <Dialog open={techReceiveDialogOpen} onOpenChange={setTechReceiveDialogOpen}>
+        <DialogContent className="sm:max-w-[450px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+              <Wrench className="h-5 w-5" />
+              Technician Received / Started
+            </DialogTitle>
+            <DialogDescription className="text-sm text-slate-500 mt-1">
+              Confirm that the technician has received the picked goods from the main warehouse and started or prepared for installation ({targetTechItems.length} item(s)).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-3">
+            <div className="grid gap-2">
+              <Label className="font-bold text-sm text-slate-700 dark:text-slate-300">
+                Select Technician / Installer
+              </Label>
+              <Select
+                value={selectedTechName || ""}
+                onValueChange={setSelectedTechName}
+              >
+                <SelectTrigger className="w-full h-11 rounded-xl">
+                  <SelectValue placeholder="Choose a technician..." />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  {(techniciansList.length > 0
+                    ? techniciansList
+                    : driversList.map((name) => ({ name }))
+                  ).map((t) => (
+                    <SelectItem key={t.name} value={t.name}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setTechReceiveDialogOpen(false)}
+              className="rounded-xl h-11 cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmTechReceive}
+              disabled={!selectedTechName}
+              className="rounded-xl h-11 cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+            >
+              Confirm Received / Started
             </Button>
           </DialogFooter>
         </DialogContent>

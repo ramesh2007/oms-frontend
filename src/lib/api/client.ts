@@ -141,6 +141,27 @@ async function get<T = unknown>(endpoint: string, params?: Record<string, string
 }
 
 
+async function requestWithBody<T = unknown>(
+  method: "POST" | "PUT" | "PATCH",
+  endpoint: string,
+  body: unknown,
+): Promise<T> {
+  const url = buildUrl(endpoint);
+
+  const response = await fetch(url, {
+    method,
+    headers: getHeaders(),
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new ApiError(response.status, extractErrorMessage(response, errorBody), errorBody);
+  }
+
+  return response.json();
+}
+
 /**
  * Make a POST request to ERPNext (create new records).
  *
@@ -152,24 +173,7 @@ async function get<T = unknown>(endpoint: string, params?: Record<string, string
  * });
  */
 async function post<T = unknown>(endpoint: string, body: unknown): Promise<T> {
-  const url = buildUrl(endpoint);
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(),
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(response, errorBody),
-      errorBody,
-    );
-  }
-
-  return response.json();
+  return requestWithBody<T>("POST", endpoint, body);
 }
 
 /**
@@ -181,24 +185,14 @@ async function post<T = unknown>(endpoint: string, body: unknown): Promise<T> {
  * });
  */
 async function put<T = unknown>(endpoint: string, body: unknown): Promise<T> {
-  const url = buildUrl(endpoint);
+  return requestWithBody<T>("PUT", endpoint, body);
+}
 
-  const response = await fetch(url, {
-    method: "PUT",
-    headers: getHeaders(),
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(response, errorBody),
-      errorBody,
-    );
-  }
-
-  return response.json();
+/**
+ * Make a PATCH request (partial update of existing records).
+ */
+async function patch<T = unknown>(endpoint: string, body: unknown): Promise<T> {
+  return requestWithBody<T>("PATCH", endpoint, body);
 }
 
 /**
@@ -217,11 +211,7 @@ async function del<T = unknown>(endpoint: string): Promise<T> {
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(response, errorBody),
-      errorBody,
-    );
+    throw new ApiError(response.status, extractErrorMessage(response, errorBody), errorBody);
   }
 
   return response.json();
@@ -234,5 +224,6 @@ export const erpNextClient = {
   get,
   post,
   put,
+  patch,
   delete: del,
 };

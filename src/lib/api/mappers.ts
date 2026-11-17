@@ -124,10 +124,25 @@ function mapStatus(erpStatus: string): OrderStatus {
     return "New";
   }
   if (normalized === "picking") return "Picking";
+  if (
+    normalized === "partialy_picked" ||
+    normalized === "partially_picked" ||
+    normalized === "partial_picked"
+  ) {
+    return "Partialy picked";
+  }
   if (normalized === "picked") return "Picked";
+  if (
+    normalized === "partialy_packed" ||
+    normalized === "partially_packed" ||
+    normalized === "partial_packed"
+  ) {
+    return "Partialy packed";
+  }
   if (normalized === "packing") return "Packing";
   if (
     normalized === "ready_to_assign" ||
+    normalized === "ready_assign" ||
     normalized === "readytoassign" ||
     normalized === "to_deliver" ||
     normalized === "packed"
@@ -143,12 +158,31 @@ function mapStatus(erpStatus: string): OrderStatus {
   }
   if (
     normalized === "started" ||
+    normalized === "driver_started" ||
     normalized === "in_delivery" ||
     normalized === "out_for_delivery"
   ) {
     return "Started";
   }
-  if (normalized === "delivered" || normalized === "completed" || normalized === "to_bill") return "Delivered";
+  if (
+    normalized === "partialy_deliverd" ||
+    normalized === "partialy_delivered" ||
+    normalized === "partially_delivered" ||
+    normalized === "partially_deliverd" ||
+    normalized === "partial_delivered" ||
+    normalized === "partial_deliverd"
+  ) {
+    return "Partialy delivered";
+  }
+  if (
+    normalized === "delivered" ||
+    normalized === "delivered_completed" ||
+    normalized === "delivery_completed" ||
+    normalized === "completed" ||
+    normalized === "to_bill"
+  ) {
+    return "Delivered";
+  }
   if (
     normalized === "cancelled" ||
     normalized === "canceled" ||
@@ -707,6 +741,13 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
   const rawStatus = (raw.status || raw.order_status || "").toString().toLowerCase().trim();
   const normalizedStatus = rawStatus.replace(/[\s_-]+/g, "_");
 
+  const hasInstall = Boolean(
+    raw.has_installation ||
+    raw.custom_has_installation ||
+    raw.summary?.has_installation ||
+    (Array.isArray(raw.items) && raw.items.some((i: any) => i.is_installable || Boolean(i.installation)))
+  );
+
   let status: OrderStatus = "New";
   if (normalizedStatus === "flagged") {
     status = "Flagged";
@@ -720,12 +761,25 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     status = "New";
   } else if (normalizedStatus === "picking") {
     status = "Picking";
+  } else if (
+    normalizedStatus === "partialy_picked" ||
+    normalizedStatus === "partially_picked" ||
+    normalizedStatus === "partial_picked"
+  ) {
+    status = "Partialy picked";
   } else if (normalizedStatus === "picked") {
     status = "Picked";
+  } else if (
+    normalizedStatus === "partialy_packed" ||
+    normalizedStatus === "partially_packed" ||
+    normalizedStatus === "partial_packed"
+  ) {
+    status = "Partialy packed";
   } else if (normalizedStatus === "packing") {
     status = "Packing";
   } else if (
     normalizedStatus === "ready_to_assign" ||
+    normalizedStatus === "ready_assign" ||
     normalizedStatus === "readytoassign" ||
     normalizedStatus === "to_deliver" ||
     normalizedStatus === "packed"
@@ -740,12 +794,23 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     normalizedStatus === "out_for_delivery" ||
     normalizedStatus === "in_delivery" ||
     normalizedStatus === "started" ||
+    normalizedStatus === "driver_started" ||
     normalizedStatus === "driver_accepted"
   ) {
     status = "Started";
   } else if (
+    normalizedStatus === "partialy_deliverd" ||
+    normalizedStatus === "partialy_delivered" ||
+    normalizedStatus === "partially_delivered" ||
+    normalizedStatus === "partially_deliverd" ||
+    normalizedStatus === "partial_delivered" ||
+    normalizedStatus === "partial_deliverd"
+  ) {
+    status = "Partialy delivered";
+  } else if (
     normalizedStatus === "delivered" ||
-    normalizedStatus === "completed" ||
+    normalizedStatus === "delivered_completed" ||
+    (normalizedStatus === "completed" && !hasInstall) ||
     normalizedStatus === "to_bill"
   ) {
     status = "Delivered";
@@ -770,8 +835,22 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
       ? raw.pickers.map((p: any) => p.name).join(", ")
       : raw.assigned_user?.name || null;
 
-  const packerName =
-    raw.packers && raw.packers.length > 0 ? raw.packers.map((p: any) => p.name).join(", ") : null;
+  const rawPackerName =
+    (raw.packers && raw.packers.length > 0 ? raw.packers.map((p: any) => p.name).join(", ") : null) ||
+    raw.packer_user?.name ||
+    raw.assigned_packer?.name ||
+    raw.packer_name ||
+    (typeof raw.packer === "string" && raw.packer.trim().toLowerCase() !== "unassigned" ? raw.packer.trim() : null) ||
+    (typeof raw.custom_packer === "string" && raw.custom_packer.trim() ? raw.custom_packer.trim() : null) ||
+    (raw.packer_assignment?.user?.name ?? null);
+
+  let packerName = rawPackerName;
+  if (!packerName && Array.isArray(raw.items) && raw.items.length > 0) {
+    const itemPacker = raw.items.find((i: any) => i.packed_user_name || i.packed_by);
+    if (itemPacker) {
+      packerName = itemPacker.packed_user_name || (itemPacker.packed_by ? `Packer #${itemPacker.packed_by}` : null);
+    }
+  }
 
   const totalItems =
     raw.summary?.total_items ??
@@ -1070,14 +1149,14 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
     },
     coordinator: "-",
     driver: (() => {
-      const d = raw.driver_user?.name || raw.assigned_user_name || raw.driver_name;
+      const d = raw.driver_user?.name || raw.driver_assignment?.driver_name || raw.driver_name || raw.custom_driver || (typeof raw.driver === "string" ? raw.driver : null);
       if (!d || typeof d !== "string" || d.trim().toLowerCase() === "unassigned") return null;
       return d.trim();
     })(),
     driverStatus: (() => {
-      const d = raw.driver_user?.name || raw.assigned_user_name || raw.driver_name;
+      const d = raw.driver_user?.name || raw.driver_assignment?.driver_name || raw.driver_name || raw.custom_driver || (typeof raw.driver === "string" ? raw.driver : null);
       if (!d || typeof d !== "string" || d.trim().toLowerCase() === "unassigned") return null;
-      return "Assigned";
+      return raw.driver_assignment?.driver_status || "Assigned";
     })(),
     picker: pickerName,
     packer: packerName,
@@ -1311,17 +1390,22 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
       raw.is_installation ||
       rawStatus === "installation" ||
       normalizedStatus === "installation" ||
-      (Array.isArray(raw.items) &&
-        raw.items.some(
+      (Array.isArray(sourceRawItems) &&
+        sourceRawItems.some(
           (i: any) =>
             i.is_installable === true ||
             i.is_installable === 1 ||
             i.is_installable === "1" ||
             i.is_installable === "true" ||
+            i.is_inst === true ||
+            i.is_inst === 1 ||
+            i.is_inst === "1" ||
             i.custom_is_installable === 1 ||
             i.custom_is_installable === true ||
             i.requires_installation === true ||
             Boolean(i.installation_type) ||
+            Boolean(i.inst_type) ||
+            Boolean(i.inst_lvl) ||
             Boolean(i.installation),
         )),
     ),
@@ -1330,17 +1414,22 @@ export function mapLaravelOrderToDashboardOrder(raw: any): Order {
         ? raw.summary.installation_items
         : typeof raw.installation_items === "number"
           ? raw.installation_items
-          : Array.isArray(raw.items)
-            ? raw.items.filter(
+          : Array.isArray(sourceRawItems)
+            ? sourceRawItems.filter(
                 (i: any) =>
                   i.is_installable === true ||
                   i.is_installable === 1 ||
                   i.is_installable === "1" ||
                   i.is_installable === "true" ||
+                  i.is_inst === true ||
+                  i.is_inst === 1 ||
+                  i.is_inst === "1" ||
                   i.custom_is_installable === 1 ||
                   i.custom_is_installable === true ||
                   i.requires_installation === true ||
                   Boolean(i.installation_type) ||
+                  Boolean(i.inst_type) ||
+                  Boolean(i.inst_lvl) ||
                   Boolean(i.installation),
               ).length
             : 0,

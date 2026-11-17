@@ -19,6 +19,7 @@ import {
   TrendingUp,
   Truck,
   Zap,
+  ClipboardList,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -26,15 +27,11 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { useOrders, useFlaggedOrders, useScheduledItems } from "@/hooks/useOrders";
 import { matchesLegacyTab } from "@/lib/orders";
+import { useOperationTasks } from "@/lib/tasks";
 import { getSnapshot as getScheduledSnapshot } from "@/lib/scheduled-installations";
 import { hasAppointment } from "@/lib/scheduling";
 import { useSidebarCollapse } from "@/hooks/useSidebarCollapse";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,37 +72,30 @@ function SidebarContent({
     const isSchedulingPage = ["/customer-care", "/locations", "/calendars"].includes(pathname);
     return {
       "After-Sales Operations": false,
-      "Scheduling": isSchedulingPage,
+      Scheduling: isSchedulingPage,
     };
   });
 
   /* ── Dynamic sidebar counts ───────────────────────────── */
-  const expressCount = orders.filter(
-    (order) => matchesLegacyTab(order, "Express"),
+  const expressCount = orders.filter((order) => matchesLegacyTab(order, "Express")).length;
+  const pickingCount = orders.filter((order) => matchesLegacyTab(order, "Picking")).length;
+  const packingCount = orders.filter((order) => matchesLegacyTab(order, "Packing")).length;
+  const inDeliveryCount = orders.filter((order) => matchesLegacyTab(order, "In Delivery")).length;
+  const readyToAssignCount = orders.filter((order) =>
+    matchesLegacyTab(order, "Ready to Assign"),
   ).length;
-  const pickingCount = orders.filter(
-    (order) => matchesLegacyTab(order, "Picking"),
-  ).length;
-  const packingCount = orders.filter(
-    (order) => matchesLegacyTab(order, "Packing"),
-  ).length;
-  const inDeliveryCount = orders.filter(
-    (order) => matchesLegacyTab(order, "In Delivery"),
-  ).length;
-  const readyToAssignCount = orders.filter(
-    (order) => matchesLegacyTab(order, "Ready to Assign"),
-  ).length;
-  const deliveredCount = orders.filter(
-    (order) => matchesLegacyTab(order, "Delivered"),
-  ).length;
-  const flaggedOrderCount = flaggedResult?.pagination?.total ?? orders.filter(
-    (order) => order.status === "Flagged" || order.status === "Delivery Failed",
-  ).length;
+  const deliveredCount = orders.filter((order) => matchesLegacyTab(order, "Delivered")).length;
+  const flaggedOrderCount =
+    flaggedResult?.pagination?.total ??
+    orders.filter((order) => matchesLegacyTab(order, "Flags & Exceptions")).length;
   const returnsCount = orders.filter(
     (o) => Boolean(o.returns) || o.status === "Replacement" || o.status === "Exchange",
   ).length;
 
-  const { data: awaitingScheduledData } = useScheduledItems({ is_scheduled_assigned: 1, per_page: 100 });
+  const { data: awaitingScheduledData } = useScheduledItems({
+    is_scheduled_assigned: 1,
+    per_page: 100,
+  });
   const ccQueueCount = awaitingScheduledData?.data
     ? awaitingScheduledData.data.filter((item) => {
         const isScheduled = Boolean(
@@ -113,7 +103,7 @@ function SidebarContent({
           item.installation?.is_scheduled_assigned === true ||
           (item as any).is_scheduled === true ||
           String(item.is_scheduled_assigned) === "1" ||
-          String(item.installation?.is_scheduled_assigned) === "1"
+          String(item.installation?.is_scheduled_assigned) === "1",
         );
         if (!isScheduled) return false;
         const orderIdStr = String(item.order_id || item.order_number || "").replace(/^#/, "");
@@ -128,24 +118,80 @@ function SidebarContent({
     : (awaitingScheduledData?.pagination?.total ?? 0);
 
   const scheduledCount = getScheduledSnapshot().length;
+  const { openTasksCount } = useOperationTasks();
 
   const items = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
-    { title: "Orders", url: "/orders", search: { tab: "New" }, icon: Package, badge: orders.length.toString() },
-    { title: "Express", url: "/orders", search: { tab: "Express" }, icon: Zap, badge: expressCount.toString() },
-    { title: "Picking", url: "/orders", search: { tab: "Picking" }, icon: PackageSearch, badge: pickingCount.toString() },
-    { title: "Packing", url: "/orders", search: { tab: "Packing" }, icon: Boxes, badge: packingCount.toString() },
-    { title: "Ready to Assign", url: "/orders", search: { tab: "Ready to Assign" }, icon: ClipboardCheck, badge: readyToAssignCount.toString() },
-    { title: "In Delivery", url: "/orders", search: { tab: "In Delivery" }, icon: Truck, badge: inDeliveryCount.toString() },
-    { title: "Delivered", url: "/orders", search: { tab: "Delivered" }, icon: CheckCircle2, badge: deliveredCount.toString() },
-    { title: "Flags & Exceptions", url: "/orders", search: { tab: "Flags & Exceptions" }, icon: Flag, badge: flaggedOrderCount.toString(), danger: true },
-    { title: "Scheduled Installation", url: "/scheduled", icon: Wrench, badge: scheduledCount.toString() },
+    {
+      title: "Orders",
+      url: "/orders",
+      search: { tab: "New" },
+      icon: Package,
+      badge: orders.length.toString(),
+    },
+    {
+      title: "Express",
+      url: "/orders",
+      search: { tab: "Express" },
+      icon: Zap,
+      badge: expressCount.toString(),
+    },
+    { title: "My Tasks", url: "/my-tasks", icon: ClipboardList, badge: openTasksCount.toString() },
+    {
+      title: "Picking",
+      url: "/orders",
+      search: { tab: "Picking" },
+      icon: PackageSearch,
+      badge: pickingCount.toString(),
+    },
+    {
+      title: "Packing",
+      url: "/orders",
+      search: { tab: "Packing" },
+      icon: Boxes,
+      badge: packingCount.toString(),
+    },
+    {
+      title: "Ready to Assign",
+      url: "/orders",
+      search: { tab: "Ready to Assign" },
+      icon: ClipboardCheck,
+      badge: readyToAssignCount.toString(),
+    },
+    {
+      title: "In Delivery",
+      url: "/orders",
+      search: { tab: "In Delivery" },
+      icon: Truck,
+      badge: inDeliveryCount.toString(),
+    },
+    {
+      title: "Delivered",
+      url: "/orders",
+      search: { tab: "Delivered" },
+      icon: CheckCircle2,
+      badge: deliveredCount.toString(),
+    },
+    {
+      title: "Flags & Exceptions",
+      url: "/orders",
+      search: { tab: "Flags & Exceptions" },
+      icon: Flag,
+      badge: flaggedOrderCount.toString(),
+      danger: true,
+    },
+    {
+      title: "Scheduled Installation",
+      url: "/scheduled",
+      icon: Wrench,
+      badge: scheduledCount.toString(),
+    },
     {
       title: "Scheduling",
       icon: CalendarDays,
       subItems: [
         { title: "Customer Care Queue", url: "/customer-care", badge: ccQueueCount.toString() },
-        { title: "Locations & Teams", url: "/locations" },
+        // { title: "Locations & Teams", url: "/locations" },
         { title: "Team Calendars", url: "/calendars" },
       ],
     },
@@ -153,13 +199,33 @@ function SidebarContent({
       title: "After-Sales Operations",
       icon: RotateCcw,
       subItems: [
-        { title: "Delivery Failed", url: "/orders", search: { tab: "Delivery Failed" }, badge: orders.filter(o => o.status === "Delivery Failed").length.toString() },
-        { title: "Returns & Replacements", url: "/orders", search: { tab: "Returns & Replacements" }, badge: returnsCount.toString() },
-        { title: "Replacement", url: "/orders", search: { tab: "Replacement" }, badge: orders.filter(o => o.status === "Replacement").length.toString() },
-        { title: "Exchange", url: "/orders", search: { tab: "Exchange" }, badge: orders.filter(o => o.status === "Exchange").length.toString() },
+        {
+          title: "Delivery Failed",
+          url: "/orders",
+          search: { tab: "Delivery Failed" },
+          badge: orders.filter((o) => o.status === "Delivery Failed").length.toString(),
+        },
+        {
+          title: "Returns & Replacements",
+          url: "/orders",
+          search: { tab: "Returns & Replacements" },
+          badge: returnsCount.toString(),
+        },
+        {
+          title: "Replacement",
+          url: "/orders",
+          search: { tab: "Replacement" },
+          badge: orders.filter((o) => o.status === "Replacement").length.toString(),
+        },
+        {
+          title: "Exchange",
+          url: "/orders",
+          search: { tab: "Exchange" },
+          badge: orders.filter((o) => o.status === "Exchange").length.toString(),
+        },
       ],
     },
-    { title: "Warehouses", url: "/warehouses", icon: Warehouse },
+    // { title: "Warehouses", url: "/warehouses", icon: Warehouse },
     { title: "Reports", url: "/reports", icon: BarChart3 },
     { title: "MIS Benchmarks", url: "/mis-benchmarks", icon: TrendingUp },
     { title: "Settings", url: "/settings", icon: Settings },
@@ -170,9 +236,7 @@ function SidebarContent({
     if (collapsed) {
       if (item.subItems) {
         const isAnySubActive = item.subItems.some(
-          (sub: any) =>
-            pathname === sub.url &&
-            (!sub.search || sub.search.tab === search?.tab)
+          (sub: any) => pathname === sub.url && (!sub.search || sub.search.tab === search?.tab),
         );
         const Icon = item.icon;
         const totalSubBadge = item.subItems.reduce((acc: number, sub: any) => {
@@ -192,7 +256,7 @@ function SidebarContent({
                         "group relative flex h-10 w-10 items-center justify-center rounded-xl transition-all cursor-pointer outline-none select-none",
                         isAnySubActive
                           ? "bg-sidebar-accent text-primary shadow-soft ring-1 ring-primary/25 border-l-2 border-primary"
-                          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+                          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
                       )}
                       aria-label={item.title}
                     >
@@ -210,15 +274,19 @@ function SidebarContent({
                 </TooltipContent>
               </Tooltip>
 
-              <DropdownMenuContent side="right" align="start" sideOffset={12} className="w-56 p-1.5 shadow-xl border-border bg-popover text-popover-foreground rounded-xl z-50">
+              <DropdownMenuContent
+                side="right"
+                align="start"
+                sideOffset={12}
+                className="w-56 p-1.5 shadow-xl border-border bg-popover text-popover-foreground rounded-xl z-50"
+              >
                 <DropdownMenuLabel className="px-2.5 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   {item.title}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator className="my-1" />
                 {item.subItems.map((sub: any) => {
                   const isSubActive =
-                    pathname === sub.url &&
-                    (!sub.search || sub.search.tab === search?.tab);
+                    pathname === sub.url && (!sub.search || sub.search.tab === search?.tab);
                   return (
                     <DropdownMenuItem asChild key={sub.title}>
                       <Link
@@ -228,7 +296,7 @@ function SidebarContent({
                           "flex items-center justify-between px-2.5 py-2 text-xs font-medium rounded-lg cursor-pointer",
                           isSubActive
                             ? "bg-accent text-accent-foreground font-semibold"
-                            : "hover:bg-accent/50"
+                            : "hover:bg-accent/50",
                         )}
                       >
                         <span>{sub.title}</span>
@@ -248,7 +316,8 @@ function SidebarContent({
       }
 
       const active = item.search
-        ? pathname === item.url && (search?.tab === item.search.tab || (!search?.tab && item.search.tab === "New"))
+        ? pathname === item.url &&
+          (search?.tab === item.search.tab || (!search?.tab && item.search.tab === "New"))
         : item.url === "/orders"
           ? pathname === "/orders" && (!search?.tab || search?.tab === "New")
           : pathname === item.url;
@@ -265,7 +334,7 @@ function SidebarContent({
                   "group relative flex h-10 w-10 items-center justify-center rounded-xl transition-all cursor-pointer select-none",
                   active
                     ? "bg-sidebar-accent text-primary shadow-soft ring-1 ring-primary/25 border-l-2 border-primary"
-                    : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+                    : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
                 )}
                 aria-label={item.title}
               >
@@ -276,7 +345,7 @@ function SidebarContent({
                       "absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full text-[9px] font-bold grid place-items-center shadow-xs border border-sidebar",
                       item.danger
                         ? "bg-destructive text-destructive-foreground"
-                        : "bg-primary text-primary-foreground"
+                        : "bg-primary text-primary-foreground",
                     )}
                   >
                     {parseInt(item.badge) > 99 ? "99+" : item.badge}
@@ -284,7 +353,11 @@ function SidebarContent({
                 )}
               </Link>
             </TooltipTrigger>
-            <TooltipContent side="right" sideOffset={12} className="flex items-center gap-2 font-medium text-xs">
+            <TooltipContent
+              side="right"
+              sideOffset={12}
+              className="flex items-center gap-2 font-medium text-xs"
+            >
               <span>{item.title}</span>
               {item.badge && item.badge !== "0" && (
                 <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-primary/20 text-primary-foreground font-bold">
@@ -304,19 +377,23 @@ function SidebarContent({
       return (
         <div key={item.title} className="flex flex-col gap-1 my-1">
           <button
-            onClick={() => setOpenGroups(prev => ({ ...prev, [item.title]: !isOpen }))}
+            onClick={() => setOpenGroups((prev) => ({ ...prev, [item.title]: !isOpen }))}
             className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground cursor-pointer"
           >
             <Icon className="h-4.5 w-4.5" strokeWidth={2} />
             <span className="flex-1 text-left">{item.title}</span>
-            <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", isOpen ? "rotate-180" : "rotate-0")} />
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 transition-transform duration-200",
+                isOpen ? "rotate-180" : "rotate-0",
+              )}
+            />
           </button>
           {isOpen && (
             <div className="pl-9 space-y-1 mt-1">
               {item.subItems.map((sub: any) => {
                 const isSubActive =
-                  pathname === sub.url &&
-                  (!sub.search || sub.search.tab === search?.tab);
+                  pathname === sub.url && (!sub.search || sub.search.tab === search?.tab);
                 const link = (
                   <Link
                     key={sub.title}
@@ -326,7 +403,7 @@ function SidebarContent({
                       "flex items-center justify-between rounded-xl px-3 py-2 text-sm font-medium transition-all cursor-pointer",
                       isSubActive
                         ? "bg-sidebar-accent text-primary font-semibold"
-                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
                     )}
                   >
                     <span>{sub.title}</span>
@@ -337,7 +414,13 @@ function SidebarContent({
                     )}
                   </Link>
                 );
-                return closeOnNavigate ? <SheetClose asChild key={sub.title}>{link}</SheetClose> : link;
+                return closeOnNavigate ? (
+                  <SheetClose asChild key={sub.title}>
+                    {link}
+                  </SheetClose>
+                ) : (
+                  link
+                );
               })}
             </div>
           )}
@@ -346,7 +429,8 @@ function SidebarContent({
     }
 
     const active = item.search
-      ? pathname === item.url && (search?.tab === item.search.tab || (!search?.tab && item.search.tab === "New"))
+      ? pathname === item.url &&
+        (search?.tab === item.search.tab || (!search?.tab && item.search.tab === "New"))
       : item.url === "/orders"
         ? pathname === "/orders" && (!search?.tab || search?.tab === "New")
         : pathname === item.url;
@@ -375,9 +459,7 @@ function SidebarContent({
           <span
             className={cn(
               "min-w-[22px] h-5 px-1.5 rounded-full text-[10px] font-semibold grid place-items-center",
-              item.danger
-                ? "bg-destructive/12 text-destructive"
-                : "bg-primary/12 text-primary",
+              item.danger ? "bg-destructive/12 text-destructive" : "bg-primary/12 text-primary",
             )}
           >
             {item.badge}
@@ -421,7 +503,11 @@ function SidebarContent({
         <div className="flex items-center justify-between px-5 py-5 border-b border-sidebar-border/50">
           <Link to="/" className="group flex items-center">
             <div className="relative transition-transform duration-300 group-hover:scale-[1.02]">
-              <img src={HALAMAMA_LOGO_URL} alt="Halamama" className="h-auto w-full max-w-[125px] object-contain" />
+              <img
+                src={HALAMAMA_LOGO_URL}
+                alt="Halamama"
+                className="h-auto w-full max-w-[125px] object-contain"
+              />
             </div>
           </Link>
           {onToggle && (
@@ -440,7 +526,12 @@ function SidebarContent({
 
       {/* ── Navigation Links ─────────────────────────────────── */}
       <TooltipProvider delayDuration={100}>
-        <nav className={cn("flex-1 space-y-1 overflow-y-auto overflow-x-hidden scrollbar-none", collapsed ? "px-2 py-4" : "px-3 py-6")}>
+        <nav
+          className={cn(
+            "flex-1 space-y-1 overflow-y-auto overflow-x-hidden scrollbar-none",
+            collapsed ? "px-2 py-4" : "px-3 py-6",
+          )}
+        >
           {!collapsed && (
             <div className="px-3 pb-3 text-[10px] uppercase font-bold tracking-widest text-sidebar-foreground/50">
               Operations
@@ -458,7 +549,7 @@ function SidebarContent({
             onClick={onToggle}
             className={cn(
               "flex w-full items-center rounded-xl p-2 text-xs font-medium text-sidebar-foreground/65 transition-all hover:bg-sidebar-accent hover:text-sidebar-foreground cursor-pointer select-none",
-              collapsed ? "justify-center" : "justify-between px-3"
+              collapsed ? "justify-center" : "justify-between px-3",
             )}
             title={collapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -492,7 +583,7 @@ export function AppSidebar() {
     <aside
       className={cn(
         "hidden lg:flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar h-screen sticky top-0 transition-[width] duration-300 ease-in-out z-20 overflow-x-hidden",
-        collapsed ? "w-[72px]" : "w-64"
+        collapsed ? "w-[72px]" : "w-64",
       )}
     >
       <SidebarContent collapsed={collapsed} onToggle={toggle} />

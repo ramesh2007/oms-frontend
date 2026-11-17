@@ -13,9 +13,15 @@ export type OrderStatus =
   | "Unfulfilled"
   | "Picking"
   | "Picked"
+  | "Partialy picked"
+  | "Partially Picked"
   | "Packing"
+  | "Partialy packed"
+  | "Partially Packed"
+  | "Packed"
   | "Ready to Assign"
   | "Driver Accepted"
+  | "Assigned to driver"
   | "Started"
   | "Delivered"
   | "Delivery Failed"
@@ -29,7 +35,12 @@ const config: Record<string, { label: string; varName: string }> = {
   // Short keys (legacy dashboard table)
   new: { label: "New", varName: "--status-new" },
   picked: { label: "Picked", varName: "--status-picked" },
+  partialy_picked: { label: "Partially Picked", varName: "--status-picked" },
+  partially_picked: { label: "Partially Picked", varName: "--status-picked" },
+  packing: { label: "Packing", varName: "--status-packed" },
   packed: { label: "Packing", varName: "--status-packed" },
+  partialy_packed: { label: "Partially Packed", varName: "--status-packed" },
+  partially_packed: { label: "Partially Packed", varName: "--status-packed" },
   ready: { label: "Ready to Assign", varName: "--status-ready" },
   out: { label: "Out for Delivery", varName: "--status-out" },
   delivered: { label: "Delivered", varName: "--status-delivered" },
@@ -39,13 +50,24 @@ const config: Record<string, { label: string; varName: string }> = {
   Unfulfilled: { label: "Unfulfilled", varName: "--status-new" },
   Picking: { label: "Picking", varName: "--status-picked" },
   Picked: { label: "Picked", varName: "--status-picked" },
+  "Partialy picked": { label: "Partially Picked", varName: "--status-picked" },
+  "Partially Picked": { label: "Partially Picked", varName: "--status-picked" },
   Packing: { label: "Packing", varName: "--status-packed" },
+  "Partialy packed": { label: "Partially Packed", varName: "--status-packed" },
+  "Partially Packed": { label: "Partially Packed", varName: "--status-packed" },
+  Packed: { label: "Packed", varName: "--status-packed" },
   "Ready to Assign": { label: "Ready to Assign", varName: "--status-ready" },
   "Driver Accepted": { label: "Driver Accepted", varName: "--status-out" },
-  assigned_to_driver: { label: "Driver Accepted", varName: "--status-out" },
-  partial_assigned_driver: { label: "Driver Accepted", varName: "--status-out" },
-  "In Delivery": { label: "Out for Delivery", varName: "--status-out" },
-  Started: { label: "Out for Delivery", varName: "--status-out" },
+  "Assigned to driver": { label: "Assigned to driver", varName: "--status-out" },
+  assigned_to_driver: { label: "Assigned to driver", varName: "--status-out" },
+  partial_assigned_driver: { label: "Assigned to driver", varName: "--status-out" },
+  "In Delivery": { label: "In Delivery", varName: "--status-out" },
+  Started: { label: "Started", varName: "--status-out" },
+  started: { label: "Started", varName: "--status-out" },
+  "Partialy delivered": { label: "Partially Delivered", varName: "--status-out" },
+  "Partially Delivered": { label: "Partially Delivered", varName: "--status-out" },
+  partialy_deliverd: { label: "Partially Delivered", varName: "--status-out" },
+  partially_delivered: { label: "Partially Delivered", varName: "--status-out" },
   Delivered: { label: "Delivered", varName: "--status-delivered" },
   "Delivery Failed": { label: "Failed", varName: "--status-failed" },
   Flagged: { label: "Flagged", varName: "--status-failed" },

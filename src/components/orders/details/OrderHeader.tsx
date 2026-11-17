@@ -179,15 +179,21 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
 
   const handleAction = async (
     actionName: string,
-    actionFn: () => Promise<void>
+    actionFn: () => Promise<void>,
+    customSuccessTitle?: string,
+    customSuccessDesc?: string
   ) => {
     setActionsLoading(true);
     try {
       await actionFn();
-      toast.success(`${actionName} completed successfully`);
+      toast.success(customSuccessTitle || "Action Completed", {
+        description: customSuccessDesc || `${actionName} completed successfully.`,
+      });
       queryClient.invalidateQueries({ queryKey: orderKeys.all });
     } catch (err: any) {
-      toast.error(err?.message || `Failed to perform action: ${actionName}`);
+      toast.error(`${actionName} Failed`, {
+        description: err?.message || `Failed to perform ${actionName}. Please try again.`,
+      });
       console.error(err);
     } finally {
       setActionsLoading(false);
@@ -253,11 +259,32 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
     (order as any).driverStatus === "Delivered"
   );
 
+  const isAssignedToDriver = Boolean(
+    !isDelivered &&
+    order.status !== "Cancelled" &&
+    order.status !== "Delivery Failed" &&
+    (
+      order.status === "Assigned to driver" ||
+      (order.status as string) === "Assigned to Driver" ||
+      order.status === "Driver Accepted" ||
+      normalizedOrderStatus === "assigned_to_driver" ||
+      normalizedOrderStatus === "driver_accepted" ||
+      (order as any).backend_status === "assigned_to_driver" ||
+      (order as any).backend_status === "partial_assigned_driver" ||
+      (order as any).rawOrder?.status === "assigned_to_driver" ||
+      (order as any).rawOrder?.status === "partial_assigned_driver" ||
+      ((order as any).driverStatus === "Assigned" && order.status !== "Ready to Assign")
+    )
+  );
+
+  const displayStatus = isAssignedToDriver ? "Assigned to driver" : order.status;
+
   const isInDelivery = Boolean(
     !isDelivered &&
     order.status !== "Ready to Assign" &&
     String(order.status || "").toLowerCase() !== "ready to assign" &&
     (
+      isAssignedToDriver ||
       (order as any).backend_status === "assigned_to_driver" ||
       (order as any).backend_status === "partial_assigned_driver" ||
       (order as any).rawOrder?.status === "assigned_to_driver" ||
@@ -309,18 +336,22 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
             <div className="flex flex-wrap items-center gap-2.5 mt-2">
               {/* Dynamic Status Badge */}
               <div className={cn(
-                "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider ring-1 ring-inset shadow-sm",
+                "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ring-inset shadow-sm",
                 order.status === "Delivered" ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20" :
                   order.status === "Delivery Failed" || order.status === "Cancelled" ? "bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/20" :
-                    order.status === "Started" || order.status === "Driver Accepted" ? "bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20" :
+                    isAssignedToDriver || order.status === "Started" || order.status === "Driver Accepted" ? "bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20" :
                       order.status === "Ready to Assign" ? "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20" :
-                        "bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-500/10 dark:text-gray-400 dark:ring-gray-500/20"
+                        order.status === "Picked" || order.status === "Partialy picked" || (order.status as string) === "Partially Picked" ? "bg-violet-50 text-violet-700 ring-violet-600/20 dark:bg-violet-500/10 dark:text-violet-400 dark:ring-violet-500/20" :
+                          order.status === "Packing" || order.status === "Packed" || order.status === "Partialy packed" || (order.status as string) === "Partially Packed" ? "bg-indigo-50 text-indigo-700 ring-indigo-600/20 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/20" :
+                            "bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-500/10 dark:text-gray-400 dark:ring-gray-500/20"
               )}>
                 {order.status === "Delivered" ? <CheckCircle2 className="h-4 w-4" /> :
                   order.status === "Delivery Failed" || order.status === "Cancelled" ? <XCircle className="h-4 w-4" /> :
-                    order.status === "Started" ? <Clock className="h-4 w-4" /> :
-                      <Package className="h-4 w-4" />}
-                {order.status}
+                    isAssignedToDriver ? <Truck className="h-4 w-4" /> :
+                      order.status === "Started" ? <Clock className="h-4 w-4" /> :
+                        order.status === "Picked" || order.status === "Partialy picked" || (order.status as string) === "Partially Picked" ? <PackageCheck className="h-4 w-4" /> :
+                          <Package className="h-4 w-4" />}
+                {displayStatus}
               </div>
 
               {/* Fulfilled Badge for Delivered orders */}
@@ -397,7 +428,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                 }}
               >
                 <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                Cancel Order
+                To be Cancelled
               </Button>
             )}
 
@@ -468,9 +499,37 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   {(() => {
                     const isNewStage = !isDelivered && ["New", "Unfulfilled"].includes(order.status);
                     const isPickingStage = !isDelivered && order.status === "Picking";
-                    const isPickedStage = !isDelivered && order.status === "Picked";
-                    const isPackingStage = !isDelivered && order.status === "Packing";
-                    const isReadyToAssignStage = !isDelivered && order.status === "Ready to Assign";
+                    const isPickedStage =
+                      !isDelivered &&
+                      (order.status === "Picked" ||
+                        order.status === "Partialy picked" ||
+                        (order.status as string) === "Partially Picked" ||
+                        normalizedOrderStatus === "picked" ||
+                        normalizedOrderStatus === "partialy_picked" ||
+                        normalizedOrderStatus === "partially_picked");
+                    const isPackingStage =
+                      !isDelivered &&
+                      (order.status === "Packing" ||
+                        order.status === "Packed" ||
+                        order.status === "Partialy packed" ||
+                        (order.status as string) === "Partially Packed" ||
+                        normalizedOrderStatus === "packing" ||
+                        normalizedOrderStatus === "packed" ||
+                        normalizedOrderStatus === "partialy_packed" ||
+                        normalizedOrderStatus === "partially_packed");
+                    const isReadyToAssignStage =
+                      !isDelivered &&
+                      (order.status === "Ready to Assign" ||
+                        order.status === "Packed" ||
+                        order.status === "Partialy packed" ||
+                        (order.status as string) === "Partially Packed" ||
+                        normalizedOrderStatus === "ready_to_assign" ||
+                        normalizedOrderStatus === "ready_assign" ||
+                        normalizedOrderStatus === "readytoassign" ||
+                        normalizedOrderStatus === "packed" ||
+                        normalizedOrderStatus === "partial_packed" ||
+                        normalizedOrderStatus === "partialy_packed" ||
+                        normalizedOrderStatus === "partially_packed");
                     const isDriverStage = !isDelivered && ["Driver Accepted", "Started", "Delivery Failed"].includes(order.status);
                     const isOtherStage = !isDelivered && !isNewStage && !isPickingStage && !isPickedStage && !isPackingStage && !isReadyToAssignStage && !isDriverStage;
 
@@ -680,13 +739,15 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                         </DropdownMenuGroup>
 
                         {/* ── Warehouse Actions ── */}
-                        {!isDelivered && (
+                        {!isDelivered && order.status !== "Cancelled" && (
                           <>
                             <DropdownMenuSeparator className="my-1.5" />
                             <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
                               Warehouse
                             </DropdownMenuLabel>
                             <DropdownMenuGroup>
+                              {/* Bypass Warehouse (Direct) - temporarily hidden as requested */}
+                              {/*
                               <DropdownMenuItem
                                 className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
                                 onClick={() => {
@@ -700,21 +761,20 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                                 </div>
                                 Bypass Warehouse (Direct)
                               </DropdownMenuItem>
-                              {order.status !== "Cancelled" && (
-                                <DropdownMenuItem
-                                  className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-destructive focus:text-destructive"
-                                  onClick={() => {
-                                    setCancelReason("");
-                                    setSelectedCancelItems([]);
-                                    setCancelAllocationOpen(true);
-                                  }}
-                                >
-                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
-                                    <XCircle className="h-3.5 w-3.5" />
-                                  </div>
-                                  Cancel Order
-                                </DropdownMenuItem>
-                              )}
+                              */}
+                              <DropdownMenuItem
+                                className="gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-destructive focus:text-destructive"
+                                onClick={() => {
+                                  setCancelReason("");
+                                  setSelectedCancelItems([]);
+                                  setCancelAllocationOpen(true);
+                                }}
+                              >
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
+                                  <XCircle className="h-3.5 w-3.5" />
+                                </div>
+                                {isInDelivery ? "To be Cancelled" : "Cancel Order"}
+                              </DropdownMenuItem>
                             </DropdownMenuGroup>
                           </>
                         )}
@@ -921,45 +981,54 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
             <Button
               onClick={() => {
                 if (!selectedPicker) {
-                  toast.error("Please select a picker");
+                  toast.error("No Picker Selected", {
+                    description: "Please choose a warehouse picker from the dropdown before confirming.",
+                  });
                   return;
                 }
                 if (selectedPickerItems.length === 0) {
-                  toast.error("Please select at least one item to assign");
+                  toast.error("No Items Selected", {
+                    description: "Please select at least one item to assign to the picker.",
+                  });
                   return;
                 }
                 setOverrideOpen(false);
-                handleAction("Force to Picking", async () => {
-                  const pickerObj = (pickersList.length > 0 ? pickersList : users).find(
-                    (p) => p.id === selectedPicker || p.email === selectedPicker || p.name === selectedPicker
-                  );
-                  const pickerId = pickerObj
-                    ? (!isNaN(Number(pickerObj.id)) ? Number(pickerObj.id) : null)
-                    : (!isNaN(Number(selectedPicker)) ? Number(selectedPicker) : null);
-                  const pickerName = pickerObj
-                    ? (pickerObj.email || pickerObj.name)
-                    : selectedPicker;
+                const pickerObj = (pickersList.length > 0 ? pickersList : users).find(
+                  (p) => p.id === selectedPicker || p.email === selectedPicker || p.name === selectedPicker
+                );
+                const pickerId = pickerObj
+                  ? (!isNaN(Number(pickerObj.id)) ? Number(pickerObj.id) : null)
+                  : (!isNaN(Number(selectedPicker)) ? Number(selectedPicker) : null);
+                const pickerName = pickerObj
+                  ? (pickerObj.email || pickerObj.name)
+                  : selectedPicker;
 
-                  const lineItemsPayload = order.itemsList
-                    ?.filter((i) => selectedPickerItems.includes(i.id) || (i.line_item_id && selectedPickerItems.includes(String(i.line_item_id))))
-                    .map((i) => ({
-                      id: !isNaN(Number(i.line_item_id ?? i.id)) ? Number(i.line_item_id ?? i.id) : (i.line_item_id ?? i.id),
-                      item_id: i.item_id,
-                      line_item_id: String(i.line_item_id ?? i.id),
-                    }));
+                handleAction(
+                  "Assign Picker",
+                  async () => {
+                    const lineItemsPayload = order.itemsList
+                      ?.filter((i) => selectedPickerItems.includes(i.id) || (i.line_item_id && selectedPickerItems.includes(String(i.line_item_id))))
+                      .map((i) => ({
+                        id: !isNaN(Number(i.line_item_id ?? i.id)) ? Number(i.line_item_id ?? i.id) : (i.line_item_id ?? i.id),
+                        item_id: i.item_id,
+                        line_item_id: String(i.line_item_id ?? i.id),
+                      }));
 
-                  const res = await ordersApi.assignPickerItems(
-                    order.id,
-                    pickerId !== null ? pickerId : selectedPicker,
-                    selectedPickerItems,
-                    pickerName,
-                    lineItemsPayload
-                  );
-                  if (res && res.success === false) {
-                    throw new Error(res.message || "Failed to assign picker");
-                  }
-                  navigate({ to: "/orders", search: { tab: "Picking" } as any });
-                });
+                    const res = await ordersApi.assignPickerItems(
+                      order.id,
+                      pickerId !== null ? pickerId : selectedPicker,
+                      selectedPickerItems,
+                      pickerName,
+                      lineItemsPayload
+                    );
+                    if (res && res.success === false) {
+                      throw new Error(res.message || "Failed to assign picker");
+                    }
+                    navigate({ to: "/orders", search: { tab: "Picking" } as any });
+                  },
+                  "Picker Assigned Successfully",
+                  `Assigned picker ${pickerName} to ${selectedPickerItems.length} item(s). Order moved to "Picking".`
+                );
               }}
               disabled={!selectedPicker || selectedPickerItems.length === 0 || actionsLoading}
               className="rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/95 transition-all shadow-md"
@@ -1074,25 +1143,34 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
             <Button
               onClick={() => {
                 if (!selectedPacker) {
-                  toast.error("Please select a packer");
+                  toast.error("No Packer Selected", {
+                    description: "Please choose a warehouse packer from the dropdown before confirming.",
+                  });
                   return;
                 }
                 if (selectedPackerItems.length === 0) {
-                  toast.error("Please select at least one item to assign");
+                  toast.error("No Items Selected", {
+                    description: "Please select at least one item to assign for packing.",
+                  });
                   return;
                 }
                 setPackingOverrideOpen(false);
-                handleAction("Force to Packing", async () => {
-                  const packerObj = packersList.find((p) => p.id === selectedPacker || p.email === selectedPacker || p.name === selectedPacker);
-                  const packerId = packerObj ? packerObj.id : selectedPacker;
-                  const packerName = packerObj ? packerObj.name : selectedPacker;
+                const packerObj = packersList.find((p) => p.id === selectedPacker || p.email === selectedPacker || p.name === selectedPacker);
+                const packerId = packerObj ? packerObj.id : selectedPacker;
+                const packerName = packerObj ? packerObj.name : selectedPacker;
 
-                  const res = await ordersApi.assignPackerItems(order.id, packerId, selectedPackerItems, packerName);
-                  if (res && res.success === false) {
-                    throw new Error(res.message || "Failed to assign packer");
-                  }
-                  navigate({ to: "/orders", search: { tab: "Packing" } as any });
-                });
+                handleAction(
+                  "Assign Packer",
+                  async () => {
+                    const res = await ordersApi.assignPackerItems(order.id, packerId, selectedPackerItems, packerName);
+                    if (res && res.success === false) {
+                      throw new Error(res.message || "Failed to assign packer");
+                    }
+                    navigate({ to: "/orders", search: { tab: "Packing" } as any });
+                  },
+                  "Packer Assigned Successfully",
+                  `Assigned packer ${packerName} to ${selectedPackerItems.length} item(s). Order moved to "Packing".`
+                );
               }}
               disabled={!selectedPacker || selectedPackerItems.length === 0 || actionsLoading}
               className="rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/95 transition-all shadow-md"
@@ -1456,16 +1534,18 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
         </DialogContent>
       </Dialog>
 
-      {/* ── Cancel Order Dialog ── */}
+      {/* ── Cancel Order / To be Cancelled Dialog ── */}
       <Dialog open={cancelAllocationOpen} onOpenChange={setCancelAllocationOpen}>
         <DialogContent className="sm:max-w-[460px] rounded-xl border border-border bg-card shadow-lg p-6">
           <DialogHeader className="space-y-1.5">
             <DialogTitle className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
               <XCircle className="h-5 w-5 text-destructive" />
-              Cancel Order
+              {isInDelivery ? "To be Cancelled" : "Cancel Order"}
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Provide a reason for the cancellation. Optionally select specific line items to cancel. If no line items are selected, the entire order will be cancelled.
+              {isInDelivery
+                ? "Provide a reason for cancellation. Optionally select specific line items to mark as cancelled. If no line items are selected, the entire order will be marked to be cancelled."
+                : "Provide a reason for the cancellation. Optionally select specific line items to cancel. If no line items are selected, the entire order will be cancelled."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1532,7 +1612,9 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                 ))}
               </div>
               <p className="text-[11px] text-muted-foreground">
-                If no items are selected, the entire order will be cancelled.
+                {isInDelivery
+                  ? "If no items are selected, the entire order will be marked to be cancelled."
+                  : "If no items are selected, the entire order will be cancelled."}
               </p>
             </div>
           </div>
@@ -1554,7 +1636,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               onClick={() => {
                 const reason = cancelReason.trim();
                 setCancelAllocationOpen(false);
-                handleAction("Cancel Order", async () => {
+                handleAction(isInDelivery ? "To be Cancelled" : "Cancel Order", async () => {
                   const timestamp = new Date().toISOString();
                   const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
                   const timeStr = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
@@ -1571,7 +1653,7 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
 
                   // Capture audit info in logs
                   console.info(
-                    `[AUDIT] Order Cancelled | Order: ${order.id} | User ID: admin_user_1 | User Name: Admin User | Reason: ${reason} | Items: ${selectedCancelItems.length > 0 ? selectedCancelItems.join(", ") : "Entire Order"} | Timestamp: ${timestamp}`
+                    `[AUDIT] ${isInDelivery ? "Order To be Cancelled" : "Order Cancelled"} | Order: ${order.id} | User ID: admin_user_1 | User Name: Admin User | Reason: ${reason} | Items: ${selectedCancelItems.length > 0 ? selectedCancelItems.join(", ") : "Entire Order"} | Timestamp: ${timestamp}`
                   );
 
                   // Append timeline event
@@ -1582,13 +1664,13 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
                   customEvents.push({
                     orderId: order.id,
                     id: `custom-tl-${Date.now()}`,
-                    title: "Order Cancelled",
+                    title: isInDelivery ? "Order Marked To be Cancelled" : "Order Cancelled",
                     date: dateStr,
                     time: timeStr,
-                    description: `Reason: ${reason}\nCancelled By: Admin User\nDate: ${timestamp}\n${
+                    description: `Reason: ${reason}\n${isInDelivery ? "Marked By" : "Cancelled By"}: Admin User\nDate: ${timestamp}\n${
                       selectedItemsList.length > 0
-                        ? `Order items cancelled:\n${selectedItemsList.map((item) => `- ${item.name}`).join("\n")}`
-                        : "Order was cancelled completely."
+                        ? `Order items ${isInDelivery ? "marked to be cancelled" : "cancelled"}:\n${selectedItemsList.map((item) => `- ${item.name}`).join("\n")}`
+                        : `Order was ${isInDelivery ? "marked to be cancelled" : "cancelled"} completely.`
                     }`,
                     actor: "Admin User",
                     actorRole: "admin",
@@ -1603,7 +1685,9 @@ export function OrderHeader({ order }: { order: EnrichedOrder }) {
               }}
               className="rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold transition-all shadow-md"
             >
-              {selectedCancelItems.length > 0 ? "Cancel Selected Items" : "Cancel Order"}
+              {selectedCancelItems.length > 0
+                ? (isInDelivery ? "Mark Selected Items To be Cancelled" : "Cancel Selected Items")
+                : (isInDelivery ? "To be Cancelled" : "Cancel Order")}
             </Button>
           </DialogFooter>
         </DialogContent>

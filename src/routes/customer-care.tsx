@@ -15,6 +15,7 @@ import {
   useScheduledItems,
   useInstallationLocations,
   useInstallationTeams,
+  useTechnicianSchedules,
   orderKeys,
 } from "@/hooks/useOrders";
 import {
@@ -87,6 +88,7 @@ function CustomerCareContent() {
   // Dynamic locations and teams fetched from API, with localStorage/default fallback
   const { data: apiLocations = [] } = useInstallationLocations();
   const { data: apiTeams = [] } = useInstallationTeams();
+  const { data: liveSchedulesData } = useTechnicianSchedules({ per_page: 200 });
 
   const locations = useMemo(() => {
     if (apiLocations && apiLocations.length > 0) return apiLocations;
@@ -407,6 +409,7 @@ function CustomerCareContent() {
           initialMode={scheduleMode}
           locations={locations}
           teams={teams}
+          liveSchedules={liveSchedulesData?.data || []}
           onClose={() => setScheduleItem(null)}
           onSaved={() => {
             refreshAppts();
@@ -737,6 +740,7 @@ export function ScheduleDialog({
   initialMode = "schedule",
   locations: initialLocations,
   teams: initialTeams,
+  liveSchedules = [],
   onClose,
   onSaved,
 }: {
@@ -744,6 +748,7 @@ export function ScheduleDialog({
   initialMode?: "schedule" | "reschedule";
   locations?: (InstallLocation | ApiInstallationLocation)[];
   teams?: (InstallTeam | ApiInstallationTeam)[];
+  liveSchedules?: any[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -828,6 +833,24 @@ export function ScheduleDialog({
     );
   }, [item]);
 
+  // Find matching live technician schedule if available
+  const matchingLiveSchedule = useMemo(() => {
+    if (!liveSchedules || liveSchedules.length === 0) return null;
+    const targetOrderItemId = String(item.order_item_id ?? item.id ?? item.item_id);
+    const targetOrderId = String(item.order_id ?? item.order?.id ?? "").replace(/^#/, "");
+    const targetInstallationId = String(
+      item.order_installation_id ??
+      item.installation?.id ??
+      (item as any).installation_id ??
+      ""
+    );
+    return liveSchedules.find((s: any) =>
+      (targetOrderItemId && String(s.order_item_id) === targetOrderItemId) ||
+      (targetInstallationId && s.order_installation_id && String(s.order_installation_id) === targetInstallationId) ||
+      (targetOrderId && s.order_id && String(s.order_id) === targetOrderId)
+    );
+  }, [liveSchedules, item]);
+
   // Reschedule mode only applies if explicitly opened to reschedule (not when assigning technician initially)
   const isReschedule = initialMode === "reschedule";
 
@@ -854,6 +877,7 @@ export function ScheduleDialog({
   }, [apiTeams, initialTeams]);
 
   const [teamId, setTeamId] = useState<string>(() => {
+    if (matchingLiveSchedule?.technician_id) return String(matchingLiveSchedule.technician_id);
     if (existingAppt?.teamId) return String(existingAppt.teamId);
     return "";
   });
@@ -1028,6 +1052,7 @@ export function ScheduleDialog({
       (item as any).installation_id ??
       (item as any).order_installation?.id ??
       (item.installation as any)?.order_installation_id ??
+      matchingLiveSchedule?.order_installation_id ??
       resolvedOrderItemId;
 
     const selectedTeam = teams.find((t: any) => String(t.id) === String(teamId));
@@ -1035,11 +1060,13 @@ export function ScheduleDialog({
       (selectedTeam as any)?.technician_id ??
       (selectedTeam as any)?.technicianId ??
       (selectedTeam as any)?.id ??
-      teamId;
+      teamId ??
+      matchingLiveSchedule?.technician_id;
     const techName =
       selectedTeam?.name ??
       (selectedTeam as any)?.technician_name ??
-      "Technician";
+      matchingLiveSchedule?.technician_name ??
+      "Technician Name";
 
     // 2. Client-side validation of REQUIRED fields per Laravel Validator
     if (!resolvedOrderId) {
@@ -1115,24 +1142,32 @@ export function ScheduleDialog({
       const resolvedScheduleId =
         (item as any).schedule_id ??
         (item as any).technician_scheduled_id ??
+        (item as any).technician_schedule_id ??
         (item as any).technician_schedule?.id ??
         (item as any).installation?.schedule_id ??
+        (item as any).installation?.technician_schedule_id ??
+        (matchingLiveSchedule?.id != null ? matchingLiveSchedule.id : undefined) ??
+        (matchingLiveSchedule?.schedule_id != null ? matchingLiveSchedule.schedule_id : undefined) ??
         (existingAppt?.id && !isNaN(Number(existingAppt.id)) ? Number(existingAppt.id) : undefined);
 
       if (isReschedule) {
-        // Construct full / standard payload for POST /api/technician-schedule/reschedule
+        // Construct full payload for POST /api/admin/technician-schedule/reschedule
         const reschedulePayload: RescheduleTechnicianPayload = {
-          order_id: resolvedOrderId,
-          order_item_id: resolvedOrderItemId,
-          order_installation_id: resolvedOrderInstallationId,
-          technician_id: techId,
-          technician_name: techName,
+          schedule_id: resolvedScheduleId != null && !isNaN(Number(resolvedScheduleId))
+            ? Number(resolvedScheduleId)
+            : resolvedScheduleId,
+          order_id: !isNaN(Number(resolvedOrderId)) ? Number(resolvedOrderId) : resolvedOrderId,
+          order_item_id: !isNaN(Number(resolvedOrderItemId)) ? Number(resolvedOrderItemId) : resolvedOrderItemId,
+          order_installation_id: !isNaN(Number(resolvedOrderInstallationId)) ? Number(resolvedOrderInstallationId) : resolvedOrderInstallationId,
+          technician_id: !isNaN(Number(techId)) ? Number(techId) : techId,
+          technician_name: techName || "Technician Name",
           scheduled_date: date,
           start_time: formattedStartTime,
           end_time: formattedEndTime || null,
           taken_time_in_mins: minsDuration,
-          reschedule_reason: rescheduleReason.trim(),
-          notes: notes ? String(notes).trim() : (item.product_name ? `Customer requested reschedule for ${item.product_name}` : null),
+          reschedule_reason: rescheduleReason.trim() || "Customer requested a different date",
+          rescheduled_by: !isNaN(Number(currentUserId)) ? Number(currentUserId) : 4,
+          notes: notes ? String(notes).trim() : (item.product_name ? `Customer requested reschedule for ${item.product_name}` : "Customer confirmed the new appointment time"),
           status: "rescheduled",
           force: forceOverride,
           zone: zone ? String(zone).trim() : null,
@@ -1142,13 +1177,12 @@ export function ScheduleDialog({
           address: (address || customerAddress) ? String(address || customerAddress).trim() : null,
           customer_name: customerName ? String(customerName).trim() : null,
           customer_phone: customerPhone ? String(customerPhone).trim() : null,
-          user_id: currentUserId,
+          user_id: !isNaN(Number(currentUserId)) ? Number(currentUserId) : 4,
           user_name: currentUserName,
-          ...(resolvedScheduleId ? { schedule_id: resolvedScheduleId } : {}),
           order_number: item.order_number,
         };
 
-        // 1. Persist to technician scheduled table via POST /api/technician-schedule/reschedule (or /api/admin/technician-schedule/reschedule)
+        // 1. Persist to technician scheduled table via POST /api/admin/technician-schedule/reschedule
         await rescheduleTechnicianSchedule(reschedulePayload);
 
         // 2. Call backend sync assignItemSchedule

@@ -271,15 +271,21 @@ function getItemFlaggedImageUrl(item: EnrichedOrder["itemsList"][number]): strin
   );
 }
 
-function resolveItemId(item: EnrichedOrder["itemsList"][number]): string {
-  const raw = (item as any).item_id ?? (item as any).order_item_id ?? item.id;
-  return String(raw ?? "").replace(/^#+/, "") || item.id;
+function resolveLineItemId(item: EnrichedOrder["itemsList"][number]): string {
+  const raw =
+    item.line_item_id ??
+    (item as any).lineItemId ??
+    (item as any).order_line_item_id ??
+    item.order_item_id ??
+    item.id ??
+    (item as any).item_id;
+  return String(raw ?? "").replace(/^#+/, "") || String(item.id);
 }
 
 function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
   const itemEvents = order.itemsList.flatMap((item) => {
     const events: OrderTimelineEvent[] = [];
-    const resolvedItemId = resolveItemId(item);
+    const resolvedLineItemId = resolveLineItemId(item);
     const itemIsFlagged = isItemFlagged(item);
     const flagReason = getItemFlagReason(item);
     const flaggedImageUrl = getItemFlaggedImageUrl(item);
@@ -316,7 +322,8 @@ function ItemFulfillmentTimeline({ order }: { order: EnrichedOrder }) {
                 ? "admin"
                 : "driver",
         type,
-        itemId: resolvedItemId,
+        itemId: resolvedLineItemId,
+        lineItemId: resolvedLineItemId,
         itemName: item.name,
         isFlagged: extra?.isFlagged !== undefined ? extra.isFlagged : itemIsFlagged,
         flagReason: extra?.flagReason !== undefined ? extra.flagReason : (itemIsFlagged ? flagReason : undefined),
@@ -453,9 +460,9 @@ function TimelineEventRow({ event, isLast }: { event: OrderTimelineEvent; isLast
             <h4 className="text-[15px] font-semibold text-foreground leading-snug tracking-tight">
               {event.title}
             </h4>
-            {event.itemId && (
+            {(event.lineItemId || event.itemId) && (
               <span className="inline-flex items-center gap-1 rounded bg-muted/70 px-2 py-0.5 text-[11px] font-mono font-medium text-muted-foreground border border-border/50">
-                Item ID: <strong className="text-foreground">{event.itemId}</strong>
+                Line Item ID: <strong className="text-foreground">{event.lineItemId || event.itemId}</strong>
               </span>
             )}
             {event.isFlagged && (
@@ -520,11 +527,11 @@ function TimelineEventRow({ event, isLast }: { event: OrderTimelineEvent; isLast
               )}
 
               <div className="min-w-0 space-y-2 flex-1">
-                {/* Item ID */}
+                {/* Line Item ID */}
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-semibold text-muted-foreground">Item ID:</span>
+                  <span className="font-semibold text-muted-foreground">Line Item ID:</span>
                   <span className="font-mono font-bold text-foreground bg-background px-2 py-0.5 rounded border border-border/60 text-[11px]">
-                    #{event.itemId}
+                    #{event.lineItemId || event.itemId}
                   </span>
                   {event.itemName && (
                     <span className="text-muted-foreground text-[11px] truncate max-w-[220px]" title={event.itemName}>
