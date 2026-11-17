@@ -17,6 +17,7 @@ import {
   MessageSquareQuote,
   Loader2,
   RotateCcw,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -316,6 +317,9 @@ export function FulfillmentSection({
     order.status !== "Ready to Assign" &&
     String(order.status || "").toLowerCase() !== "ready to assign" &&
     (
+      order.status === "Assigned to driver" ||
+      (order.status as string) === "Assigned to Driver" ||
+      order.status === "Driver Accepted" ||
       (order as any).backend_status === "assigned_to_driver" ||
       (order as any).backend_status === "partial_assigned_driver" ||
       (order as any).rawOrder?.status === "assigned_to_driver" ||
@@ -329,7 +333,7 @@ export function FulfillmentSection({
     setIsCancellingItem(true);
     try {
       const itemId = itemToCancelFromOrder.id;
-      const reason = cancelItemReason.trim() || "Item cancelled by admin during delivery";
+      const reason = cancelItemReason.trim() || "Item marked to be cancelled by admin during delivery";
 
       const existingCancelled: string[] = JSON.parse(localStorage.getItem("hm_cancelled_items") || "[]");
       if (!existingCancelled.includes(itemId)) {
@@ -348,17 +352,17 @@ export function FulfillmentSection({
       customEvents.push({
         orderId: order.id,
         id: `custom-tl-${Date.now()}`,
-        title: "Item Cancelled",
+        title: "Item Marked To be Cancelled",
         date: dateStr,
         time: timeStr,
-        description: `Item "${itemToCancelFromOrder.name}" (${itemToCancelFromOrder.qty}x) cancelled from delivery.\nReason: ${reason}\nTimestamp: ${timestamp}`,
+        description: `Item "${itemToCancelFromOrder.name}" (${itemToCancelFromOrder.qty}x) marked to be cancelled from delivery.\nReason: ${reason}\nTimestamp: ${timestamp}`,
         actor: "Admin User",
         actorRole: "admin",
         type: "cancelled",
       });
       localStorage.setItem("hm_custom_timeline_events", JSON.stringify(customEvents));
 
-      toast.success(`Item "${itemToCancelFromOrder.name}" has been cancelled`);
+      toast.success(`Item "${itemToCancelFromOrder.name}" marked to be cancelled`);
       setCancelItemModalOpen(false);
       setItemToCancelFromOrder(null);
       queryClient.invalidateQueries({ queryKey: orderKeys.all });
@@ -487,15 +491,19 @@ export function FulfillmentSection({
         setItemStatuses((current) => ({ ...current, [item.id]: assignedStatus }));
       }
       queryClient.invalidateQueries({ queryKey: orderKeys.all });
-      toast.success(`${picker.name} assigned to ${item.name}`);
-    } catch (error) {
+      toast.success("Picker Assigned Successfully", {
+        description: `Assigned ${picker.name} to "${item.name}".`,
+      });
+    } catch (error: any) {
       console.error("[FulfillmentSection] picker assignment failed:", error);
       setSelectedPickers((current) => {
         const next = { ...current };
         delete next[item.id];
         return next;
       });
-      toast.error("Unable to assign picker");
+      toast.error("Picker Assignment Failed", {
+        description: error?.message || `Unable to assign ${picker.name} to "${item.name}". Please try again.`,
+      });
     } finally {
       setAssigningItemId(null);
     }
@@ -513,10 +521,14 @@ export function FulfillmentSection({
         return next;
       });
       queryClient.invalidateQueries({ queryKey: orderKeys.all });
-      toast.success(`Picker unassigned from ${item.name}`);
-    } catch (error) {
+      toast.success("Picker Unassigned", {
+        description: `Removed picker assignment from "${item.name}".`,
+      });
+    } catch (error: any) {
       console.error("[FulfillmentSection] picker unassignment failed:", error);
-      toast.error("Unable to unassign picker");
+      toast.error("Picker Unassignment Failed", {
+        description: error?.message || `Unable to remove picker from "${item.name}".`,
+      });
     } finally {
       setAssigningItemId(null);
     }
@@ -673,6 +685,17 @@ export function FulfillmentSection({
                     item.itemType,
                     item.fcName,
                     item.sku,
+                  );
+
+                  const isInstallationItem = Boolean(
+                    isInstallable ||
+                    Boolean((item as any).installation) ||
+                    Boolean((item as any).installation_type) ||
+                    Boolean((item as any).installation_level) ||
+                    allTags.some((t) => {
+                      const s = String(t).trim().toLowerCase();
+                      return s === "installation" || s === "installation item" || s === "installable" || s.includes("installation");
+                    })
                   );
 
                   // Extract gift wrap details (e.g. "GW-G")
@@ -851,6 +874,15 @@ export function FulfillmentSection({
                                 VS (Virtual Stock)
                               </span>
                             )}
+                            {isInstallationItem && (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800/80 px-2.5 py-0.5 text-[11px] font-bold tracking-tight shadow-2xs select-none"
+                                title="Installation Item"
+                              >
+                                <Wrench className="h-3 w-3 text-sky-600 dark:text-sky-400" />
+                                Installation Item
+                              </span>
+                            )}
                             {hasGiftWrap && (
                               <span
                                 className="inline-flex items-center gap-1.5 rounded-full bg-pink-50 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 px-2.5 py-0.5 text-[11px] font-bold tracking-tight shadow-2xs select-none"
@@ -993,7 +1025,7 @@ export function FulfillmentSection({
                                       className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-red-300 bg-red-50/70 px-3 text-xs font-semibold text-red-700 shadow-sm transition-colors hover:bg-red-100 cursor-pointer dark:border-red-800 dark:bg-red-950/20 dark:text-red-400"
                                     >
                                       <XCircle className="h-3.5 w-3.5" />
-                                      Cancel Item
+                                      To be Cancelled
                                     </button>
                                   ) : null
                                 ) : isPickingStage && hasAssignedPicker && !hasVsTag ? (
@@ -1216,17 +1248,17 @@ export function FulfillmentSection({
           </div>
         </DialogContent>
       </Dialog>
-      {/* ── Cancel Item from Order Dialog ── */}
+      {/* ── Item To be Cancelled from Order Dialog ── */}
       <Dialog open={cancelItemModalOpen} onOpenChange={setCancelItemModalOpen}>
         <DialogContent className="w-[95vw] sm:w-full sm:max-w-[480px] p-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50 rounded-2xl shadow-2xl">
           <div className="p-5 sm:p-7">
             <DialogHeader className="mb-4 text-left">
               <DialogTitle className="text-xl sm:text-2xl font-bold tracking-tight text-destructive flex items-center gap-2">
                 <XCircle className="h-6 w-6" />
-                Cancel Item
+                To be Cancelled
               </DialogTitle>
               <DialogDescription className="text-xs sm:text-sm text-muted-foreground mt-1">
-                Are you sure you want to cancel this item from the delivery order?
+                Are you sure you want to mark this item to be cancelled from the delivery order?
               </DialogDescription>
             </DialogHeader>
 
@@ -1297,7 +1329,7 @@ export function FulfillmentSection({
               ) : (
                 <XCircle className="h-4 w-4 mr-1.5" />
               )}
-              Cancel Item
+              To be Cancelled
             </Button>
           </div>
         </DialogContent>

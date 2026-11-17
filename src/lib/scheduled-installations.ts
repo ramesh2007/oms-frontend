@@ -6,11 +6,22 @@
  * and merge cleanly with live backend technician schedule data.
  */
 
-import type { TechnicianScheduleRecord, CompletedInstallationRecord } from "@/lib/api/services";
+import type {
+  TechnicianScheduleRecord,
+  CompletedInstallationRecord,
+  ScheduledOrderItem,
+  MainWarehousePickedRecord,
+} from "@/lib/api/services";
 
 const STORAGE_KEY = 'hm_scheduled_installations';
 
-export type ScheduledTabType = "Scheduled" | "Driver Assigned" | "Completed";
+export type ScheduledTabType =
+  | "Pending Scheduled"
+  | "Scheduled"
+  | "Main Warehouse Picked"
+  | "Technician Received"
+  | "Completed"
+  | "Driver Assigned";
 
 export interface ScheduledItem {
   /** Unique id for this scheduled entry */
@@ -83,6 +94,18 @@ export interface ScheduledItem {
   raw?: any;
   /** Proof images from installation_images table */
   proofImages?: any[];
+  /** When this item was picked by main warehouse picker */
+  pickedAt?: string | null;
+  /** Name of the warehouse picker */
+  pickerName?: string | null;
+  /** When technician received or started installation */
+  technicianReceivedAt?: string | null;
+  /** Installation start time */
+  startedAt?: string | null;
+  /** Line item ID from order_items table or Shopify */
+  lineItemId?: string | number | null;
+  /** Status of the line item in order_items table (e.g. "pending", "picker_assigned", "picked") */
+  orderItemStatus?: string | null;
 }
 
 type Listener = () => void;
@@ -108,26 +131,148 @@ export function formatCustomerTimeRange(startTime?: string, endTime?: string): s
   return `${startFmt} – ${endFmt}`;
 }
 
+export function normalizeDateStr(dateStr?: string | null): string | undefined {
+  if (!dateStr) return undefined;
+  const s = String(dateStr).trim();
+  if (!s) return undefined;
+
+  // 1. Check YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const month = ymdMatch[2].padStart(2, "0");
+    const day = ymdMatch[3].padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  // 2. Check DD-MM-YYYY or DD/MM/YYYY (4-digit year like 16/11/2026)
+  const dmy4Match = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmy4Match) {
+    const day = dmy4Match[1].padStart(2, "0");
+    const month = dmy4Match[2].padStart(2, "0");
+    const year = dmy4Match[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  // 3. Check DD-MM-YY or DD/MM/YY (2-digit year like 16/11/26)
+  const dmy2Match = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2})(?!\d)/);
+  if (dmy2Match) {
+    const day = dmy2Match[1].padStart(2, "0");
+    const month = dmy2Match[2].padStart(2, "0");
+    const yr = parseInt(dmy2Match[3], 10);
+    const fullYear = yr < 70 ? `20${dmy2Match[3]}` : `19${dmy2Match[3]}`;
+    return `${fullYear}-${month}-${day}`;
+  }
+
+  // 4. Try Date parse
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  return s.slice(0, 10);
+}
+
 export function normalizeScheduledStatus(
   status: string | undefined | null,
   assignedDriver?: string | null,
   completedAt?: string | null,
+  orderStatus?: string | null,
+  existingStatus?: ScheduledTabType,
+  orderItemStatus?: string | null,
+  isFromTechnicianSchedule: boolean = false,
 ): ScheduledTabType {
   const s = String(status || "").toLowerCase().trim();
-  // Actively scheduled or rescheduled items belong in Scheduled tab (unless driver assigned)
-  if (s === "scheduled" || s === "rescheduled" || s === "pending") {
-    if (assignedDriver) return "Driver Assigned";
+  const itemStatus = String(orderItemStatus || "").toLowerCase().trim();
+
+  // 1. Completed
+  if (
+    s === "completed" ||
+    s === "installed" ||
+    completedAt ||
+    existingStatus === "Completed" ||
+    itemStatus === "completed" ||
+    itemStatus === "installed"
+  ) {
+    return "Completed";
+  }
+
+  // 2. Preserve locally transitioned status if already moved past Scheduled
+  if (existingStatus === "Technician Received") {
+    return "Technician Received";
+  }
+  if (existingStatus === "Main Warehouse Picked") {
+    if (
+      s === "technician received" ||
+      s === "technician_received" ||
+      s === "received" ||
+      s === "started" ||
+      s === "technician started" ||
+      s === "in_progress" ||
+      s === "in progress" ||
+      s === "in_installation"
+    ) {
+      return "Technician Received";
+    }
+    return "Main Warehouse Picked";
+  }
+
+  // 3. Technician Received / Started
+  if (
+    s === "technician received" ||
+    s === "technician_received" ||
+    s === "received" ||
+    s === "started" ||
+    s === "technician started" ||
+    s === "in_progress" ||
+    s === "in progress" ||
+    s === "in_installation" ||
+    s === "driver assigned" ||
+    s === "driver_assigned" ||
+    s === "assigned"
+  ) {
+    return "Technician Received";
+  }
+
+  // 4. Main Warehouse Picked
+  // Only if the installation item itself in order_items table is picked!
+  if (
+    itemStatus === "picked" ||
+    s === "main warehouse picked" ||
+    s === "main_warehouse_picked" ||
+    s === "picker picked" ||
+    s === "picker_picked"
+  ) {
+    return "Main Warehouse Picked";
+  }
+
+  // 5. From technician-scheduled-list: explicitly Scheduled!
+  if (isFromTechnicianSchedule) {
     return "Scheduled";
   }
-  if (s === "completed" || s === "installed" || s === "delivered") {
-    return "Completed";
+
+  // 6. Explicitly Scheduled in backend record
+  if (s === "scheduled" || s === "rescheduled") {
+    return "Scheduled";
   }
-  if (assignedDriver || s === "assigned" || s === "driver assigned" || s === "driver_assigned" || s === "assigned_to_driver") {
-    return "Driver Assigned";
+
+  // 7. Pending Scheduled
+  // If schedule record status is explicitly pending or awaiting, or preserved as Pending Scheduled
+  if (
+    s === "pending" ||
+    s === "pending scheduled" ||
+    s === "pending_scheduled" ||
+    s === "pending_schedule" ||
+    s === "awaiting" ||
+    s === "awaiting_scheduled" ||
+    existingStatus === "Pending Scheduled"
+  ) {
+    return "Pending Scheduled";
   }
-  if (completedAt) {
-    return "Completed";
-  }
+
+  // 8. Default to Scheduled
   return "Scheduled";
 }
 
@@ -195,13 +340,26 @@ function _loadFromStorage(): ScheduledItem[] {
         // Strip out any legacy mock data
         const nonMock = parsed.filter((item) => !_isMockItem(item));
 
-        // Migrate legacy statuses: "Pending" -> "Scheduled", "Assigned" -> "Driver Assigned"
+        // Migrate statuses into the pipeline
         const migrated = nonMock.map((item) => {
           let currentStatus: ScheduledTabType = "Scheduled";
-          if (item.status === "Completed" || (!["Scheduled", "Driver Assigned", "Completed"].includes(item.status) && item.completedAt)) {
+          const ois = item.orderItemStatus ? String(item.orderItemStatus).toLowerCase().trim() : null;
+
+          if (item.status === "Completed" || item.completedAt) {
             currentStatus = "Completed";
-          } else if (item.status === "Driver Assigned" || item.status === "Assigned" || item.assignedDriver) {
-            currentStatus = "Driver Assigned";
+          } else if (item.status === "Technician Received" || item.technicianReceivedAt) {
+            currentStatus = "Technician Received";
+          } else if (item.status === "Main Warehouse Picked" || item.status === "Picked" || (item.pickedAt && ois === "picked")) {
+            currentStatus = "Main Warehouse Picked";
+          } else if (item.status === "Pending Scheduled") {
+            // Items synced from technician-scheduled-list belong in Scheduled
+            if (String(item.id).startsWith("tech-") || item.technicianName) {
+              currentStatus = "Scheduled";
+            } else {
+              currentStatus = "Pending Scheduled";
+            }
+          } else if (item.status === "Driver Assigned" || item.assignedDriver) {
+            currentStatus = "Technician Received";
           } else {
             currentStatus = "Scheduled";
           }
@@ -213,6 +371,8 @@ function _loadFromStorage(): ScheduledItem[] {
           return {
             ...item,
             status: currentStatus,
+            orderItemStatus: item.orderItemStatus || "pending",
+            pickedAt: (currentStatus === "Scheduled" || currentStatus === "Pending Scheduled") ? null : item.pickedAt,
             scheduledTimeRange: timeRange,
             images: Array.isArray(item.images) ? item.images : item.images ? [item.images] : [],
           };
@@ -300,15 +460,100 @@ export function removeItem(id: string) {
   _notify();
 }
 
-/** Assign a driver to selected items. */
+/** Mark selected items as Scheduled (transitions from Pending Scheduled). */
+export function markAsScheduled(ids: string[]) {
+  _items = _items.map((item) =>
+    ids.includes(item.id)
+      ? {
+          ...item,
+          status: "Scheduled" as const,
+        }
+      : item,
+  );
+  _notify();
+}
+
+/** Mark selected items as picked by Main Warehouse Picker. */
+export function markItemsAsPicked(ids: string[], pickerName?: string) {
+  const timestamp = new Date().toISOString();
+  _items = _items.map((item) =>
+    ids.includes(item.id)
+      ? {
+          ...item,
+          status: "Main Warehouse Picked" as const,
+          orderItemStatus: "picked",
+          pickedAt: item.pickedAt || timestamp,
+          pickerName: pickerName || item.pickerName || "Main Warehouse Picker",
+        }
+      : item,
+  );
+  _notify();
+}
+
+/** Mark selected items as received or started by technician. */
+export function markTechnicianReceived(ids: string[], technicianName?: string, technicianId?: number | string) {
+  const timestamp = new Date().toISOString();
+  _items = _items.map((item) =>
+    ids.includes(item.id)
+      ? {
+          ...item,
+          status: "Technician Received" as const,
+          technicianReceivedAt: item.technicianReceivedAt || timestamp,
+          startedAt: item.startedAt || timestamp,
+          technicianName: technicianName || item.technicianName || item.assignedDriver || "Assigned Technician",
+          technicianId: technicianId ?? item.technicianId,
+        }
+      : item,
+  );
+  _notify();
+}
+
+/** Assign a driver or technician to selected items. */
 export function assignDriver(ids: string[], driver: string, driverId?: number | string) {
+  const timestamp = new Date().toISOString();
   _items = _items.map((item) =>
     ids.includes(item.id)
       ? {
           ...item,
           assignedDriver: driver,
+          technicianName: item.technicianName || driver,
           driverId: driverId ?? item.driverId,
-          status: "Driver Assigned" as const,
+          technicianReceivedAt: item.technicianReceivedAt || timestamp,
+          status: "Technician Received" as const,
+        }
+      : item,
+  );
+  _notify();
+}
+
+/** Revert an item back to a specified stage. */
+export function revertItemStatus(id: string, targetStatus: ScheduledTabType) {
+  _items = _items.map((item) =>
+    item.id === id
+      ? {
+          ...item,
+          status: targetStatus,
+          orderItemStatus:
+            targetStatus === "Pending Scheduled" || targetStatus === "Scheduled"
+              ? "pending"
+              : item.orderItemStatus,
+          pickedAt:
+            targetStatus === "Pending Scheduled" || targetStatus === "Scheduled"
+              ? null
+              : item.pickedAt,
+          technicianReceivedAt:
+            targetStatus === "Pending Scheduled" ||
+            targetStatus === "Scheduled" ||
+            targetStatus === "Main Warehouse Picked"
+              ? null
+              : item.technicianReceivedAt,
+          startedAt:
+            targetStatus === "Pending Scheduled" ||
+            targetStatus === "Scheduled" ||
+            targetStatus === "Main Warehouse Picked"
+              ? null
+              : item.startedAt,
+          completedAt: targetStatus !== "Completed" ? null : item.completedAt,
         }
       : item,
   );
@@ -379,9 +624,15 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
   });
 
   records.forEach((record) => {
-    const rawId = `tech-${record.id}`;
+    const rawId = `tech-${record.id || record.schedule_id}`;
+    const scheduleIdKey = record.schedule_id ? `tech-${record.schedule_id}` : null;
     const orderItemIdKey = record.order_item_id ? String(record.order_item_id) : null;
-    const existing = currentMap.get(rawId) || (orderItemIdKey ? orderItemMap.get(orderItemIdKey) : null);
+    const cleanOrderNum = String(record.order_number || record.order_id || "").replace(/^#/, "").trim();
+    const existing =
+      currentMap.get(rawId) ||
+      (scheduleIdKey ? currentMap.get(scheduleIdKey) : null) ||
+      (orderItemIdKey ? orderItemMap.get(orderItemIdKey) : null) ||
+      (cleanOrderNum ? _items.find((i) => i.orderId.replace(/^#/, "").trim() === cleanOrderNum || i.orderNumber?.replace(/^#/, "").trim() === cleanOrderNum) : null);
 
     // Extract images
     const rawImages = record.installation?.images || record.images;
@@ -406,6 +657,13 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
       extractedImages = Array.from(new Set([...extractedImages, ...existing.images]));
     }
 
+    const itemStatus =
+      record.order_item?.status ||
+      (record as any).order_item_status ||
+      (record as any).item_status ||
+      existing?.orderItemStatus ||
+      "pending";
+
     const isActivelyScheduled = record.status === "scheduled" || record.status === "rescheduled" || record.status === "pending";
     const completedAt = isActivelyScheduled
       ? (existing?.completedAt && existing.status === "Completed" ? existing.completedAt : null)
@@ -420,9 +678,21 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
       record.status || record.installation?.status || existing?.status,
       assignedDriver,
       completedAt,
+      record.order?.status,
+      existing?.status,
+      itemStatus,
+      true, // isFromTechnicianSchedule: items from this endpoint are active technician appointments
     );
 
     const timeRange = formatCustomerTimeRange(record.start_time, record.end_time);
+
+    const rawDateStr =
+      record.scheduled_date ||
+      record.schedule_date ||
+      record.technician_schedule?.scheduled_date ||
+      (record.scheduled_at ? String(record.scheduled_at).slice(0, 10) : undefined) ||
+      existing?.scheduledDate;
+    const scheduledDate = normalizeDateStr(rawDateStr) || getTodayDateStr();
 
     const mappedItem: ScheduledItem = {
       id: existing ? existing.id : rawId,
@@ -430,6 +700,8 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
       orderNumber: record.order_number || (record.order_id ? `#${record.order_id}` : undefined),
       orderItemId: record.order_item_id,
       orderInstallationId: record.order_installation_id || record.installation?.id,
+      lineItemId: record.order_item?.line_item_id || (record as any).line_item_id || existing?.lineItemId || null,
+      orderItemStatus: itemStatus,
       productName:
         record.product_name ||
         record.order_item?.product_name ||
@@ -465,6 +737,13 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
         existing?.address ||
         "",
       status,
+      pickedAt:
+        status === "Scheduled" || status === "Pending Scheduled"
+          ? null
+          : (existing?.pickedAt || (itemStatus === "picked" || status === "Main Warehouse Picked" || status === "Technician Received" || status === "Completed" ? (record.updated_at || record.created_at) : null)),
+      pickerName: existing?.pickerName || (record.order?.packer || "Main Warehouse Picker"),
+      technicianReceivedAt: existing?.technicianReceivedAt || (status === "Technician Received" || status === "Completed" ? (record.updated_at || record.created_at) : null),
+      startedAt: existing?.startedAt || null,
       isRescheduled: record.is_rescheduled ?? existing?.isRescheduled ?? (record.status === "rescheduled"),
       rescheduleCount: record.reschedule_count ?? existing?.rescheduleCount ?? 0,
       latestRescheduleReason: record.latest_reschedule_reason || existing?.latestRescheduleReason || null,
@@ -473,7 +752,7 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
       giftWrap: record.gift_wrap || record.order_item?.gift_wrap || existing?.giftWrap || null,
       giftMessage: record.gift_message || record.order_item?.gift_message || existing?.giftMessage || null,
       scheduledAt: record.scheduled_at || record.scheduled_date || record.created_at || new Date().toISOString(),
-      scheduledDate: record.scheduled_date ? String(record.scheduled_date).slice(0, 10) : existing?.scheduledDate,
+      scheduledDate,
       startTime: record.start_time || existing?.startTime,
       endTime: record.end_time || existing?.endTime,
       scheduledTimeRange: timeRange || existing?.scheduledTimeRange,
@@ -495,12 +774,29 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
 
     if (!existing) {
       _items.push(mappedItem);
+      currentMap.set(mappedItem.id, mappedItem);
+      if (mappedItem.orderItemId) orderItemMap.set(String(mappedItem.orderItemId), mappedItem);
       hasChanges = true;
     } else {
       // Merge updates
       let updated = false;
       if (status && status !== existing.status) {
         existing.status = status;
+        updated = true;
+      }
+      if (scheduledDate && scheduledDate !== existing.scheduledDate) {
+        existing.scheduledDate = scheduledDate;
+        updated = true;
+      }
+      if (status === "Scheduled" || status === "Pending Scheduled") {
+        existing.pickedAt = null;
+      }
+      if (itemStatus && itemStatus !== existing.orderItemStatus) {
+        existing.orderItemStatus = itemStatus;
+        updated = true;
+      }
+      if (mappedItem.lineItemId && mappedItem.lineItemId !== existing.lineItemId) {
+        existing.lineItemId = mappedItem.lineItemId;
         updated = true;
       }
       if (mappedItem.productName && mappedItem.productName !== existing.productName) {
@@ -550,6 +846,112 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
       if (completedAt && !existing.completedAt) {
         existing.completedAt = completedAt;
         existing.status = "Completed";
+        updated = true;
+      }
+      if (hasChanges || updated) hasChanges = true;
+    }
+  });
+
+  if (hasChanges) {
+    _notify();
+  }
+}
+
+/**
+ * Synchronize awaiting scheduled order items from GET /api/admin/orders/scheduled-items
+ * into the store so they populate the "Pending Scheduled" tab.
+ */
+export function syncAwaitingScheduledItems(records: ScheduledOrderItem[]): void {
+  if (!Array.isArray(records) || records.length === 0) return;
+
+  let hasChanges = false;
+  const currentMap = new Map<string, ScheduledItem>(_items.map((i) => [i.id, i]));
+  const orderItemMap = new Map<string, ScheduledItem>();
+  _items.forEach((i) => {
+    if (i.orderItemId) orderItemMap.set(String(i.orderItemId), i);
+  });
+
+  records.forEach((record) => {
+    const rawId = `awaiting-${record.order_item_id || record.id || record.item_id}`;
+    const orderItemIdKey = String(record.order_item_id || record.id || record.item_id || "");
+    const existing = currentMap.get(rawId) || (orderItemIdKey ? orderItemMap.get(orderItemIdKey) : null);
+
+    // If item already exists in the store with an advanced status, don't overwrite it
+    if (existing && existing.status !== "Pending Scheduled") {
+      return;
+    }
+
+    const itemStatus = record.status || "pending";
+    const mappedItem: ScheduledItem = {
+      id: existing ? existing.id : rawId,
+      orderId: String(record.order_number || record.order_id || ""),
+      orderNumber: record.order_number || (record.order_id ? `#${record.order_id}` : undefined),
+      orderItemId: record.order_item_id || record.id || record.item_id,
+      orderInstallationId: record.order_installation_id || record.installation_id || record.installation?.id,
+      lineItemId: record.line_item_id || existing?.lineItemId || null,
+      orderItemStatus: itemStatus,
+      productName:
+        record.product_name ||
+        existing?.productName ||
+        "Installation Item",
+      sku: record.product_code || existing?.sku || "",
+      barcode: record.barcode || existing?.barcode || "",
+      image:
+        record.image ||
+        record.image_url ||
+        record.product_image ||
+        record.product_image_url ||
+        existing?.image ||
+        "https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?w=100&h=100&fit=crop",
+      customerName:
+        record.customer?.name ||
+        existing?.customerName ||
+        "Customer",
+      customerPhone:
+        record.customer?.phone ||
+        existing?.customerPhone ||
+        "",
+      address:
+        record.address ||
+        record.customer?.delivery_address ||
+        existing?.address ||
+        "",
+      status: "Pending Scheduled",
+      pickedAt: null,
+      pickerName: null,
+      technicianReceivedAt: null,
+      startedAt: null,
+      scheduledAt: record.installation?.created_at || new Date().toISOString(),
+      scheduledDate: existing?.scheduledDate || undefined,
+      startTime: existing?.startTime || undefined,
+      endTime: existing?.endTime || undefined,
+      scheduledTimeRange: existing?.scheduledTimeRange || undefined,
+      technicianId: null,
+      technicianName: existing?.technicianName || null,
+      assignedDriver: null,
+      installationMethod:
+        record.installation_type
+          ? `${record.installation_type} (${record.installation_level || "Installation"})`
+          : record.installation?.installation_type
+            ? `${record.installation.installation_type} (${record.installation.installation_level || "Installation"})`
+            : existing?.installationMethod || "Standard Assembly",
+      installationNotes: existing?.installationNotes || null,
+      completedAt: null,
+      images: [],
+      raw: record,
+    };
+
+    if (!existing) {
+      _items.push(mappedItem);
+      hasChanges = true;
+    } else {
+      let updated = false;
+      if (mappedItem.productName && mappedItem.productName !== existing.productName) {
+        existing.productName = mappedItem.productName;
+        updated = true;
+      }
+      if (mappedItem.lineItemId && mappedItem.lineItemId !== existing.lineItemId) {
+        existing.lineItemId = mappedItem.lineItemId;
         updated = true;
       }
       if (hasChanges || updated) hasChanges = true;
@@ -708,6 +1110,287 @@ export function syncCompletedInstallations(records: CompletedInstallationRecord[
         updated = true;
       }
       if (hasChanges || updated) hasChanges = true;
+    }
+  });
+
+  if (hasChanges) {
+    _notify();
+  }
+}
+
+/**
+ * Synchronize main warehouse picked installation items from:
+ * /api/admin/installation-itmes/main-warehouse-picked
+ * into the scheduled installations store so they display in the "Main Warehouse Picked" tab list.
+ */
+export function syncMainWarehousePickedItems(records: MainWarehousePickedRecord[]): void {
+  if (!Array.isArray(records) || records.length === 0) return;
+
+  let hasChanges = false;
+  const currentMap = new Map<string, ScheduledItem>(_items.map((i) => [i.id, i]));
+  const orderInstallationMap = new Map<string, ScheduledItem>();
+  const orderItemMap = new Map<string, ScheduledItem>();
+
+  _items.forEach((i) => {
+    if (i.orderInstallationId) orderInstallationMap.set(String(i.orderInstallationId), i);
+    if (i.orderItemId) orderItemMap.set(String(i.orderItemId), i);
+  });
+
+  records.forEach((record) => {
+    const rawId = `picked-${record.id || record.order_item_id || record.item_id || record.order_installation_id || Math.random().toString(36).slice(2, 9)}`;
+    const instIdKey = String(record.id || record.order_installation_id || record.installation_id || record.installation?.id || "");
+    const orderItemIdKey = record.order_item_id || record.item_id ? String(record.order_item_id || record.item_id) : null;
+
+    // Check if item already exists by rawId, orderInstallationId, or orderItemId
+    const existing =
+      currentMap.get(rawId) ||
+      (instIdKey ? orderInstallationMap.get(instIdKey) : null) ||
+      (orderItemIdKey ? orderItemMap.get(orderItemIdKey) : null);
+
+    // If item has already progressed past picked (Technician Received or Completed), don't regress it
+    const isAdvanced =
+      existing &&
+      (existing.status === "Completed" ||
+        existing.status === "Technician Received" ||
+        existing.status === "Driver Assigned");
+
+    const targetStatus: ScheduledTabType = isAdvanced ? existing.status : "Main Warehouse Picked";
+
+    // Extract images
+    const rawImages = record.installation?.images || record.images || record.product_image || record.image;
+    let extractedImages: string[] = [];
+    if (Array.isArray(rawImages)) {
+      extractedImages = rawImages.filter(Boolean).map(String);
+    } else if (typeof rawImages === "string" && rawImages.trim()) {
+      if (rawImages.startsWith("[") && rawImages.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(rawImages);
+          if (Array.isArray(parsed)) extractedImages = parsed.filter(Boolean).map(String);
+        } catch {
+          extractedImages = [rawImages];
+        }
+      } else {
+        extractedImages = [rawImages];
+      }
+    }
+    extractedImages = Array.from(new Set(extractedImages));
+    if (existing?.images && existing.images.length > 0) {
+      extractedImages = Array.from(new Set([...extractedImages, ...existing.images]));
+    }
+
+    const timeRange =
+      formatCustomerTimeRange(
+        record.start_time || record.technician_schedule?.start_time,
+        record.end_time || record.technician_schedule?.end_time,
+      ) || existing?.scheduledTimeRange;
+
+    const scheduledDateStr =
+      record.scheduled_date ||
+      record.technician_schedule?.scheduled_date ||
+      (record.scheduled_at ? String(record.scheduled_at).slice(0, 10) : undefined) ||
+      existing?.scheduledDate;
+
+    const pickerName =
+      record.picker_name ||
+      record.picked_by_name ||
+      record.picked_user_name ||
+      record.assigned_user_name ||
+      record.picked_user?.name ||
+      record.picker?.name ||
+      record.order?.packer ||
+      existing?.pickerName ||
+      "Main Warehouse Picker";
+
+    const pickedAt =
+      record.picked_at ||
+      record.updated_at ||
+      record.created_at ||
+      existing?.pickedAt ||
+      new Date().toISOString();
+
+    const mappedItem: ScheduledItem = {
+      id: existing ? existing.id : rawId,
+      orderId: String(record.order_number || record.order_id || record.order?.order_number || record.order?.id || existing?.orderId || ""),
+      orderNumber:
+        record.order_number ||
+        record.order?.order_number ||
+        (record.order_id ? `#${record.order_id}` : undefined) ||
+        existing?.orderNumber,
+      orderItemId: record.order_item_id || record.item_id || existing?.orderItemId,
+      orderInstallationId:
+        record.order_installation_id ||
+        record.installation_id ||
+        record.installation?.id ||
+        existing?.orderInstallationId,
+      lineItemId:
+        record.line_item_id ||
+        record.order_item?.line_item_id ||
+        existing?.lineItemId ||
+        null,
+      orderItemStatus: "picked",
+      productName:
+        record.product_name ||
+        record.order_item?.product_name ||
+        record.notes?.replace(/^Installation for /i, "") ||
+        existing?.productName ||
+        "Installation Item",
+      sku:
+        record.product_code ||
+        record.sku ||
+        record.order_item?.product_code ||
+        existing?.sku ||
+        "",
+      barcode:
+        record.barcode ||
+        record.order_item?.barcode ||
+        existing?.barcode ||
+        "",
+      image:
+        record.product_image ||
+        record.image ||
+        record.order_item?.image ||
+        record.order_item?.image_url ||
+        existing?.image ||
+        "https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?w=100&h=100&fit=crop",
+      customerName:
+        record.customer_name ||
+        record.customer?.name ||
+        record.order?.customer_name ||
+        existing?.customerName ||
+        "Customer",
+      customerPhone:
+        record.customer_phone ||
+        record.customer?.phone ||
+        record.order?.customer_phone ||
+        existing?.customerPhone ||
+        "",
+      address:
+        record.address ||
+        record.delivery_address ||
+        record.customer?.address ||
+        record.customer?.delivery_address ||
+        record.order?.delivery_address ||
+        existing?.address ||
+        "",
+      status: targetStatus,
+      pickedAt,
+      pickerName,
+      technicianReceivedAt: existing?.technicianReceivedAt || null,
+      startedAt: existing?.startedAt || null,
+      isRescheduled: record.is_rescheduled ?? existing?.isRescheduled ?? false,
+      rescheduleCount: record.reschedule_count ?? existing?.rescheduleCount ?? 0,
+      latestRescheduleReason: record.latest_reschedule_reason || existing?.latestRescheduleReason || null,
+      rescheduleHistory: record.reschedule_history || existing?.rescheduleHistory || [],
+      productTags: record.product_tags || record.order_item?.product_tags || existing?.productTags || null,
+      giftWrap: record.gift_wrap || record.order_item?.gift_wrap || existing?.giftWrap || null,
+      giftMessage: record.gift_message || record.order_item?.gift_message || existing?.giftMessage || null,
+      scheduledAt:
+        record.scheduled_at ||
+        record.scheduled_date ||
+        record.created_at ||
+        existing?.scheduledAt ||
+        new Date().toISOString(),
+      scheduledDate: scheduledDateStr ? String(scheduledDateStr).slice(0, 10) : undefined,
+      startTime: record.start_time || record.technician_schedule?.start_time || existing?.startTime,
+      endTime: record.end_time || record.technician_schedule?.end_time || existing?.endTime,
+      scheduledTimeRange: timeRange,
+      technicianId:
+        record.technician_id ||
+        record.technician?.id ||
+        record.technician_schedule?.technician_id ||
+        existing?.technicianId,
+      technicianName:
+        record.technician_name ||
+        record.technician?.name ||
+        record.technician_schedule?.technician_name ||
+        existing?.technicianName ||
+        "Technician",
+      assignedDriver:
+        record.assigned_driver ||
+        record.driver_name ||
+        record.order?.driver_assignment?.driver_name ||
+        existing?.assignedDriver ||
+        null,
+      driverId:
+        record.driver_id ||
+        record.order?.driver_assignment?.assigned_driver_user_id ||
+        existing?.driverId ||
+        null,
+      installationMethod:
+        record.installation_type
+          ? `${record.installation_type} (${record.installation_level || "Installation"})`
+          : record.installation?.installation_type
+            ? `${record.installation.installation_type} (${record.installation.installation_level || "Installation"})`
+            : existing?.installationMethod || "Standard Assembly",
+      installationNotes:
+        record.notes ||
+        record.installation?.notes ||
+        existing?.installationNotes ||
+        null,
+      completedAt: existing?.completedAt || record.completed_at || null,
+      images: extractedImages.length > 0 ? extractedImages : existing?.images || [],
+      raw: record,
+    };
+
+    if (!existing) {
+      _items.push(mappedItem);
+      currentMap.set(mappedItem.id, mappedItem);
+      if (mappedItem.orderItemId) orderItemMap.set(String(mappedItem.orderItemId), mappedItem);
+      if (mappedItem.orderInstallationId) orderInstallationMap.set(String(mappedItem.orderInstallationId), mappedItem);
+      hasChanges = true;
+    } else {
+      let updated = false;
+      if (existing.status !== targetStatus) {
+        existing.status = targetStatus;
+        updated = true;
+      }
+      if (existing.orderItemStatus !== "picked") {
+        existing.orderItemStatus = "picked";
+        updated = true;
+      }
+      if (!existing.pickedAt && pickedAt) {
+        existing.pickedAt = pickedAt;
+        updated = true;
+      }
+      if ((!existing.pickerName || existing.pickerName === "Main Warehouse Picker") && pickerName) {
+        existing.pickerName = pickerName;
+        updated = true;
+      }
+      if (mappedItem.scheduledDate && mappedItem.scheduledDate !== existing.scheduledDate) {
+        existing.scheduledDate = mappedItem.scheduledDate;
+        updated = true;
+      }
+      if (timeRange && timeRange !== existing.scheduledTimeRange) {
+        existing.scheduledTimeRange = timeRange;
+        updated = true;
+      }
+      if (mappedItem.customerName && mappedItem.customerName !== "Customer" && existing.customerName === "Customer") {
+        existing.customerName = mappedItem.customerName;
+        updated = true;
+      }
+      if (mappedItem.address && !existing.address) {
+        existing.address = mappedItem.address;
+        updated = true;
+      }
+      if (mappedItem.customerPhone && !existing.customerPhone) {
+        existing.customerPhone = mappedItem.customerPhone;
+        updated = true;
+      }
+      if (mappedItem.sku && !existing.sku) {
+        existing.sku = mappedItem.sku;
+        updated = true;
+      }
+      if (mappedItem.barcode && !existing.barcode) {
+        existing.barcode = mappedItem.barcode;
+        updated = true;
+      }
+      if (extractedImages.length > 0 && (!existing.images || existing.images.length === 0)) {
+        existing.images = extractedImages;
+        updated = true;
+      }
+      if (updated) {
+        hasChanges = true;
+      }
     }
   });
 

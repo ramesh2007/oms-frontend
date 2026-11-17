@@ -1,11 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { Filter, User, Search, AlertCircle, ArrowRight, CheckCircle2, X } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
+import {
+  Filter,
+  User,
+  Search,
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  X,
+  ClipboardList,
+} from "lucide-react";
+import { useNavigate, Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +58,7 @@ import {
   type OrdersByStatusResult,
   type PaginationMeta,
 } from "@/hooks/useOrders";
+import { syncSeedTasksWithOrders } from "@/lib/tasks";
 import { PrintInvoiceDialog } from "./PrintInvoiceDialog";
 import { ViewExportDialog } from "./ViewExportDialog";
 import { BulkActionBar } from "./BulkActionBar";
@@ -94,6 +117,8 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         return "installation";
       case "Flags & Exceptions":
         return "flagged";
+      case "PayLater":
+        return "paylater";
       default:
         return "all";
     }
@@ -101,7 +126,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
   const [currentPage, setCurrentPage] = useState(1);
   const { data: allOrders = EMPTY_ORDERS } = useOrders();
-  const { data: statusResult, refetch, isLoading: isStatusLoading, isFetching: isStatusFetching } = useOrdersByStatus(statusSlug, currentPage, 15);
+  const {
+    data: statusResult,
+    refetch,
+    isLoading: isStatusLoading,
+    isFetching: isStatusFetching,
+  } = useOrdersByStatus(statusSlug, currentPage, 15);
   const { data: flaggedResult } = useFlaggedOrders(1, 1);
   const statusOrders = statusResult?.orders;
 
@@ -125,8 +155,10 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     orderId: "",
   });
   const [showCrossTabOrders, setShowCrossTabOrders] = useState(false);
-  
-  const [sortColumn, setSortColumn] = useState<"id" | "date" | "customer" | "tat" | "total" | null>("tat");
+
+  const [sortColumn, setSortColumn] = useState<"id" | "date" | "customer" | "tat" | "total" | null>(
+    "tat",
+  );
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const handleSort = (col: "id" | "date" | "customer" | "tat" | "total") => {
@@ -163,7 +195,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
   // Prime status queries into queryClient so that clicking any tab has instantaneous data
   useEffect(() => {
-    const sourceOrders = (allOrders && allOrders.length > 0) ? allOrders : (isDemoMode() ? getSharedOrders() : EMPTY_ORDERS);
+    const sourceOrders =
+      allOrders && allOrders.length > 0
+        ? allOrders
+        : isDemoMode()
+          ? getSharedOrders()
+          : EMPTY_ORDERS;
     if (!sourceOrders || sourceOrders.length === 0) return;
 
     const tabsToPrime: { slug: string; tab: LegacyTabId }[] = [
@@ -185,7 +222,8 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
       const queryKey = orderKeys.status(slug, 1);
       const existing = queryClient.getQueryData<OrdersByStatusResult>(queryKey);
       if (!existing || !existing.orders || existing.orders.length === 0) {
-        const filteredOrders = tab === "All" ? sourceOrders : sourceOrders.filter((o) => matchesLegacyTab(o, tab));
+        const filteredOrders =
+          tab === "All" ? sourceOrders : sourceOrders.filter((o) => matchesLegacyTab(o, tab));
         const total = filteredOrders.length;
         queryClient.setQueryData<OrdersByStatusResult>(queryKey, {
           orders: filteredOrders.slice(0, 15),
@@ -218,8 +256,18 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   }, [queryClient]);
 
   const sourceOrders = useMemo(() => {
-    return (allOrders && allOrders.length > 0) ? allOrders : (isDemoMode() ? getSharedOrders() : EMPTY_ORDERS);
+    return allOrders && allOrders.length > 0
+      ? allOrders
+      : isDemoMode()
+        ? getSharedOrders()
+        : EMPTY_ORDERS;
   }, [allOrders]);
+
+  useEffect(() => {
+    if (sourceOrders && sourceOrders.length > 0) {
+      syncSeedTasksWithOrders(sourceOrders);
+    }
+  }, [sourceOrders]);
 
   const activeQuery = search.trim();
   const activeCustomerFilter = filters.customer.trim();
@@ -235,12 +283,15 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         const cleanId = activeOrderIdFilter.replace(/^#/, "").toLowerCase();
         const oId = (o.id || "").toLowerCase().replace(/^#/, "");
         const oNum = (o.orderNumber || "").toLowerCase().replace(/^#/, "");
-        const idMatches = oId === cleanId || oNum === cleanId || oId.includes(cleanId) || oNum.includes(cleanId);
+        const idMatches =
+          oId === cleanId || oNum === cleanId || oId.includes(cleanId) || oNum.includes(cleanId);
         if (!idMatches) return false;
       }
       if (activeCustomerFilter) {
         const cLower = activeCustomerFilter.toLowerCase();
-        const cMatches = (o.customer?.name || "").toLowerCase().includes(cLower) || (o.customer?.phone || "").includes(cLower);
+        const cMatches =
+          (o.customer?.name || "").toLowerCase().includes(cLower) ||
+          (o.customer?.phone || "").includes(cLower);
         if (!cMatches) return false;
       }
       return true;
@@ -271,7 +322,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
       custKey = globalMatchingOrders[0].customer?.name || "";
     }
     if (!custKey && activeQuery) {
-      const directCust = sourceOrders.find((o) => (o.customer?.name || "").toLowerCase().includes(activeQuery.toLowerCase()));
+      const directCust = sourceOrders.find((o) =>
+        (o.customer?.name || "").toLowerCase().includes(activeQuery.toLowerCase()),
+      );
       if (directCust) {
         custKey = directCust.customer.name;
       }
@@ -284,8 +337,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   const instantTabOrders = useMemo(() => {
     if (!sourceOrders || sourceOrders.length === 0) return EMPTY_ORDERS;
     if (activeTab === "All") return sourceOrders;
+    if (activeTab === "PayLater") return EMPTY_ORDERS;
     if (activeTab === "Flags & Exceptions") {
-      return sourceOrders.filter((o) => o.status === "Flagged" || o.status === "Delivery Failed");
+      return sourceOrders.filter((o) => matchesLegacyTab(o, "Flags & Exceptions"));
     }
     return sourceOrders.filter((o) => matchesLegacyTab(o, activeTab));
   }, [sourceOrders, activeTab]);
@@ -294,23 +348,85 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     statusResult &&
     statusResult.orders &&
     (!statusResult.statusFilter ||
-     statusResult.statusFilter.replace(/[-_]/g, "").toLowerCase() === statusSlug.replace(/[-_]/g, "").toLowerCase() ||
-     (statusSlug === "cancelled-delivery" && (statusResult.statusFilter === "cancelled" || statusResult.statusFilter === "cancelled_delivery")) ||
-     (statusSlug === "installation" && (statusResult.statusFilter === "installation" || statusResult.statusFilter === "installation_orders")) ||
-     (statusSlug === "express" && (statusResult.statusFilter === "express" || statusResult.statusFilter === "express_orders")))
+      statusResult.statusFilter.replace(/[-_]/g, "").toLowerCase() ===
+        statusSlug.replace(/[-_]/g, "").toLowerCase() ||
+      (statusSlug === "cancelled-delivery" &&
+        (statusResult.statusFilter === "cancelled" ||
+          statusResult.statusFilter === "cancelled_delivery")) ||
+      (statusSlug === "installation" &&
+        (statusResult.statusFilter === "installation" ||
+          statusResult.statusFilter === "installation_orders")) ||
+      (statusSlug === "express" &&
+        (statusResult.statusFilter === "express" ||
+          statusResult.statusFilter === "express_orders"))),
   );
 
   const rawTabOrders = useMemo(() => {
-    const list = (hasFreshServerDataForTab && statusOrders && statusOrders.length > 0)
-      ? statusOrders
-      : ((statusOrders && statusOrders.length > 0) ? statusOrders : instantTabOrders);
-
-    if (activeTab === "All") return list;
-    if (activeTab === "Flags & Exceptions") {
-      return list.filter((o) => o.status === "Flagged" || o.status === "Delivery Failed");
+    // 0. Dedicated client filter for My Tasks
+    if (activeTab === "My Tasks") {
+      const matching = (sourceOrders || []).filter((o) => matchesLegacyTab(o, "My Tasks"));
+      const fromIndex = (currentPage - 1) * 15;
+      return matching.slice(fromIndex, fromIndex + 15);
     }
-    return list.filter((o) => matchesLegacyTab(o, activeTab));
-  }, [hasFreshServerDataForTab, statusOrders, instantTabOrders, activeTab]);
+
+    // 1. If we have fresh server data from dedicated status endpoint, strictly use server page (max 15)
+    if (hasFreshServerDataForTab && statusOrders && statusOrders.length > 0) {
+      if (activeTab === "All") return statusOrders.slice(0, 15);
+      if (activeTab === "PayLater") return EMPTY_ORDERS;
+      if (activeTab === "Flags & Exceptions") {
+        return statusOrders.filter((o) => matchesLegacyTab(o, "Flags & Exceptions")).slice(0, 15);
+      }
+      const filtered = statusOrders.filter((o) => matchesLegacyTab(o, activeTab));
+      let result = filtered.length > 0 ? filtered : statusOrders;
+      if (
+        currentPage === 1 &&
+        instantTabOrders &&
+        instantTabOrders.length > result.length &&
+        result.length < 15
+      ) {
+        const existingIds = new Set(result.map((o) => o.id));
+        const missing = instantTabOrders.filter((o) => !existingIds.has(o.id));
+        const needed = 15 - result.length;
+        result = [...result, ...missing.slice(0, needed)];
+      }
+      return result.slice(0, 15);
+    }
+
+    // 2. If statusOrders is present (even if not marked fresh yet), use it sliced to 15
+    if (statusOrders && statusOrders.length > 0) {
+      if (activeTab === "All") return statusOrders.slice(0, 15);
+      if (activeTab === "PayLater") return EMPTY_ORDERS;
+      if (activeTab === "Flags & Exceptions") {
+        return statusOrders.filter((o) => matchesLegacyTab(o, "Flags & Exceptions")).slice(0, 15);
+      }
+      const filtered = statusOrders.filter((o) => matchesLegacyTab(o, activeTab));
+      let result = filtered.length > 0 ? filtered : statusOrders;
+      if (
+        currentPage === 1 &&
+        instantTabOrders &&
+        instantTabOrders.length > result.length &&
+        result.length < 15
+      ) {
+        const existingIds = new Set(result.map((o) => o.id));
+        const missing = instantTabOrders.filter((o) => !existingIds.has(o.id));
+        const needed = 15 - result.length;
+        result = [...result, ...missing.slice(0, needed)];
+      }
+      return result.slice(0, 15);
+    }
+
+    // 3. Fallback to instant client cache (e.g. initial load or offline): strictly slice by currentPage (max 15)
+    let list = instantTabOrders;
+    if (activeTab === "PayLater") {
+      return EMPTY_ORDERS;
+    } else if (activeTab === "Flags & Exceptions") {
+      list = list.filter((o) => matchesLegacyTab(o, "Flags & Exceptions"));
+    } else if (activeTab !== "All") {
+      list = list.filter((o) => matchesLegacyTab(o, activeTab));
+    }
+    const fromIndex = (currentPage - 1) * 15;
+    return list.slice(fromIndex, fromIndex + 15);
+  }, [hasFreshServerDataForTab, statusOrders, instantTabOrders, activeTab, currentPage]);
 
   // Apply any optimistic manual overrides (driver, zone)
   const tabOrders = useMemo(() => {
@@ -327,13 +443,15 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     if (activeQuery) {
       result = result.filter((o) => matchesSearch(o, activeQuery));
     }
-    
+
     if (activeOrderIdFilter) {
       const cleanId = activeOrderIdFilter.replace(/^#/, "").toLowerCase();
       result = result.filter((o) => {
         const oId = (o.id || "").toLowerCase().replace(/^#/, "");
         const oNum = (o.orderNumber || "").toLowerCase().replace(/^#/, "");
-        return oId === cleanId || oNum === cleanId || oId.includes(cleanId) || oNum.includes(cleanId);
+        return (
+          oId === cleanId || oNum === cleanId || oId.includes(cleanId) || oNum.includes(cleanId)
+        );
       });
     }
 
@@ -349,18 +467,33 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
     const d = parseInt(days) || 1;
     if (d < 30 && result.length > 2 && !isSearchActive) {
-       result = result.slice(0, Math.max(1, result.length - Math.floor((30 - d) / 2)));
+      result = result.slice(0, Math.max(1, result.length - Math.floor((30 - d) / 2)));
     }
 
     return result;
-  }, [tabOrders, activeQuery, activeOrderIdFilter, activeCustomerFilter, otherStageOrders, showCrossTabOrders, days, isSearchActive]);
+  }, [
+    tabOrders,
+    activeQuery,
+    activeOrderIdFilter,
+    activeCustomerFilter,
+    otherStageOrders,
+    showCrossTabOrders,
+    days,
+    isSearchActive,
+  ]);
 
-  const isShowingCrossTab = showCrossTabOrders && otherStageOrders.length > 0 && baseOrders === otherStageOrders;
+  const isShowingCrossTab =
+    showCrossTabOrders && otherStageOrders.length > 0 && baseOrders === otherStageOrders;
 
   const filtered = useMemo(() => {
     let result = baseOrders;
     // Only filter with matchesLegacyTab if we fell back to instantTabOrders (and not showing cross-stage results)
-    if (!hasFreshServerDataForTab && activeTab !== "All" && activeTab !== "Flags & Exceptions" && !isShowingCrossTab) {
+    if (
+      !hasFreshServerDataForTab &&
+      activeTab !== "All" &&
+      activeTab !== "Flags & Exceptions" &&
+      !isShowingCrossTab
+    ) {
       result = result.filter((o) => matchesLegacyTab(o, activeTab));
     }
 
@@ -371,7 +504,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     if (activeTab === "Cancelled") {
       result = [...result].sort((a, b) => parseTatHours(b.tat) - parseTatHours(a.tat));
     }
-    
+
     return result;
   }, [baseOrders, hasFreshServerDataForTab, activeTab, filters.status, isShowingCrossTab]);
 
@@ -407,54 +540,85 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         return 0;
       });
     }
-    return result;
+    // Strictly cap to 15 orders maximum per page
+    return result.slice(0, 15);
   }, [filtered, sortColumn, sortDirection]);
-
-  const activePagination = useMemo<PaginationMeta>(() => {
-    if (isSearchActive) {
-      const total = filtered.length;
-      return {
-        current_page: 1,
-        per_page: 15,
-        total,
-        last_page: 1,
-        from: total > 0 ? 1 : 0,
-        to: total,
-        has_more_pages: false,
-        next_page_url: null,
-        prev_page_url: null,
-      };
-    }
-    if (hasFreshServerDataForTab && statusResult?.pagination) {
-      return statusResult.pagination;
-    }
-    const total = instantTabOrders.length;
-    return {
-      current_page: currentPage,
-      per_page: 15,
-      total,
-      last_page: Math.max(1, Math.ceil(total / 15)),
-      from: total > 0 ? (currentPage - 1) * 15 + 1 : 0,
-      to: Math.min(currentPage * 15, total),
-      has_more_pages: total > currentPage * 15,
-      next_page_url: null,
-      prev_page_url: null,
-    };
-  }, [isSearchActive, filtered.length, hasFreshServerDataForTab, statusResult?.pagination, instantTabOrders.length, currentPage]);
 
   const tabCounts = useMemo(() => {
     const counts = {} as Record<LegacyTabId, number>;
     for (const tab of LEGACY_TABS) {
-      if (tab.id === "Flags & Exceptions" && flaggedResult?.pagination?.total !== undefined) {
-        counts[tab.id] = flaggedResult.pagination.total;
-      } else if (tab.id === activeTab && hasFreshServerDataForTab && statusResult?.pagination?.total !== undefined && activeTab !== "All") {
-        counts[tab.id] = statusResult.pagination.total;
-      } else {
+      if (tab.id === "PayLater") {
+        counts[tab.id] = 0;
+      } else if (tab.id === "My Tasks") {
+        counts[tab.id] = countForLegacyTab(sourceOrders, "My Tasks");
+      } else if (tab.id === "Flags & Exceptions") {
+        if (activeTab === "Flags & Exceptions" && statusResult?.pagination?.total !== undefined) {
+          counts[tab.id] = statusResult.pagination.total;
+        } else if (flaggedResult?.pagination?.total !== undefined) {
+          counts[tab.id] = flaggedResult.pagination.total;
+        } else {
+          counts[tab.id] = countForLegacyTab(sourceOrders, "Flags & Exceptions");
+        }
+      } else if (tab.id === activeTab && statusResult?.pagination?.total !== undefined) {
+        counts[tab.id] = Math.max(
+          statusResult.pagination.total,
+          countForLegacyTab(sourceOrders, tab.id),
+        );
+      } else if (sourceOrders && sourceOrders.length > 0) {
         counts[tab.id] = countForLegacyTab(sourceOrders, tab.id);
+      } else {
+        counts[tab.id] = 0;
       }
     }
     return counts;
-  }, [sourceOrders, flaggedResult, activeTab, hasFreshServerDataForTab, statusResult?.pagination?.total]);
+  }, [sourceOrders, flaggedResult, activeTab, statusResult?.pagination?.total]);
+
+  const activePagination = useMemo<PaginationMeta>(() => {
+    if (isSearchActive) {
+      const total = filtered.length;
+      const lastPage = Math.max(1, Math.ceil(total / 15));
+      return {
+        current_page: currentPage,
+        per_page: 15,
+        total,
+        last_page: lastPage,
+        from: total > 0 ? (currentPage - 1) * 15 + 1 : 0,
+        to: Math.min(currentPage * 15, total),
+        has_more_pages: currentPage < lastPage,
+        next_page_url: null,
+        prev_page_url: null,
+      };
+    }
+    const currentTabCount = tabCounts[activeTab] ?? 0;
+    const serverTotal = statusResult?.pagination?.total;
+    const total =
+      activeTab === "PayLater"
+        ? 0
+        : activeTab === "My Tasks"
+          ? (tabCounts["My Tasks"] ?? 0)
+          : activeTab === "Flags & Exceptions" && serverTotal !== undefined
+            ? serverTotal
+            : Math.max(serverTotal ?? 0, currentTabCount, filtered.length);
+    const lastPage = Math.max(1, Math.ceil(total / 15));
+    return {
+      current_page: currentPage,
+      per_page: 15,
+      total,
+      last_page: lastPage,
+      from: total > 0 ? (currentPage - 1) * 15 + 1 : 0,
+      to: Math.min(currentPage * 15, total),
+      has_more_pages: currentPage < lastPage,
+      next_page_url: statusResult?.pagination?.next_page_url ?? null,
+      prev_page_url: statusResult?.pagination?.prev_page_url ?? null,
+    };
+  }, [
+    isSearchActive,
+    filtered.length,
+    tabCounts,
+    activeTab,
+    currentPage,
+    statusResult?.pagination,
+  ]);
 
   const sheetMatchedOrder = useMemo(() => {
     if (!filters.orderId?.trim()) return null;
@@ -472,10 +636,8 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
     return getCustomerOrdersBreakdown(sourceOrders, custName);
   }, [sheetMatchedOrder, filters.customer, sourceOrders]);
 
-  const allVisibleSelected =
-    filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
-  const someVisibleSelected =
-    filtered.some((o) => selectedIds.has(o.id)) && !allVisibleSelected;
+  const allVisibleSelected = filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
+  const someVisibleSelected = filtered.some((o) => selectedIds.has(o.id)) && !allVisibleSelected;
 
   const onSelect = (id: string, selected: boolean) => {
     setSelectedIds((prev) => {
@@ -541,7 +703,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   // Handle single action card triggers
   const handleCardAction = (
     action: "zone" | "driver" | "print" | "giftPrint" | "export",
-    order: Order
+    order: Order,
   ) => {
     setSingleActionOrder(order);
     if (action === "zone") setZoneDialogOpen(true);
@@ -552,7 +714,10 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
   };
 
   const showSkeleton =
-    (isStatusLoading && filtered.length === 0 && allOrders.length === 0 && (!statusOrders || statusOrders.length === 0)) ||
+    (isStatusLoading &&
+      filtered.length === 0 &&
+      allOrders.length === 0 &&
+      (!statusOrders || statusOrders.length === 0)) ||
     manualRefreshing;
 
   return (
@@ -587,6 +752,38 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         </div>
       </div>
 
+      {/* Customer Care Operation Tasks Banner */}
+      {activeTab === "My Tasks" && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50/80 p-3.5 shadow-xs dark:border-teal-800/60 dark:bg-teal-950/40">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-white shadow-xs">
+              <ClipboardList className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-teal-950 dark:text-teal-100">
+                  Customer Care Operation Tickets
+                </h4>
+                <span className="rounded-full bg-teal-200/70 px-2 py-0.5 text-[10px] font-extrabold text-teal-900 dark:bg-teal-800 dark:text-teal-100">
+                  {tabCounts["My Tasks"] ?? 0} Orders Flagged
+                </span>
+              </div>
+              <p className="text-xs text-teal-800/80 dark:text-teal-300/80 mt-0.5">
+                Orders with action requests from Customer Care (address modifications, urgent
+                timing, customer holds, special packaging).
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/my-tasks"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-teal-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-teal-700 transition-colors shrink-0"
+          >
+            <span>Open Dedicated Workbench</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      )}
+
       {/* Customer Multi-Stage Overview Ribbon */}
       {customerBreakdown && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-3.5 shadow-soft transition-all animate-in fade-in slide-in-from-top-1 duration-200">
@@ -597,12 +794,17 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
               </div>
               <div className="flex items-baseline gap-1.5 flex-wrap">
                 <span className="text-xs font-bold text-foreground">Customer:</span>
-                <span className="text-xs font-extrabold text-primary">{customerBreakdown.customerName}</span>
+                <span className="text-xs font-extrabold text-primary">
+                  {customerBreakdown.customerName}
+                </span>
                 {customerBreakdown.customerPhone && (
-                  <span className="text-[11px] text-muted-foreground font-mono">({customerBreakdown.customerPhone})</span>
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    ({customerBreakdown.customerPhone})
+                  </span>
                 )}
                 <span className="text-xs text-muted-foreground ml-1">
-                  • <strong className="text-foreground">{customerBreakdown.totalOrders}</strong> total orders across stages:
+                  • <strong className="text-foreground">{customerBreakdown.totalOrders}</strong>{" "}
+                  total orders across stages:
                 </span>
               </div>
             </div>
@@ -646,13 +848,15 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                     if (!filters.customer) {
                       setFilters((f) => ({ ...f, customer: customerBreakdown.customerName }));
                     }
-                    toast.info(`Switched to "${st.label}" tab (${st.count} orders for ${customerBreakdown.customerName})`);
+                    toast.info(
+                      `Switched to "${st.label}" tab (${st.count} orders for ${customerBreakdown.customerName})`,
+                    );
                   }}
                   className={cn(
                     "inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-200 shrink-0 cursor-pointer shadow-xs",
                     isCurrentActiveTab
                       ? "bg-primary text-primary-foreground shadow-sm ring-2 ring-primary/20 scale-[1.02]"
-                      : "bg-background border border-border text-foreground hover:bg-muted hover:border-primary/40"
+                      : "bg-background border border-border text-foreground hover:bg-muted hover:border-primary/40",
                   )}
                 >
                   <span>{st.label}</span>
@@ -661,7 +865,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                       "rounded-full px-1.5 py-0.2 text-[10px] font-bold tabular-nums",
                       isCurrentActiveTab
                         ? "bg-primary-foreground/20 text-primary-foreground"
-                        : "bg-muted text-foreground"
+                        : "bg-muted text-foreground",
                     )}
                   >
                     {st.count}
@@ -683,7 +887,15 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                 <h4 className="text-xs sm:text-sm font-bold text-foreground">
                   {otherStageOrders.length === 1 ? (
                     <>
-                      Order <span className="font-mono text-primary font-bold">#{String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}</span> was found in the{" "}
+                      Order{" "}
+                      <span className="font-mono text-primary font-bold">
+                        #
+                        {String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(
+                          /^#+/,
+                          "",
+                        )}
+                      </span>{" "}
+                      was found in the{" "}
                       <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-extrabold bg-primary text-primary-foreground shadow-xs">
                         {getOrderPrimaryTab(otherStageOrders[0])}
                       </span>{" "}
@@ -691,7 +903,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                     </>
                   ) : (
                     <>
-                      Found {otherStageOrders.length} matching order{otherStageOrders.length > 1 ? "s" : ""} in other stages ({Array.from(new Set(otherStageOrders.map((o) => getOrderPrimaryTab(o)))).join(", ")})
+                      Found {otherStageOrders.length} matching order
+                      {otherStageOrders.length > 1 ? "s" : ""} in other stages (
+                      {Array.from(new Set(otherStageOrders.map((o) => getOrderPrimaryTab(o)))).join(
+                        ", ",
+                      )}
+                      )
                     </>
                   )}
                 </h4>
@@ -699,9 +916,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
               <p className="text-xs text-muted-foreground ml-6">
                 {otherStageOrders.length === 1 ? (
                   <>
-                    Customer: <strong className="text-foreground">{otherStageOrders[0].customer.name}</strong>
-                    {otherStageOrders[0].customer.phone && ` • Phone: ${otherStageOrders[0].customer.phone}`}
-                    {otherStageOrders[0].total && ` • Total: QAR ${otherStageOrders[0].total.toLocaleString()}`}
+                    Customer:{" "}
+                    <strong className="text-foreground">{otherStageOrders[0].customer.name}</strong>
+                    {otherStageOrders[0].customer.phone &&
+                      ` • Phone: ${otherStageOrders[0].customer.phone}`}
+                    {otherStageOrders[0].total &&
+                      ` • Total: QAR ${otherStageOrders[0].total.toLocaleString()}`}
                   </>
                 ) : (
                   "Switch tabs or toggle below to view orders from other fulfillment stages."
@@ -719,7 +939,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                   onClick={() => {
                     const target = getOrderPrimaryTab(otherStageOrders[0]);
                     handleTabChange(target);
-                    toast.success(`Switched to "${target}" tab for order #${String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}`);
+                    toast.success(
+                      `Switched to "${target}" tab for order #${String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}`,
+                    );
                   }}
                 >
                   <span>Switch to {getOrderPrimaryTab(otherStageOrders[0])} Tab</span>
@@ -733,7 +955,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                 onClick={() => setShowCrossTabOrders((prev) => !prev)}
                 className="font-semibold text-xs h-8 px-3 border-border hover:bg-card"
               >
-                {showCrossTabOrders ? "Hide Cross-Stage Orders" : `Show ${otherStageOrders.length} Order${otherStageOrders.length > 1 ? "s" : ""} Here`}
+                {showCrossTabOrders
+                  ? "Hide Cross-Stage Orders"
+                  : `Show ${otherStageOrders.length} Order${otherStageOrders.length > 1 ? "s" : ""} Here`}
               </Button>
             </div>
           </div>
@@ -742,9 +966,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>
-          Showing <span className="font-medium text-foreground">{activePagination.from ?? 1}</span> to{" "}
-          <span className="font-medium text-foreground">{activePagination.to ?? filtered.length}</span> of{" "}
-          {activePagination.total ?? filtered.length} orders
+          Showing <span className="font-medium text-foreground">{activePagination.from ?? 1}</span>{" "}
+          to{" "}
+          <span className="font-medium text-foreground">
+            {activePagination.to ?? filtered.length}
+          </span>{" "}
+          of {activePagination.total ?? filtered.length} orders
         </span>
         {isStatusFetching && !showSkeleton && (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary animate-pulse">
@@ -798,7 +1025,15 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
               <p className="text-sm text-muted-foreground max-w-md mx-auto">
                 {otherStageOrders.length === 1 ? (
                   <>
-                    Order <strong className="text-foreground">#{String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}</strong> exists in the{" "}
+                    Order{" "}
+                    <strong className="text-foreground">
+                      #
+                      {String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(
+                        /^#+/,
+                        "",
+                      )}
+                    </strong>{" "}
+                    exists in the{" "}
                     <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-primary text-primary-foreground shadow-xs">
                       {getOrderPrimaryTab(otherStageOrders[0])}
                     </span>{" "}
@@ -817,7 +1052,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                   onClick={() => {
                     const target = getOrderPrimaryTab(otherStageOrders[0]);
                     handleTabChange(target);
-                    toast.success(`Switched to "${target}" tab for order #${String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}`);
+                    toast.success(
+                      `Switched to "${target}" tab for order #${String(otherStageOrders[0].orderNumber || otherStageOrders[0].id).replace(/^#+/, "")}`,
+                    );
                   }}
                 >
                   <span>Open in {getOrderPrimaryTab(otherStageOrders[0])} Tab</span>
@@ -851,7 +1088,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
               {isSearchActive ? "No orders match your filters" : "No orders found"}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              {isSearchActive ? "Try another status tab or clear search." : "No orders available in this stage."}
+              {isSearchActive
+                ? "Try another status tab or clear search."
+                : "No orders available in this stage."}
             </p>
           </div>
         )
@@ -866,9 +1105,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                   selected={selectedIds.has(order.id)}
                   onSelectChange={(sel) => onSelect(order.id, sel)}
                   expanded={expandedId === order.id}
-                  onToggleExpand={() =>
-                    setExpandedId((id) => (id === order.id ? null : order.id))
-                  }
+                  onToggleExpand={() => setExpandedId((id) => (id === order.id ? null : order.id))}
                   onViewOrder={goToOrder}
                   onAction={handleCardAction}
                 />
@@ -935,7 +1172,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
           }
           setZoneDialogOpen(true);
         }}
-        onAssignDriver={activeTab === "Ready to Assign" ? () => setDriverDialogOpen(true) : undefined}
+        onAssignDriver={
+          activeTab === "Ready to Assign" ? () => setDriverDialogOpen(true) : undefined
+        }
         onPrintInvoices={() => {
           if (selectedCount === 0) {
             toast.error("Please select at least one order to print");
@@ -978,7 +1217,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
           toast.success(
             `Assigned zone "${zoneName}" to ${targetIds.length} order(s)${
               overrideExisting ? " (Override)" : ""
-            }`
+            }`,
           );
           setSelectedIds(new Set());
           setSingleActionOrder(null);
@@ -992,9 +1231,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         }}
         selectedCount={singleActionOrder ? 1 : selectedCount}
         selectedOrders={
-          singleActionOrder
-            ? [singleActionOrder]
-            : baseOrders.filter((o) => selectedIds.has(o.id))
+          singleActionOrder ? [singleActionOrder] : baseOrders.filter((o) => selectedIds.has(o.id))
         }
         onAssign={(driver) => {
           const targetIds = singleActionOrder ? [singleActionOrder.id] : Array.from(selectedIds);
@@ -1005,9 +1242,7 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
             }
             return next;
           });
-          toast.success(
-            `Assigned driver ${driver} to ${targetIds.length} order(s)`
-          );
+          queryClient.invalidateQueries({ queryKey: orderKeys.all });
           setSelectedIds(new Set());
           setSingleActionOrder(null);
         }}
@@ -1056,9 +1291,12 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
         }
         activeTab={activeTab}
       />
-    
+
       <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <SheetContent side="right" className="w-full sm:w-[400px] sm:max-w-md p-0 flex flex-col bg-card border-border shadow-2xl">
+        <SheetContent
+          side="right"
+          className="w-full sm:w-[400px] sm:max-w-md p-0 flex flex-col bg-card border-border shadow-2xl"
+        >
           <div className="px-6 py-5 border-b border-border bg-muted/10">
             <SheetHeader className="text-left space-y-1">
               <div className="flex items-center gap-2.5">
@@ -1072,28 +1310,31 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
               </SheetDescription>
             </SheetHeader>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {/* Order ID / Number */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="orderId" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                <Label
+                  htmlFor="orderId"
+                  className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
+                >
                   Order ID / Order #
                 </Label>
                 {filters.orderId && (
                   <button
                     type="button"
-                    onClick={() => setFilters(f => ({ ...f, orderId: "" }))}
+                    onClick={() => setFilters((f) => ({ ...f, orderId: "" }))}
                     className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
                   >
                     Clear
                   </button>
                 )}
               </div>
-              <Input 
+              <Input
                 id="orderId"
                 value={filters.orderId}
-                onChange={(e) => setFilters(f => ({ ...f, orderId: e.target.value }))}
+                onChange={(e) => setFilters((f) => ({ ...f, orderId: e.target.value }))}
                 placeholder="E.g. 1012 or #1012"
                 className="h-11 bg-muted/20 border-border rounded-xl shadow-sm focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono text-sm"
               />
@@ -1105,7 +1346,13 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 font-bold text-foreground text-sm">
                     <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <span>Order #{String(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id).replace(/^#+/, "")}</span>
+                    <span>
+                      Order #
+                      {String(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id).replace(
+                        /^#+/,
+                        "",
+                      )}
+                    </span>
                   </div>
                   <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-extrabold bg-primary text-primary-foreground shadow-xs">
                     {getOrderPrimaryTab(sheetMatchedOrder)}
@@ -1120,12 +1367,16 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                   {sheetMatchedOrder.customer.phone && (
                     <div className="flex justify-between">
                       <span>Phone:</span>
-                      <span className="font-mono text-foreground">{sheetMatchedOrder.customer.phone}</span>
+                      <span className="font-mono text-foreground">
+                        {sheetMatchedOrder.customer.phone}
+                      </span>
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span>Total Amount:</span>
-                    <strong className="text-foreground">QAR {sheetMatchedOrder.total?.toLocaleString()}</strong>
+                    <strong className="text-foreground">
+                      QAR {sheetMatchedOrder.total?.toLocaleString()}
+                    </strong>
                   </div>
                 </div>
 
@@ -1141,14 +1392,21 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                           type="button"
                           onClick={() => {
                             handleTabChange(st.tab);
-                            setFilters(f => ({ ...f, customer: sheetCustomerBreakdown.customerName }));
+                            setFilters((f) => ({
+                              ...f,
+                              customer: sheetCustomerBreakdown.customerName,
+                            }));
                             setFiltersOpen(false);
-                            toast.info(`Switched to "${st.label}" tab for ${sheetCustomerBreakdown.customerName}`);
+                            toast.info(
+                              `Switched to "${st.label}" tab for ${sheetCustomerBreakdown.customerName}`,
+                            );
                           }}
                           className="px-2 py-1 rounded-md text-xs font-semibold bg-background border border-border hover:border-primary text-foreground flex items-center gap-1.5 shadow-xs transition-colors"
                         >
                           <span>{st.label}</span>
-                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-muted">{st.count}</span>
+                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-muted">
+                            {st.count}
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -1165,7 +1423,9 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
                       handleTabChange(target);
                       setSearch(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id);
                       setFiltersOpen(false);
-                      toast.success(`Switched to "${target}" tab for order #${String(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id).replace(/^#+/, "")}`);
+                      toast.success(
+                        `Switched to "${target}" tab for order #${String(sheetMatchedOrder.orderNumber || sheetMatchedOrder.id).replace(/^#+/, "")}`,
+                      );
                     }}
                   >
                     <span>Jump to {getOrderPrimaryTab(sheetMatchedOrder)} Tab</span>
@@ -1178,73 +1438,96 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
             {/* Customer Name */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="customer" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                <Label
+                  htmlFor="customer"
+                  className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
+                >
                   Customer Name
                 </Label>
                 {filters.customer && (
                   <button
                     type="button"
-                    onClick={() => setFilters(f => ({ ...f, customer: "" }))}
+                    onClick={() => setFilters((f) => ({ ...f, customer: "" }))}
                     className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
                   >
                     Clear
                   </button>
                 )}
               </div>
-              <Input 
+              <Input
                 id="customer"
                 value={filters.customer}
-                onChange={(e) => setFilters(f => ({ ...f, customer: e.target.value }))}
+                onChange={(e) => setFilters((f) => ({ ...f, customer: e.target.value }))}
                 placeholder="E.g. Rakonex Dev"
                 className="h-11 bg-muted/20 border-border rounded-xl shadow-sm focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all text-sm"
               />
             </div>
 
             {/* When searching customer in filter sheet, show their stage breakdown */}
-            {!sheetMatchedOrder && sheetCustomerBreakdown && sheetCustomerBreakdown.stages.length > 0 && (
-              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2.5 animate-in fade-in duration-200">
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-primary" />
-                  <span className="text-xs font-bold text-foreground">
-                    {sheetCustomerBreakdown.customerName} ({sheetCustomerBreakdown.totalOrders} total orders)
-                  </span>
+            {!sheetMatchedOrder &&
+              sheetCustomerBreakdown &&
+              sheetCustomerBreakdown.stages.length > 0 && (
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2.5 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-bold text-foreground">
+                      {sheetCustomerBreakdown.customerName} ({sheetCustomerBreakdown.totalOrders}{" "}
+                      total orders)
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Select stage to view:
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {sheetCustomerBreakdown.stages.map((st) => (
+                      <button
+                        key={st.tab}
+                        type="button"
+                        onClick={() => {
+                          handleTabChange(st.tab);
+                          setFiltersOpen(false);
+                          toast.info(
+                            `Showing "${st.label}" orders for ${sheetCustomerBreakdown.customerName}`,
+                          );
+                        }}
+                        className="px-2.5 py-1 rounded-md text-xs font-semibold bg-background border border-border hover:border-primary text-foreground flex items-center gap-1.5 shadow-xs"
+                      >
+                        <span>{st.label}</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-muted">
+                          {st.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Select stage to view:
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {sheetCustomerBreakdown.stages.map((st) => (
-                    <button
-                      key={st.tab}
-                      type="button"
-                      onClick={() => {
-                        handleTabChange(st.tab);
-                        setFiltersOpen(false);
-                        toast.info(`Showing "${st.label}" orders for ${sheetCustomerBreakdown.customerName}`);
-                      }}
-                      className="px-2.5 py-1 rounded-md text-xs font-semibold bg-background border border-border hover:border-primary text-foreground flex items-center gap-1.5 shadow-xs"
-                    >
-                      <span>{st.label}</span>
-                      <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-muted">{st.count}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
 
             {/* Order Status */}
             <div className="space-y-2">
-              <Label htmlFor="status" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              <Label
+                htmlFor="status"
+                className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
+              >
                 Order Status
               </Label>
-              <Select value={filters.status} onValueChange={(v) => setFilters(f => ({ ...f, status: v }))}>
-                <SelectTrigger id="status" className="h-11 w-full bg-muted/20 border-border rounded-xl shadow-sm focus:ring-2 focus:ring-primary/20 transition-all">
+              <Select
+                value={filters.status}
+                onValueChange={(v) => setFilters((f) => ({ ...f, status: v }))}
+              >
+                <SelectTrigger
+                  id="status"
+                  className="h-11 w-full bg-muted/20 border-border rounded-xl shadow-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                >
                   <SelectValue placeholder="All Statuses" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-border shadow-md">
-                  <SelectItem value="All" className="font-medium">All Statuses</SelectItem>
-                  {LEGACY_TABS.filter(t => t.id !== "All").map(t => (
-                    <SelectItem key={t.id} value={t.id} className="font-medium">{t.label}</SelectItem>
+                  <SelectItem value="All" className="font-medium">
+                    All Statuses
+                  </SelectItem>
+                  {LEGACY_TABS.filter((t) => t.id !== "All").map((t) => (
+                    <SelectItem key={t.id} value={t.id} className="font-medium">
+                      {t.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1252,32 +1535,55 @@ export function OrderList({ initialTab }: { initialTab?: LegacyTabId }) {
 
             {/* Payment Status */}
             <div className="space-y-2">
-              <Label htmlFor="paymentStatus" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              <Label
+                htmlFor="paymentStatus"
+                className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
+              >
                 Payment Status
               </Label>
-              <Select value={filters.paymentStatus} onValueChange={(v) => setFilters(f => ({ ...f, paymentStatus: v }))}>
-                <SelectTrigger id="paymentStatus" className="h-11 w-full bg-muted/20 border-border rounded-xl shadow-sm focus:ring-2 focus:ring-primary/20 transition-all">
+              <Select
+                value={filters.paymentStatus}
+                onValueChange={(v) => setFilters((f) => ({ ...f, paymentStatus: v }))}
+              >
+                <SelectTrigger
+                  id="paymentStatus"
+                  className="h-11 w-full bg-muted/20 border-border rounded-xl shadow-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                >
                   <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-border shadow-md">
-                  <SelectItem value="All" className="font-medium">All Payments</SelectItem>
-                  <SelectItem value="Paid" className="font-medium text-emerald-600 dark:text-emerald-400">Paid</SelectItem>
-                  <SelectItem value="Unpaid" className="font-medium text-amber-600 dark:text-amber-400">Unpaid</SelectItem>
+                  <SelectItem value="All" className="font-medium">
+                    All Payments
+                  </SelectItem>
+                  <SelectItem
+                    value="Paid"
+                    className="font-medium text-emerald-600 dark:text-emerald-400"
+                  >
+                    Paid
+                  </SelectItem>
+                  <SelectItem
+                    value="Unpaid"
+                    className="font-medium text-amber-600 dark:text-amber-400"
+                  >
+                    Unpaid
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
-          
+
           <div className="p-6 border-t border-border bg-muted/10 backdrop-blur-sm">
             <div className="flex gap-3">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="flex-1 rounded-xl h-11 font-semibold text-slate-800 dark:text-slate-200 border-border shadow-sm hover:bg-muted/50 transition-colors"
-                onClick={() => setFilters({ status: "All", paymentStatus: "All", customer: "", orderId: "" })}
+                onClick={() =>
+                  setFilters({ status: "All", paymentStatus: "All", customer: "", orderId: "" })
+                }
               >
                 Clear All
               </Button>
-              <Button 
+              <Button
                 className="flex-1 rounded-xl h-11 bg-primary text-primary-foreground font-bold shadow-md hover:bg-primary/95 hover:shadow-lg transition-all active:scale-[0.98]"
                 onClick={() => setFiltersOpen(false)}
               >

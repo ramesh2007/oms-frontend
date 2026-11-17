@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { AppSidebar } from "@/components/dashboard/AppSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
 import { useState, useMemo } from "react";
@@ -129,6 +129,11 @@ const INITIAL_WAREHOUSES: WarehouseBranch[] = [
 /*  Page Component                                                    */
 /* ------------------------------------------------------------------ */
 function WarehousesPage() {
+  // Page temporarily hidden
+  return <Navigate to="/orders" replace />;
+}
+
+function WarehousesContent() {
   const [warehouses, setWarehouses] = useState<WarehouseBranch[]>(INITIAL_WAREHOUSES);
   const [search, setSearch] = useState("");
 

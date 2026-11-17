@@ -142,8 +142,14 @@ export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
               </button>
             </div>
             {flaggedItems.slice(0, 2).map((item) => {
-              const rawId = (item as any).item_id ?? (item as any).order_item_id ?? item.id;
-              const resolvedId = String(rawId ?? "").replace(/^#+/, "") || item.id;
+              const rawLineItemId =
+                item.line_item_id ??
+                (item as any).lineItemId ??
+                (item as any).order_line_item_id ??
+                item.order_item_id ??
+                item.id ??
+                (item as any).item_id;
+              const resolvedLineItemId = String(rawLineItemId ?? "").replace(/^#+/, "") || String(item.id);
               const reason =
                 (item as any).flag_reason ||
                 (item as any).flagged_reason ||
@@ -167,7 +173,7 @@ export function ActivityTimeline({ order }: { order: EnrichedOrder }) {
                       {item.name}
                     </span>
                     <span className="font-mono text-[10px] font-bold text-foreground bg-muted px-1.5 py-0.5 rounded border border-border/50">
-                      ID: #{resolvedId}
+                      Line Item ID: #{resolvedLineItemId}
                     </span>
                   </div>
                   <div className="text-[11px] leading-snug text-rose-800 dark:text-rose-300">
@@ -337,9 +343,9 @@ function TimelineEvent({ event }: { event: OrderTimelineEvent }) {
             <h4 className="text-[15px] font-semibold text-foreground leading-snug tracking-tight">
               {event.title}
             </h4>
-            {event.itemId && (
+            {(event.lineItemId || event.itemId) && (
               <span className="inline-flex items-center gap-1 rounded bg-muted/70 px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground border border-border/50">
-                ID: #{event.itemId}
+                Line Item ID: #{event.lineItemId || event.itemId}
               </span>
             )}
             {event.isFlagged && (
@@ -379,9 +385,9 @@ function TimelineEvent({ event }: { event: OrderTimelineEvent }) {
 
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-muted-foreground">Item ID:</span>
+                <span className="font-semibold text-muted-foreground">Line Item ID:</span>
                 <span className="font-mono font-bold text-foreground bg-background px-1.5 py-0.5 rounded border border-border/60 text-[11px]">
-                  #{event.itemId}
+                  #{event.lineItemId || event.itemId}
                 </span>
                 {event.itemName && (
                   <span className="text-muted-foreground text-[11px] truncate max-w-[180px]" title={event.itemName}>

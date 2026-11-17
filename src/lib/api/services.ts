@@ -28,6 +28,7 @@ import {
   matchesLegacyTab,
   type Order,
   type EnrichedOrder,
+  type LegacyTabId,
 } from "@/lib/orders";
 import {
   getSharedOrders,
@@ -66,9 +67,26 @@ export async function fetchOrders(): Promise<Order[]> {
 
   // ── Live mode: call dedicated Laravel OrderStatusApiController /api/admin/orders/status/all ──
   try {
-    const response: any = await erpNextClient.get("/api/admin/orders/status/all?per_page=100");
+    const response: any = await erpNextClient.get("/api/admin/orders/status/all?per_page=100&page=1");
     if (response && Array.isArray(response.data)) {
-      return response.data.map(mapLaravelOrderToDashboardOrder);
+      let allRawData = [...response.data];
+      const lastPage = response.pagination?.last_page ?? 1;
+      if (lastPage > 1) {
+        const remainingPromises = [];
+        for (let p = 2; p <= Math.min(lastPage, 20); p++) {
+          remainingPromises.push(
+            erpNextClient
+              .get(`/api/admin/orders/status/all?per_page=100&page=${p}`)
+              .then((res: any) => (res && Array.isArray(res.data) ? res.data : []))
+              .catch(() => [])
+          );
+        }
+        const extraPages = await Promise.all(remainingPromises);
+        for (const pageItems of extraPages) {
+          allRawData.push(...pageItems);
+        }
+      }
+      return allRawData.map(mapLaravelOrderToDashboardOrder);
     }
   } catch (err) {
     console.warn(
@@ -1028,22 +1046,21 @@ export interface CreateTechnicianSchedulePayload {
 
 export interface RescheduleTechnicianPayload {
   // Required fields per Laravel Validator
+  schedule_id?: number | string | null;
   order_id: number | string;
   order_item_id: number | string;
   order_installation_id: number | string;
   technician_id: number | string;
+  technician_name?: string | null;
   scheduled_date: string; // YYYY-MM-DD
   start_time: string; // HH:mm:ss or HH:mm
-
-  // Standard & Recommended fields
   end_time?: string | null; // HH:mm:ss or HH:mm
   taken_time_in_mins?: number | null;
-  reschedule_reason?: string | null; // e.g. "Customer requested afternoon slot"
+  reschedule_reason?: string | null; // e.g. "Customer requested a different date"
+  rescheduled_by?: number | string | null;
   notes?: string | null;
 
   // Full / Available fields
-  schedule_id?: number | string | null;
-  technician_name?: string | null;
   status?: string | null; // defaults to "rescheduled"
   force?: boolean; // defaults to false; true bypasses conflict check
   zone?: string | null;
@@ -1364,64 +1381,93 @@ export async function createTechnicianSchedule(
 
 /**
  * Reschedules an existing technician installation schedule via:
- * POST /api/technician-schedule/reschedule
- * (or POST /api/admin/technician-schedule/reschedule)
+ * POST /api/admin/technician-schedule/reschedule
  *
- * Supports Standard, Minimal, and Full payloads.
- * Handles 409 conflict detection and allows 'force: true' override.
+ * Payload:
+ * {
+ *   "schedule_id": 15,
+ *   "order_id": 1098,
+ *   "order_item_id": 245,
+ *   "order_installation_id": 32,
+ *   "technician_id": 7,
+ *   "technician_name": "Technician Name",
+ *   "scheduled_date": "2026-10-29",
+ *   "start_time": "10:00:00",
+ *   "end_time": "11:30:00",
+ *   "taken_time_in_mins": 90,
+ *   "reschedule_reason": "Customer requested a different date",
+ *   "rescheduled_by": 4,
+ *   "notes": "Customer confirmed the new appointment time"
+ * }
  */
 export async function rescheduleTechnicianSchedule(
   payload: RescheduleTechnicianPayload,
 ): Promise<RescheduleTechnicianResponse> {
+  const scheduleId = payload.schedule_id ?? payload.technician_schedule_id ?? payload.id;
+  const cleanPayload: Record<string, any> = {
+    ...(scheduleId != null
+      ? { schedule_id: !isNaN(Number(scheduleId)) ? Number(scheduleId) : scheduleId }
+      : {}),
+    order_id: !isNaN(Number(payload.order_id)) ? Number(payload.order_id) : payload.order_id,
+    order_item_id: !isNaN(Number(payload.order_item_id)) ? Number(payload.order_item_id) : payload.order_item_id,
+    order_installation_id: !isNaN(Number(payload.order_installation_id)) ? Number(payload.order_installation_id) : payload.order_installation_id,
+    technician_id: !isNaN(Number(payload.technician_id)) ? Number(payload.technician_id) : payload.technician_id,
+    technician_name: payload.technician_name || "Technician Name",
+    scheduled_date: payload.scheduled_date,
+    start_time: normalizeTimeTo24h(payload.start_time),
+    end_time: payload.end_time ? normalizeTimeTo24h(payload.end_time) : null,
+    taken_time_in_mins: payload.taken_time_in_mins != null && !isNaN(Number(payload.taken_time_in_mins))
+      ? Number(payload.taken_time_in_mins)
+      : 90,
+    reschedule_reason: payload.reschedule_reason || "Customer requested a different date",
+    rescheduled_by: payload.rescheduled_by != null && !isNaN(Number(payload.rescheduled_by))
+      ? Number(payload.rescheduled_by)
+      : payload.user_id != null && !isNaN(Number(payload.user_id))
+      ? Number(payload.user_id)
+      : 4,
+    notes: payload.notes != null ? String(payload.notes).trim() : "Customer confirmed the new appointment time",
+  };
+
+  // Optional fields if provided
+  if (payload.status) cleanPayload.status = payload.status;
+  if (payload.force !== undefined) cleanPayload.force = Boolean(payload.force);
+  if (payload.zone) cleanPayload.zone = payload.zone;
+  if (payload.building) cleanPayload.building = payload.building;
+  if (payload.unit) cleanPayload.unit = payload.unit;
+  if (payload.street) cleanPayload.street = payload.street;
+  if (payload.address) cleanPayload.address = payload.address;
+  if (payload.customer_name) cleanPayload.customer_name = payload.customer_name;
+  if (payload.customer_phone) cleanPayload.customer_phone = payload.customer_phone;
+  if (payload.user_id && !cleanPayload.rescheduled_by) cleanPayload.rescheduled_by = Number(payload.user_id);
+  if (payload.user_name) cleanPayload.user_name = payload.user_name;
+
   if (isDemoMode()) {
-    console.log("[Schedule] Demo mode: rescheduleTechnicianSchedule", payload);
+    console.log("[Schedule] Demo mode: rescheduleTechnicianSchedule", cleanPayload);
     return {
       success: true,
       status: "success",
       message: "Technician schedule rescheduled successfully (demo mode)",
       data: {
-        ...payload,
-        status: payload.status || "rescheduled",
+        ...cleanPayload,
+        status: cleanPayload.status || "rescheduled",
       },
       history: {
-        technician_id: payload.technician_id,
-        technician_name: payload.technician_name,
-        scheduled_date: payload.scheduled_date,
-        start_time: payload.start_time,
-        end_time: payload.end_time,
-        taken_time_in_mins: payload.taken_time_in_mins,
-        reschedule_reason: payload.reschedule_reason,
+        technician_id: cleanPayload.technician_id,
+        technician_name: cleanPayload.technician_name,
+        scheduled_date: cleanPayload.scheduled_date,
+        start_time: cleanPayload.start_time,
+        end_time: cleanPayload.end_time,
+        taken_time_in_mins: cleanPayload.taken_time_in_mins,
+        reschedule_reason: cleanPayload.reschedule_reason,
         created_at: new Date().toISOString(),
       },
     };
   }
 
-  // Primary endpoint per spec: /api/technician-schedule/reschedule (fallback /api/admin/technician-schedule/reschedule)
-  const endpoints = [
-    "/api/technician-schedule/reschedule",
+  return await erpNextClient.post<RescheduleTechnicianResponse>(
     "/api/admin/technician-schedule/reschedule",
-  ];
-
-  let lastError: any = null;
-  for (const ep of endpoints) {
-    try {
-      return await erpNextClient.post<RescheduleTechnicianResponse>(ep, payload);
-    } catch (err: any) {
-      lastError = err;
-      // If 409 Conflict (engaged) or 422 (validation error), throw immediately so caller can inspect conflict or prompt force
-      if (err?.status === 409 || err?.status === 422) {
-        throw err;
-      }
-      // If 404 Not Found, try alternate endpoint
-      if (err?.status === 404) {
-        console.warn(`[Schedule] ${ep} returned 404, attempting fallback endpoint...`);
-        continue;
-      }
-      throw err;
-    }
-  }
-
-  throw lastError || new Error("Failed to reschedule technician schedule");
+    cleanPayload,
+  );
 }
 
 export const rescheduleTechnician = rescheduleTechnicianSchedule;
@@ -1850,9 +1896,30 @@ export async function fetchTechnicianSchedules(params?: {
 
   for (const ep of endpoints) {
     try {
-      const res = await erpNextClient.get<TechnicianSchedulesResponse>(ep, queryParams);
-      if (res && (Array.isArray(res.data) || Array.isArray((res as any)))) {
-        return res;
+      const res = await erpNextClient.get<any>(ep, queryParams);
+      if (Array.isArray(res)) {
+        return {
+          success: true,
+          status: "success",
+          data: res,
+        };
+      }
+      if (res && Array.isArray(res.data)) {
+        return res as TechnicianSchedulesResponse;
+      }
+      if (res && res.data && Array.isArray(res.data.data)) {
+        return {
+          ...res,
+          data: res.data.data,
+          pagination: res.data.pagination || res.data,
+        };
+      }
+      if (res && Array.isArray((res as any).items)) {
+        return {
+          success: true,
+          status: "success",
+          data: (res as any).items,
+        };
       }
     } catch (err: any) {
       console.warn(`[TechnicianSchedules] ${ep} failed, trying next fallback:`, err?.message || err);
@@ -2068,6 +2135,168 @@ export async function fetchCompletedInstallations(params?: {
   };
 }
 
+export interface MainWarehousePickedRecord {
+  id?: number | string;
+  order_id?: number | string;
+  order_number?: string;
+  order_item_id?: number | string;
+  item_id?: number | string;
+  order_installation_id?: number | string;
+  installation_id?: number | string;
+  line_item_id?: string | number | null;
+  product_name?: string | null;
+  product_code?: string | null;
+  sku?: string | null;
+  barcode?: string | null;
+  product_image?: string | null;
+  image?: string | null;
+  image_url?: string | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  delivery_address?: string | null;
+  address?: string | null;
+  picker_name?: string | null;
+  picked_by_name?: string | null;
+  picked_user_name?: string | null;
+  picked_by?: any;
+  picked_at?: string | null;
+  status?: string | null;
+  order_item_status?: string | null;
+  scheduled_date?: string | null;
+  scheduled_at?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  technician_name?: string | null;
+  technician_id?: number | string | null;
+  assigned_driver?: string | null;
+  driver_id?: number | string | null;
+  installation_type?: string | null;
+  installation_level?: string | null;
+  notes?: string | null;
+  product_tags?: string | string[] | null;
+  gift_wrap?: string | boolean | null;
+  gift_message?: string | null;
+  quantity?: number;
+  unit_price?: number;
+  total_price?: number;
+  order?: any;
+  order_item?: any;
+  installation?: any;
+  technician?: any;
+  customer?: any;
+  created_at?: string | null;
+  updated_at?: string | null;
+  [key: string]: any;
+}
+
+export interface MainWarehousePickedResponse {
+  success: boolean;
+  status?: string;
+  message?: string;
+  total_count?: number;
+  pagination?: {
+    current_page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+    from?: number;
+    to?: number;
+    has_more_pages?: boolean;
+    next_page_url?: string | null;
+    prev_page_url?: string | null;
+  };
+  data: MainWarehousePickedRecord[];
+}
+
+/**
+ * Fetch main warehouse picked items from:
+ * GET /api/admin/installation-itmes/main-warehouse-picked
+ * (with fallbacks to /api/admin/installation-items/main-warehouse-picked, /api/installation-itmes/main-warehouse-picked, /api/installation-items/main-warehouse-picked)
+ */
+export async function fetchMainWarehousePickedItems(params?: {
+  scheduled_date?: string;
+  status?: string;
+  search?: string;
+  order_id?: number | string;
+  order_number?: string;
+  picker_id?: number | string;
+  per_page?: number;
+  page?: number;
+  all?: boolean;
+}): Promise<MainWarehousePickedResponse> {
+  const queryParams: Record<string, string> = {};
+  if (params?.scheduled_date) queryParams.scheduled_date = params.scheduled_date;
+  if (params?.status) queryParams.status = params.status;
+  if (params?.search) queryParams.search = params.search;
+  if (params?.order_id) queryParams.order_id = String(params.order_id);
+  if (params?.order_number) queryParams.order_number = params.order_number;
+  if (params?.picker_id) queryParams.picker_id = String(params.picker_id);
+  if (params?.all) queryParams.all = "1";
+  if (params?.per_page) queryParams.per_page = String(params.per_page);
+  if (params?.page) queryParams.page = String(params.page);
+
+  if (isDemoMode()) {
+    return {
+      success: true,
+      status: "success",
+      message: "Main warehouse picked items retrieved successfully (demo mode).",
+      pagination: {
+        current_page: 1,
+        per_page: params?.per_page || 15,
+        total: 0,
+        last_page: 1,
+      },
+      data: [],
+    };
+  }
+
+  const endpoints = [
+    "/api/admin/installation-itmes/main-warehouse-picked",
+    "/api/admin/installation-items/main-warehouse-picked",
+    "/api/installation-itmes/main-warehouse-picked",
+    "/api/installation-items/main-warehouse-picked",
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await erpNextClient.get<any>(ep, queryParams);
+      if (Array.isArray(res)) {
+        return {
+          success: true,
+          status: "success",
+          data: res,
+        };
+      }
+      if (res && Array.isArray(res.data)) {
+        return res as MainWarehousePickedResponse;
+      }
+      if (res && res.data && Array.isArray(res.data.data)) {
+        return {
+          ...res,
+          data: res.data.data,
+          pagination: res.data.pagination || res.data,
+        };
+      }
+      if (res && Array.isArray((res as any).items)) {
+        return {
+          success: true,
+          status: "success",
+          data: (res as any).items,
+        };
+      }
+    } catch (err: any) {
+      console.warn(`[MainWarehousePicked] ${ep} failed, trying next fallback:`, err?.message || err);
+    }
+  }
+
+  return {
+    success: false,
+    status: "error",
+    message: "Failed to fetch main warehouse picked items from all endpoints",
+    data: [],
+  };
+}
+
 /**
  * Update payment details for an order.
  */
@@ -2189,9 +2418,9 @@ export async function updateOrderDetails(
  * - GET /api/orders/status/in-delivery & /api/orders/in-delivery
  * - GET /api/orders/status/delivered & /api/orders/delivered
  */
-// In-memory cache for fast status queries to eliminate tab switching delays
+// In-memory cache for fast status queries to eliminate momentary tab switching flickers
 const statusQueryCache = new Map<string, { timestamp: number; result: any }>();
-const STATUS_CACHE_TTL = 30 * 1000; // 30 seconds cache
+const STATUS_CACHE_TTL = 2 * 1000; // 2 seconds short debounce so background polls immediately fetch fresh data
 
 /** Clear status query cache if orders are updated */
 export function invalidateStatusQueryCache() {
@@ -2224,7 +2453,12 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
       filtered = orders.filter((o) => matchesLegacyTab(o, "Picked"));
     } else if (lowerStatus === "packing") {
       filtered = orders.filter((o) => matchesLegacyTab(o, "Packing"));
-    } else if (lowerStatus === "in-delivery" || lowerStatus === "in_delivery" || lowerStatus === "in delivery") {
+    } else if (
+      lowerStatus === "in-delivery" ||
+      lowerStatus === "in_delivery" ||
+      lowerStatus === "in delivery" ||
+      lowerStatus === "started"
+    ) {
       filtered = orders.filter((o) => matchesLegacyTab(o, "In Delivery"));
     } else if (lowerStatus === "delivered") {
       filtered = orders.filter((o) => matchesLegacyTab(o, "Delivered"));
@@ -2236,6 +2470,10 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
       filtered = orders.filter((o) => matchesLegacyTab(o, "Cancelled"));
     } else if (lowerStatus === "installation") {
       filtered = orders.filter((o) => matchesLegacyTab(o, "Installation"));
+    } else if (lowerStatus === "flagged") {
+      filtered = orders.filter((o) => matchesLegacyTab(o, "Flags & Exceptions"));
+    } else if (lowerStatus === "paylater") {
+      filtered = [];
     }
 
     const total = filtered.length;
@@ -2266,6 +2504,27 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
     };
     statusQueryCache.set(cacheKey, { timestamp: Date.now(), result });
     return result;
+  }
+
+  // If paylater is requested, return empty response immediately since it is not part of the active system
+  if (statusName.toLowerCase() === "paylater") {
+    return {
+      success: true,
+      status_filter: "paylater",
+      pagination: {
+        current_page: page,
+        per_page: perPage,
+        total: 0,
+        last_page: 1,
+        from: 0,
+        to: 0,
+        has_more_pages: false,
+        next_page_url: null,
+        prev_page_url: null,
+      },
+      data: [],
+      mappedOrders: [],
+    };
   }
 
   // Live Mode: call dedicated Laravel status endpoint with admin prefix
@@ -2303,89 +2562,156 @@ export async function fetchOrdersByStatus(statusName: string, page = 1, perPage 
     // Filter out terminal or irrelevant statuses when dedicated active status endpoint returns historical orders
     let validMappedOrders = mappedOrders;
     const lowerStatus = statusName.toLowerCase();
-    if (lowerStatus === "packing") {
-      validMappedOrders = mappedOrders.filter((o: any) => {
-        const s = String(o.status || "").toLowerCase();
-        return (
-          s !== "delivered" &&
-          s !== "cancelled" &&
-          s !== "started" &&
-          s !== "driver accepted" &&
-          s !== "in delivery" &&
-          s !== "delivery failed"
-        );
-      });
-    } else if (lowerStatus === "picking") {
-      validMappedOrders = mappedOrders.filter((o: any) => {
-        const s = String(o.status || "").toLowerCase();
-        return (
-          s !== "delivered" &&
-          s !== "cancelled" &&
-          s !== "packed" &&
-          s !== "packing" &&
-          s !== "ready to assign" &&
-          s !== "started" &&
-          s !== "driver accepted" &&
-          s !== "in delivery" &&
-          s !== "delivery failed"
-        );
-      });
-    } else if (lowerStatus === "ready_to_assign" || lowerStatus === "ready-to-assign" || lowerStatus === "ready to assign") {
-      validMappedOrders = mappedOrders.filter((o: any) => {
-        const s = String(o.status || "").toLowerCase();
-        return (
-          s !== "delivered" &&
-          s !== "cancelled" &&
-          s !== "started" &&
-          s !== "driver accepted" &&
-          s !== "in delivery" &&
-          s !== "delivery failed"
-        );
-      });
-    } else if (lowerStatus === "in-delivery" || lowerStatus === "in_delivery" || lowerStatus === "in delivery") {
-      validMappedOrders = mappedOrders.filter((o: any) => {
-        const raw = (
-          o.backend_status ||
-          o.rawStatus ||
-          o.rawOrder?.status ||
-          o.rawOrder?.order_status ||
-          ""
-        ).toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
-
-        if (raw) {
-          return raw === "assigned_to_driver" || raw === "partial_assigned_driver";
-        }
-        return (
-          (o.status === "Driver Accepted" || o.status === "Started") &&
-          o.status !== "Ready to Assign"
-        );
-      });
+    const tabMap: Record<string, LegacyTabId> = {
+      "new": "New",
+      "picking": "Picking",
+      "picked": "Picked",
+      "packing": "Packing",
+      "ready-to-assign": "Ready to Assign",
+      "ready_to_assign": "Ready to Assign",
+      "ready to assign": "Ready to Assign",
+      "in-delivery": "In Delivery",
+      "in_delivery": "In Delivery",
+      "in delivery": "In Delivery",
+      "started": "In Delivery",
+      "delivered": "Delivered",
+      "express": "Express",
+      "cancelled": "Cancelled",
+      "cancelled-delivery": "Cancelled",
+      "cancelled_delivery": "Cancelled",
+      "installation": "Installation",
+      "flagged": "Flags & Exceptions",
+    };
+    const targetLegacyTab = tabMap[lowerStatus];
+    if (targetLegacyTab) {
+      validMappedOrders = mappedOrders.filter((o: any) => matchesLegacyTab(o, targetLegacyTab));
     }
 
-    const totalItems = response.pagination?.total ?? response.total ?? validMappedOrders.length;
-    const lastPg =
-      response.pagination?.last_page ??
-      response.last_page ??
-      Math.max(1, Math.ceil(totalItems / perPage));
+    if (
+      (targetLegacyTab === "Ready to Assign" ||
+        targetLegacyTab === "Packing" ||
+        targetLegacyTab === "Picked") &&
+      page === 1
+    ) {
+      try {
+        const allRes: any = await erpNextClient.get("/api/admin/orders/status/all?per_page=100&page=1");
+        if (allRes && Array.isArray(allRes.data)) {
+          let allItems = [...allRes.data];
+          if (allRes.pagination?.last_page > 1) {
+            try {
+              const p2: any = await erpNextClient.get("/api/admin/orders/status/all?per_page=100&page=2");
+              if (p2 && Array.isArray(p2.data)) {
+                allItems.push(...p2.data);
+              }
+            } catch (_) {}
+          }
+          const matchedOrders = allItems
+            .map(mapLaravelOrderToDashboardOrder)
+            .filter((o: any) => matchesLegacyTab(o, targetLegacyTab));
 
-    const pagination = response.pagination || {
+          const existingIds = new Set(validMappedOrders.map((o: any) => o.id));
+          for (const mo of matchedOrders) {
+            if (!existingIds.has(mo.id) && validMappedOrders.length < perPage) {
+              validMappedOrders.push(mo);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`Could not check all orders for ${targetLegacyTab} tab:`, e);
+      }
+    }
+
+    if (targetLegacyTab === "Delivered") {
+      try {
+        const allRes: any = await erpNextClient.get("/api/admin/orders/status/all?per_page=100&page=1");
+        if (allRes && Array.isArray(allRes.data)) {
+          let allItems = [...allRes.data];
+          if (allRes.pagination?.last_page > 1) {
+            try {
+              const p2: any = await erpNextClient.get("/api/admin/orders/status/all?per_page=100&page=2");
+              if (p2 && Array.isArray(p2.data)) {
+                allItems.push(...p2.data);
+              }
+            } catch (_) {}
+          }
+          const completedOrders = allItems
+            .filter((o: any) => {
+              const s = (o.status || o.order_status || "").toString().toLowerCase().trim().replace(/[\s_-]+/g, "_");
+              return s === "completed";
+            })
+            .map(mapLaravelOrderToDashboardOrder);
+
+          const existingIds = new Set(validMappedOrders.map((o: any) => o.id));
+          for (const co of completedOrders) {
+            if (!existingIds.has(co.id)) {
+              validMappedOrders.push(co);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Could not check completed orders for delivered tab:", e);
+      }
+    }
+
+    const discardedOnPage = mappedOrders.length - validMappedOrders.length;
+    const baseTotal = response.pagination?.total ?? response.total ?? validMappedOrders.length;
+    const isSinglePage =
+      page === 1 &&
+      (!response.pagination?.has_more_pages ||
+        targetLegacyTab === "Ready to Assign" ||
+        targetLegacyTab === "Packing" ||
+        targetLegacyTab === "Picked") &&
+      (response.pagination?.last_page ?? 1) <= 1;
+
+    let totalItems = isSinglePage
+      ? validMappedOrders.length
+      : Math.max(validMappedOrders.length, baseTotal - Math.max(0, discardedOnPage));
+
+    if (
+      (targetLegacyTab === "Ready to Assign" ||
+        targetLegacyTab === "Packing" ||
+        targetLegacyTab === "Picked") &&
+      page === 1
+    ) {
+      totalItems = validMappedOrders.length;
+    }
+
+    const lastPg = Math.max(1, Math.ceil(totalItems / perPage));
+
+    const pagination = {
       current_page: page,
       per_page: perPage,
       total: totalItems,
       last_page: lastPg,
-      from: response.from ?? (validMappedOrders.length > 0 ? (page - 1) * perPage + 1 : 0),
-      to: response.to ?? Math.min(page * perPage, totalItems),
-      has_more_pages: response.has_more_pages ?? page < lastPg,
-      next_page_url: response.next_page_url ?? null,
-      prev_page_url: response.prev_page_url ?? null,
+      from: response.pagination?.from ?? response.from ?? (validMappedOrders.length > 0 ? (page - 1) * perPage + 1 : 0),
+      to: response.pagination?.to ?? response.to ?? Math.min(page * perPage, totalItems),
+      has_more_pages: page < lastPg,
+      next_page_url: page < lastPg ? (response.pagination?.next_page_url ?? `/api/admin/orders/status/${statusName}?page=${page + 1}`) : null,
+      prev_page_url: page > 1 ? (response.pagination?.prev_page_url ?? `/api/admin/orders/status/${statusName}?page=${page - 1}`) : null,
     };
+
+    // Strictly enforce that a single page never returns more than perPage (15) orders
+    let paginatedMappedOrders = validMappedOrders;
+    if (paginatedMappedOrders.length > perPage) {
+      const hasBackendPagination = Boolean(
+        response.pagination?.current_page ||
+        response.current_page ||
+        response.pagination?.total !== undefined
+      );
+      if (hasBackendPagination) {
+        paginatedMappedOrders = paginatedMappedOrders.slice(0, perPage);
+      } else {
+        const fromIdx = (page - 1) * perPage;
+        paginatedMappedOrders = paginatedMappedOrders.slice(fromIdx, fromIdx + perPage);
+      }
+    }
 
     const result = {
       success: response.success ?? true,
       status_filter: response.status_filter ?? statusName,
       pagination,
       data: rawData,
-      mappedOrders: validMappedOrders,
+      mappedOrders: paginatedMappedOrders,
     };
     statusQueryCache.set(cacheKey, { timestamp: Date.now(), result });
     return result;
@@ -2435,7 +2761,7 @@ export const fetchFlaggedOrders = async (page = 1, perPage = 15) => {
   }
   try {
     const res = await fetchOrdersByStatus("flagged", page, perPage);
-    if (res && (res.mappedOrders?.length > 0 || res.data?.length > 0)) {
+    if (res) {
       return res;
     }
   } catch (e) {
@@ -2615,6 +2941,10 @@ export const ordersApi = {
   fetchInstallationTeams,
   checkTechnicianAvailability,
   createTechnicianSchedule,
+  rescheduleTechnicianSchedule,
+  rescheduleTechnician: rescheduleTechnicianSchedule,
   fetchTechnicianSchedules,
   fetchCompletedInstallations,
+  fetchMainWarehousePickedItems,
+  invalidateStatusQueryCache,
 };

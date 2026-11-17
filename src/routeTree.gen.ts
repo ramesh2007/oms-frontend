@@ -18,6 +18,7 @@ import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as ReadyRouteImport } from './routes/ready'
 import { Route as PickingRouteImport } from './routes/picking'
 import { Route as PackingRouteImport } from './routes/packing'
+import { Route as MyTasksRouteImport } from './routes/my-tasks'
 import { Route as MisBenchmarksRouteImport } from './routes/mis-benchmarks'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LocationsRouteImport } from './routes/locations'
@@ -74,6 +75,11 @@ const PickingRoute = PickingRouteImport.update({
 const PackingRoute = PackingRouteImport.update({
   id: '/packing',
   path: '/packing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MyTasksRoute = MyTasksRouteImport.update({
+  id: '/my-tasks',
+  path: '/my-tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MisBenchmarksRoute = MisBenchmarksRouteImport.update({
@@ -148,6 +154,7 @@ export interface FileRoutesByFullPath {
   '/locations': typeof LocationsRoute
   '/login': typeof LoginRoute
   '/mis-benchmarks': typeof MisBenchmarksRoute
+  '/my-tasks': typeof MyTasksRoute
   '/packing': typeof PackingRoute
   '/picking': typeof PickingRoute
   '/ready': typeof ReadyRoute
@@ -171,6 +178,7 @@ export interface FileRoutesByTo {
   '/locations': typeof LocationsRoute
   '/login': typeof LoginRoute
   '/mis-benchmarks': typeof MisBenchmarksRoute
+  '/my-tasks': typeof MyTasksRoute
   '/packing': typeof PackingRoute
   '/picking': typeof PickingRoute
   '/ready': typeof ReadyRoute
@@ -195,6 +203,7 @@ export interface FileRoutesById {
   '/locations': typeof LocationsRoute
   '/login': typeof LoginRoute
   '/mis-benchmarks': typeof MisBenchmarksRoute
+  '/my-tasks': typeof MyTasksRoute
   '/packing': typeof PackingRoute
   '/picking': typeof PickingRoute
   '/ready': typeof ReadyRoute
@@ -220,6 +229,7 @@ export interface FileRouteTypes {
     | '/locations'
     | '/login'
     | '/mis-benchmarks'
+    | '/my-tasks'
     | '/packing'
     | '/picking'
     | '/ready'
@@ -243,6 +253,7 @@ export interface FileRouteTypes {
     | '/locations'
     | '/login'
     | '/mis-benchmarks'
+    | '/my-tasks'
     | '/packing'
     | '/picking'
     | '/ready'
@@ -266,6 +277,7 @@ export interface FileRouteTypes {
     | '/locations'
     | '/login'
     | '/mis-benchmarks'
+    | '/my-tasks'
     | '/packing'
     | '/picking'
     | '/ready'
@@ -290,6 +302,7 @@ export interface RootRouteChildren {
   LocationsRoute: typeof LocationsRoute
   LoginRoute: typeof LoginRoute
   MisBenchmarksRoute: typeof MisBenchmarksRoute
+  MyTasksRoute: typeof MyTasksRoute
   PackingRoute: typeof PackingRoute
   PickingRoute: typeof PickingRoute
   ReadyRoute: typeof ReadyRoute
@@ -366,6 +379,13 @@ declare module '@tanstack/react-router' {
       path: '/packing'
       fullPath: '/packing'
       preLoaderRoute: typeof PackingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/my-tasks': {
+      id: '/my-tasks'
+      path: '/my-tasks'
+      fullPath: '/my-tasks'
+      preLoaderRoute: typeof MyTasksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mis-benchmarks': {
@@ -466,6 +486,7 @@ const rootRouteChildren: RootRouteChildren = {
   LocationsRoute: LocationsRoute,
   LoginRoute: LoginRoute,
   MisBenchmarksRoute: MisBenchmarksRoute,
+  MyTasksRoute: MyTasksRoute,
   PackingRoute: PackingRoute,
   PickingRoute: PickingRoute,
   ReadyRoute: ReadyRoute,

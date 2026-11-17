@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getDrivers, assignDriverToOrder, type ManagedUser } from "@/lib/sync";
+import { orderKeys } from "@/hooks/useOrders";
+import { toast } from "sonner";
 
 export function AssignDriverDialog({
   open,
@@ -18,6 +21,7 @@ export function AssignDriverDialog({
   selectedOrders?: any[];
   onAssign: (driver: string) => void;
 }) {
+  const queryClient = useQueryClient();
   const [selectedDriverVal, setSelectedDriverVal] = useState<string>("");
   const [driversList, setDriversList] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,12 +55,18 @@ export function AssignDriverDialog({
   }, [open]);
 
   const handleAssign = async () => {
-    if (!selectedDriverVal) return;
+    if (!selectedDriverVal) {
+      toast.error("No Driver Selected", {
+        description: "Please choose a delivery driver from the list before confirming.",
+      });
+      return;
+    }
     const driverObj = driversList.find(
       (d) => String(d.id) === selectedDriverVal || d.name === selectedDriverVal || d.email === selectedDriverVal
     );
     const driverName = driverObj ? driverObj.name : selectedDriverVal;
     const driverId = driverObj ? driverObj.id : selectedDriverVal;
+    const targetCount = selectedCount || selectedOrders.length || 1;
 
     setSubmitting(true);
     try {
@@ -72,12 +82,17 @@ export function AssignDriverDialog({
           });
         }
       }
+      queryClient.invalidateQueries({ queryKey: orderKeys.all });
+      toast.success("Driver Assigned Successfully", {
+        description: `Assigned driver ${driverName} to ${targetCount} order${targetCount > 1 ? "s" : ""}. Orders moved to "In Delivery".`,
+      });
       onAssign(driverName);
       onOpenChange(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("[AssignDriverDialog] Error assigning driver:", err);
-      onAssign(driverName);
-      onOpenChange(false);
+      toast.error("Driver Assignment Failed", {
+        description: err?.message || `Could not assign driver ${driverName}. Please try again.`,
+      });
     } finally {
       setSubmitting(false);
     }

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import {
   MapPin, Plus, Pencil, Trash2, Users, X, Check, ChevronDown, ChevronUp,
@@ -30,6 +30,9 @@ export const Route = createFileRoute("/locations")({
 });
 
 function LocationsPage() {
+  // Page temporarily hidden
+  return <Navigate to="/orders" replace />;
+  /*
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
       <AppSidebar />
@@ -41,6 +44,7 @@ function LocationsPage() {
       </div>
     </div>
   );
+  */
 }
 
 function LocationsContent() {

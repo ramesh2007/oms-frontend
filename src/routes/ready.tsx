@@ -140,8 +140,7 @@ function ReadyPage() {
             onOpenChange={setDriverDialogOpen}
             selectedCount={selectedIds.size}
             selectedOrders={orders.filter((o) => selectedIds.has(o.id))}
-            onAssign={(driver) => {
-              toast.success(`Assigned driver ${driver} to ${selectedIds.size} order(s)`);
+            onAssign={(_driver) => {
               setSelectedIds(new Set());
             }}
           />

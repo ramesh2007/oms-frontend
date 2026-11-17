@@ -64,6 +64,13 @@ function FlagsPage() {
     return rawData.map((item: any, idx: number) => ({
       id: item.id || idx + 1,
       order_id: item.order_id || item.order_number || `#${item.id || idx + 1}`,
+      line_item_id:
+        item.line_item_id ||
+        item.lineItemId ||
+        item.order_line_item_id ||
+        item.order_item_id ||
+        (String(item.id || "").length > 6 ? item.id : undefined),
+      item_id: item.item_id,
       item_name: item.item_name || item.name || item.title || "Flagged Item",
       sku: item.sku || item.item_sku || "—",
       reason: item.reason || item.flag_reason || "Requires review",
@@ -105,7 +112,7 @@ function FlagsPage() {
     if (activeFilter === "delivery_failed") {
       result = result.filter((o) => o.status === "Delivery Failed");
     } else if (activeFilter === "flagged") {
-      result = result.filter((o) => o.status === "Flagged" || o.status === "Unfulfilled");
+      result = result.filter((o) => o.status === "Flagged");
     } else if (activeFilter === "tat_exceeded") {
       result = result.filter((o) => {
         const m = o.tat.match(/(\d+)h/);

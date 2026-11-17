@@ -13,6 +13,7 @@ import {
   type Order,
   type OrderStatus,
 } from "@/lib/orders";
+import { getTasksForOrder } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
 import {
   Calendar,
@@ -34,6 +35,7 @@ import {
   RotateCcw,
   XCircle,
   ArrowLeftRight,
+  ClipboardList,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -82,9 +84,12 @@ function statusBadgeClasses(status: OrderStatus): string {
 /* ─── TAT badge background/ring for urgency ───────────────────────────────── */
 function tatBadgeClasses(tat: string): string {
   const hours = parseTatHours(tat);
-  if (hours <= 2) return "bg-emerald-50 text-emerald-700 ring-emerald-200/50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800/30";
-  if (hours <= 12) return "bg-amber-50 text-amber-700 ring-amber-200/50 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800/30";
-  if (hours <= 24) return "bg-orange-50 text-orange-700 ring-orange-200/50 dark:bg-orange-950/40 dark:text-orange-300 dark:ring-orange-800/30";
+  if (hours <= 2)
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200/50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800/30";
+  if (hours <= 12)
+    return "bg-amber-50 text-amber-700 ring-amber-200/50 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800/30";
+  if (hours <= 24)
+    return "bg-orange-50 text-orange-700 ring-orange-200/50 dark:bg-orange-950/40 dark:text-orange-300 dark:ring-orange-800/30";
   return "bg-red-50 text-red-700 ring-red-200/50 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-800/30";
 }
 
@@ -125,8 +130,10 @@ export function OrderCard({
         "hover:-translate-y-[2px] hover:shadow-[0_8px_30px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/30",
         isOrderReturnAndReplacement(order)
           ? "border-l-4 border-l-indigo-500 bg-indigo-500/[0.02] dark:bg-indigo-950/10"
-          : (isOrderCancelled(order) || orderHasReturnedItems(order)) && "border-l-4 border-l-red-500 bg-red-500/[0.02] dark:bg-red-950/10",
-        selected && "ring-2 ring-primary/40 border-primary/50 shadow-[0_0_0_1px_rgba(133,175,174,0.15)]",
+          : (isOrderCancelled(order) || orderHasReturnedItems(order)) &&
+              "border-l-4 border-l-red-500 bg-red-500/[0.02] dark:bg-red-950/10",
+        selected &&
+          "ring-2 ring-primary/40 border-primary/50 shadow-[0_0_0_1px_rgba(133,175,174,0.15)]",
       )}
     >
       {/* ── Status accent bar (top) ─────────────────────────────────────── */}
@@ -134,7 +141,6 @@ export function OrderCard({
 
       {/* ── Card body ───────────────────────────────────────────────────── */}
       <div className="flex flex-1 flex-col p-4 pb-0">
-
         {/* ── Header: checkbox + order ID + status badge ─────────────────── */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
@@ -196,6 +202,28 @@ export function OrderCard({
                 (Return)
               </span>
             ) : null}
+            {(() => {
+              const task = getTasksForOrder(order).find(
+                (t) => t.status === "Open" || t.status === "In Progress",
+              );
+              if (!task) return null;
+              return (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold border shadow-2xs select-none",
+                    task.priority === "Urgent"
+                      ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border-red-200 dark:border-red-800 animate-pulse"
+                      : task.priority === "High"
+                        ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                        : "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border-teal-200 dark:border-teal-800",
+                  )}
+                  title={`Customer Care Task (${task.category}): ${task.title}\n${task.description}`}
+                >
+                  <ClipboardList className="h-3 w-3 shrink-0" />
+                  Task: {task.category}
+                </span>
+              );
+            })()}
           </div>
           <span
             className={cn(
@@ -239,10 +267,16 @@ export function OrderCard({
         {/* ── Customer block ─────────────────────────────────────────────── */}
         <div className="mt-3 rounded-xl bg-muted/30 px-3 py-2.5 ring-1 ring-inset ring-border/30 dark:bg-muted/15">
           <div className="text-sm font-semibold text-foreground leading-snug">
-            {order.customer?.name || (order as any).customer_name || (order as any).rawOrder?.customer_name || "Customer"}
+            {order.customer?.name ||
+              (order as any).customer_name ||
+              (order as any).rawOrder?.customer_name ||
+              "Customer"}
           </div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {order.customer?.email || (order as any).customer_email || (order as any).rawOrder?.customer_email || ""}
+            {order.customer?.email ||
+              (order as any).customer_email ||
+              (order as any).rawOrder?.customer_email ||
+              ""}
           </div>
         </div>
 
@@ -330,26 +364,44 @@ export function OrderCard({
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52 rounded-xl bg-popover border-border shadow-elevated">
-            <DropdownMenuItem onClick={() => onAction?.("zone", order)} className="cursor-pointer gap-2 py-2 rounded-lg">
+          <DropdownMenuContent
+            align="end"
+            className="w-52 rounded-xl bg-popover border-border shadow-elevated"
+          >
+            <DropdownMenuItem
+              onClick={() => onAction?.("zone", order)}
+              className="cursor-pointer gap-2 py-2 rounded-lg"
+            >
               <MapPin className="h-4 w-4 text-blue-500" />
               <span>Assign Zone</span>
             </DropdownMenuItem>
             {order.status === "Ready to Assign" && (
-              <DropdownMenuItem onClick={() => onAction?.("driver", order)} className="cursor-pointer gap-2 py-2 rounded-lg">
+              <DropdownMenuItem
+                onClick={() => onAction?.("driver", order)}
+                className="cursor-pointer gap-2 py-2 rounded-lg"
+              >
                 <Truck className="h-4 w-4 text-emerald-500" />
                 <span>Assign Driver</span>
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={() => onAction?.("print", order)} className="cursor-pointer gap-2 py-2 rounded-lg">
+            <DropdownMenuItem
+              onClick={() => onAction?.("print", order)}
+              className="cursor-pointer gap-2 py-2 rounded-lg"
+            >
               <Printer className="h-4 w-4 text-slate-500" />
               <span>Print Invoice</span>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onAction?.("giftPrint", order)} className="cursor-pointer gap-2 py-2 rounded-lg">
+            <DropdownMenuItem
+              onClick={() => onAction?.("giftPrint", order)}
+              className="cursor-pointer gap-2 py-2 rounded-lg"
+            >
               <Gift className="h-4 w-4 text-pink-500" />
               <span>Print Gift Invoice</span>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onAction?.("export", order)} className="cursor-pointer gap-2 py-2 rounded-lg">
+            <DropdownMenuItem
+              onClick={() => onAction?.("export", order)}
+              className="cursor-pointer gap-2 py-2 rounded-lg"
+            >
               <Download className="h-4 w-4 text-orange-500" />
               <span>Export CSV</span>
             </DropdownMenuItem>

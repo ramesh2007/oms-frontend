@@ -1,9 +1,35 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { tatColorClass, getOrderItemsCount, isExpressOrder, orderHasInstallation, orderHasVirtualStock, isOrderCancelled, orderHasReturnedItems, isOrderReturnAndReplacement, getOrderCancelledItemsCount, type Order } from "@/lib/orders";
+import {
+  tatColorClass,
+  getOrderItemsCount,
+  isExpressOrder,
+  orderHasInstallation,
+  orderHasVirtualStock,
+  isOrderCancelled,
+  orderHasReturnedItems,
+  isOrderReturnAndReplacement,
+  getOrderCancelledItemsCount,
+  type Order,
+} from "@/lib/orders";
+import { getTasksForOrder } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, Package, Truck, User, Eye, Zap, Wrench, Sparkles, RotateCcw, XCircle, ArrowLeftRight } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Package,
+  Truck,
+  User,
+  Eye,
+  Zap,
+  Wrench,
+  Sparkles,
+  RotateCcw,
+  XCircle,
+  ArrowLeftRight,
+  ClipboardList,
+} from "lucide-react";
 import { CrewTag } from "./CrewTag";
 import { DriverStatusBadge } from "./DriverStatusBadge";
 
@@ -40,11 +66,20 @@ function ReturnBadge({ order }: { order: Order }) {
   if (count === 0) return null;
 
   // If all items are collected/completed, show green badge
-  if (items.length > 0 && items.every((r) => r.status === "picked up" || r.status === "completed")) {
+  if (
+    items.length > 0 &&
+    items.every((r) => r.status === "picked up" || r.status === "completed")
+  ) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400">
         <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden>
-          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M2 6l3 3 5-5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
         Return Collected
       </span>
@@ -145,7 +180,10 @@ export function OrderTableRow({
   const isPacking = activeTab === "Packing";
   const colSpanCount = isPacking
     ? 10
-    : 13 + (dynamicCol ? 1 : 0) + (isPickingOrPicked ? -4 : 0) + (activeTab === "Ready to Assign" ? -1 : 0);
+    : 13 +
+      (dynamicCol ? 1 : 0) +
+      (isPickingOrPicked ? -4 : 0) +
+      (activeTab === "Ready to Assign" ? -1 : 0);
 
   return (
     <>
@@ -154,7 +192,8 @@ export function OrderTableRow({
           "cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/35",
           isOrderReturnAndReplacement(order)
             ? "bg-indigo-500/[0.03] hover:bg-indigo-500/[0.06] border-l-2 border-l-indigo-500"
-            : (isOrderCancelled(order) || orderHasReturnedItems(order)) && "bg-red-500/[0.03] hover:bg-red-500/[0.06] border-l-2 border-l-red-500",
+            : (isOrderCancelled(order) || orderHasReturnedItems(order)) &&
+                "bg-red-500/[0.03] hover:bg-red-500/[0.06] border-l-2 border-l-red-500",
           selected && "bg-primary/5",
           expanded && "bg-muted/25",
         )}
@@ -229,6 +268,28 @@ export function OrderTableRow({
                 (Return)
               </span>
             ) : null}
+            {(() => {
+              const task = getTasksForOrder(order).find(
+                (t) => t.status === "Open" || t.status === "In Progress",
+              );
+              if (!task) return null;
+              return (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold border shadow-2xs select-none",
+                    task.priority === "Urgent"
+                      ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border-red-200 dark:border-red-800 animate-pulse"
+                      : task.priority === "High"
+                        ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                        : "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border-teal-200 dark:border-teal-800",
+                  )}
+                  title={`Customer Care Task (${task.category}): ${task.title}\n${task.description}`}
+                >
+                  <ClipboardList className="h-3 w-3 shrink-0" />
+                  Task: {task.category}
+                </span>
+              );
+            })()}
           </div>
         </td>
 
@@ -264,7 +325,9 @@ export function OrderTableRow({
                   (order as any).rawOrder?.customerName ||
                   (order as any).rawOrder?.customer?.name ||
                   (order as any).rawOrder?.customer?.customer_name ||
-                  (typeof (order as any).rawOrder?.customer === "string" ? (order as any).rawOrder.customer : null) ||
+                  (typeof (order as any).rawOrder?.customer === "string"
+                    ? (order as any).rawOrder.customer
+                    : null) ||
                   (order as any).shippingAddress?.name ||
                   (order as any).recipient_name ||
                   order.customer?.name ||
@@ -321,8 +384,6 @@ export function OrderTableRow({
           </div>
         </td>
 
-
-
         {/* Picking Status & Assigned Picker */}
         {(activeTab === "Picking" || activeTab === "Picked") && (
           <>
@@ -332,10 +393,19 @@ export function OrderTableRow({
                 if (!pickingStat || pickingStat === "0/0 Picked") {
                   const total = getOrderItemsCount(order) || order.items || 1;
                   if (order.itemsList && order.itemsList.length > 0) {
-                    const picked = order.itemsList.filter(item => item.status === "Prepared" || (item.status as string) === "Picked").length;
+                    const picked = order.itemsList.filter(
+                      (item) => item.status === "Prepared" || (item.status as string) === "Picked",
+                    ).length;
                     pickingStat = `${picked}/${total} Picked`;
                   } else {
-                    const fullyPickedStatuses = ["Picked", "Packing", "Ready to Assign", "Driver Accepted", "Started", "Delivered"];
+                    const fullyPickedStatuses = [
+                      "Picked",
+                      "Packing",
+                      "Ready to Assign",
+                      "Driver Accepted",
+                      "Started",
+                      "Delivered",
+                    ];
                     if (fullyPickedStatuses.includes(order.status)) {
                       pickingStat = `${total}/${total} Picked`;
                     } else {
@@ -349,12 +419,14 @@ export function OrderTableRow({
                 const totalVal = parts[1];
                 const isFullyPicked = picked && totalVal && picked === totalVal && totalVal !== "0";
                 return (
-                  <span className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    isFullyPicked
-                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-                      : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
-                  )}>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                      isFullyPicked
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                        : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
+                    )}
+                  >
                     {pickingStat}
                   </span>
                 );
@@ -373,7 +445,7 @@ export function OrderTableRow({
             </td>
           </>
         )}
-            {/* Packing Status, Assigned Packer & Bags */}
+        {/* Packing Status, Assigned Packer & Bags */}
         {isPacking && (
           <>
             <td className="py-3 pr-3 align-middle">
@@ -382,10 +454,17 @@ export function OrderTableRow({
                 if (!packingStat) {
                   const total = getOrderItemsCount(order);
                   if (order.itemsList && order.itemsList.length > 0) {
-                    const packed = order.itemsList.filter(item => item.status === "Prepared").length;
+                    const packed = order.itemsList.filter(
+                      (item) => item.status === "Prepared",
+                    ).length;
                     packingStat = `${packed}/${total} Packing`;
                   } else {
-                    const fullyPackedStatuses = ["Ready to Assign", "Driver Accepted", "Started", "Delivered"];
+                    const fullyPackedStatuses = [
+                      "Ready to Assign",
+                      "Driver Accepted",
+                      "Started",
+                      "Delivered",
+                    ];
                     if (fullyPackedStatuses.includes(order.status)) {
                       packingStat = `${total}/${total} Packing`;
                     } else {
@@ -401,12 +480,14 @@ export function OrderTableRow({
                 const totalVal = parts[1];
                 const isFullyPacked = packed && totalVal && packed === totalVal && totalVal !== "0";
                 return (
-                  <span className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    isFullyPacked
-                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-                      : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
-                  )}>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                      isFullyPacked
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                        : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
+                    )}
+                  >
                     {packingStat}
                   </span>
                 );
@@ -435,10 +516,6 @@ export function OrderTableRow({
             </td>
           </>
         )}
-
-
-
-
 
         {/* Dynamic Column: Driver / Picker / Packer */}
         {dynamicCol === "driver" && (
@@ -522,7 +599,9 @@ export function OrderTableRow({
                   Channel & Shopify
                 </div>
                 <div className="mt-2 space-y-1">
-                  <ShopifyBadge status={order.status === "Delivered" ? "Fulfilled" : "Unfulfilled"} />
+                  <ShopifyBadge
+                    status={order.status === "Delivered" ? "Fulfilled" : "Unfulfilled"}
+                  />
                   <div className="text-xs text-muted-foreground">Channel: {order.channel}</div>
                 </div>
               </div>

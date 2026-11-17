@@ -11,6 +11,8 @@ import {
   Wrench,
   X,
   UserPlus,
+  PackageCheck,
+  Package,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -23,6 +25,9 @@ export interface ScheduledRowProps {
   onToggle: () => void;
   onRemove: () => void;
   onViewOrder: () => void;
+  onConfirmSchedule?: () => void;
+  onMarkPicked?: () => void;
+  onTechnicianReceive?: () => void;
   onAssignDriver?: () => void;
   onCompleteInstallation?: () => void;
   onUploadPhotos?: () => void;
@@ -37,6 +42,9 @@ export function ScheduledRow({
   onToggle,
   onRemove,
   onViewOrder,
+  onConfirmSchedule,
+  onMarkPicked,
+  onTechnicianReceive,
   onAssignDriver,
   onCompleteInstallation,
   onUploadPhotos,
@@ -87,6 +95,11 @@ export function ScheduledRow({
               {item.sku && (
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
                   SKU: {item.sku}
+                </span>
+              )}
+              {item.lineItemId && (
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                  Item #{item.lineItemId}
                 </span>
               )}
               {item.installationMethod && (
@@ -157,22 +170,48 @@ export function ScheduledRow({
 
         {/* 6. Status, Driver & Uploaded Photos */}
         <div className="min-w-0 space-y-1.5">
+          {activeTab === "Pending Scheduled" && (
+            <div className="flex flex-col gap-1">
+              <span className="inline-flex items-center w-fit gap-1 rounded-full border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
+                <Clock className="h-3 w-3 shrink-0" />
+                Installation Pending (Scheduled Items)
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                {item.technicianName ? `Tech: ${item.technicianName}` : "Awaiting schedule confirmation"}
+              </span>
+            </div>
+          )}
+
           {activeTab === "Scheduled" && (
             <div className="flex flex-col gap-1">
-              {item.isRescheduled ? (
-                <span
-                  className="inline-flex items-center w-fit gap-1 rounded-full border border-orange-200 dark:border-orange-900/60 bg-orange-50 dark:bg-orange-950/40 px-2.5 py-0.5 text-[11px] font-bold text-orange-700 dark:text-orange-300 uppercase tracking-wider"
-                  title={item.latestRescheduleReason ? `Reason: ${item.latestRescheduleReason}` : "Rescheduled installation"}
-                >
-                  <Clock className="h-3 w-3" />
-                  Rescheduled {item.rescheduleCount && item.rescheduleCount > 1 ? `(${item.rescheduleCount}x)` : ""}
-                </span>
-              ) : (
-                <span className="inline-flex items-center w-fit gap-1 rounded-full border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
-                  <Clock className="h-3 w-3" />
-                  Scheduled
-                </span>
-              )}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {item.orderItemStatus === "picker_assigned" ? (
+                  <span className="inline-flex items-center w-fit gap-1 rounded-full border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-0.5 text-[11px] font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+                    <User className="h-3 w-3" />
+                    Picker Assigned
+                  </span>
+                ) : item.orderItemStatus === "picking" ? (
+                  <span className="inline-flex items-center w-fit gap-1 rounded-full border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">
+                    <Package className="h-3 w-3" />
+                    Picking
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center w-fit gap-1 rounded-full border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
+                    <Clock className="h-3 w-3" />
+                    {item.orderItemStatus ? item.orderItemStatus.toUpperCase() : "PENDING"}
+                  </span>
+                )}
+
+                {item.isRescheduled && (
+                  <span
+                    className="inline-flex items-center w-fit gap-1 rounded-full border border-orange-200 dark:border-orange-900/60 bg-orange-50 dark:bg-orange-950/40 px-2 py-0.5 text-[10px] font-bold text-orange-700 dark:text-orange-300 uppercase tracking-wider"
+                    title={item.latestRescheduleReason ? `Reason: ${item.latestRescheduleReason}` : "Rescheduled installation"}
+                  >
+                    Rescheduled {item.rescheduleCount && item.rescheduleCount > 1 ? `(${item.rescheduleCount}x)` : ""}
+                  </span>
+                )}
+              </div>
+
               {item.latestRescheduleReason ? (
                 <span
                   className="text-[11px] text-orange-600 dark:text-orange-400 font-medium truncate max-w-[180px]"
@@ -180,23 +219,57 @@ export function ScheduledRow({
                 >
                   {item.latestRescheduleReason}
                 </span>
+              ) : item.orderItemStatus === "picker_assigned" ? (
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                  {item.pickerName ? `Assigned to ${item.pickerName}` : "Picker assigned in warehouse"}
+                </span>
+              ) : item.orderItemStatus === "picking" ? (
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                  Picking in progress
+                </span>
               ) : (
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  Awaiting driver assignment
+                  Awaiting warehouse picker
                 </span>
               )}
             </div>
           )}
 
-          {activeTab === "Driver Assigned" && (
+          {activeTab === "Main Warehouse Picked" && (
             <div className="flex flex-col gap-1">
-              <span className="inline-flex items-center w-fit gap-1 rounded-full border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-0.5 text-[11px] font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
-                <Truck className="h-3 w-3" />
-                Driver Assigned
+              <span className="inline-flex items-center w-fit gap-1 rounded-full border border-sky-200 dark:border-sky-900/60 bg-sky-50 dark:bg-sky-950/40 px-2.5 py-0.5 text-[11px] font-bold text-sky-700 dark:text-sky-300 uppercase tracking-wider">
+                <PackageCheck className="h-3 w-3" />
+                Main Warehouse Picked
               </span>
-              <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-200 font-bold">
-                <Truck className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span>{item.assignedDriver || "Assigned"}</span>
+              <div className="flex flex-col gap-0.5 text-xs text-slate-600 dark:text-slate-400">
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  {item.pickerName || "Picked in Warehouse"}
+                </span>
+                {item.pickedAt && (
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Picked: {formatTime(item.pickedAt)}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(activeTab === "Technician Received" || activeTab === "Driver Assigned") && (
+            <div className="flex flex-col gap-1">
+              <span className="inline-flex items-center w-fit gap-1 rounded-full border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">
+                <Wrench className="h-3 w-3" />
+                Technician Received
+              </span>
+              <div className="flex flex-col gap-0.5 text-xs text-slate-700 dark:text-slate-200 font-bold">
+                <div className="flex items-center gap-1.5">
+                  <Wrench className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span>{item.technicianName || item.assignedDriver || "In Progress"}</span>
+                </div>
+                {item.technicianReceivedAt && (
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    Received: {formatTime(item.technicianReceivedAt)}
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -264,18 +337,74 @@ export function ScheduledRow({
 
         {/* 7. Action Buttons */}
         <div className="flex items-center justify-end gap-2 shrink-0">
-          {activeTab === "Scheduled" && (
+          {activeTab === "Pending Scheduled" && (
             <button
               type="button"
-              onClick={onAssignDriver}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30 px-3 py-2 text-xs font-bold text-primary transition-colors cursor-pointer shadow-2xs"
+              onClick={onConfirmSchedule}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 px-3 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 transition-colors cursor-pointer shadow-2xs"
+              title="Confirm schedule and move to Scheduled tab"
             >
-              <UserPlus className="h-3.5 w-3.5" />
-              Assign Driver
+              <Calendar className="h-3.5 w-3.5" />
+              Schedule
             </button>
           )}
 
-          {activeTab === "Driver Assigned" && (
+          {activeTab === "Scheduled" && (
+            <button
+              type="button"
+              onClick={onMarkPicked}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-2xs",
+                item.orderItemStatus === "picker_assigned"
+                  ? "border-blue-300 dark:border-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 text-blue-700 dark:text-blue-300"
+                  : item.orderItemStatus === "picking"
+                    ? "border-indigo-300 dark:border-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300"
+                    : item.orderItemStatus === "picked"
+                      ? "border-sky-300 dark:border-sky-700 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-950/60 text-sky-700 dark:text-sky-300"
+                      : "border-amber-300 dark:border-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 text-amber-700 dark:text-amber-300",
+              )}
+              title={
+                item.lineItemId
+                  ? `Line Item #${item.lineItemId} status in order_items table: ${item.orderItemStatus || "pending"}`
+                  : `Line item status in order_items table: ${item.orderItemStatus || "pending"}`
+              }
+            >
+              {item.orderItemStatus === "picker_assigned" ? (
+                <>
+                  <User className="h-3.5 w-3.5" />
+                  Picker Assigned
+                </>
+              ) : item.orderItemStatus === "picking" ? (
+                <>
+                  <Package className="h-3.5 w-3.5" />
+                  Picking
+                </>
+              ) : item.orderItemStatus === "picked" ? (
+                <>
+                  <PackageCheck className="h-3.5 w-3.5" />
+                  Picked
+                </>
+              ) : (
+                <>
+                  <Clock className="h-3.5 w-3.5" />
+                  {item.orderItemStatus ? item.orderItemStatus.toUpperCase() : "PENDING"}
+                </>
+              )}
+            </button>
+          )}
+
+          {activeTab === "Main Warehouse Picked" && (
+            <button
+              type="button"
+              onClick={onTechnicianReceive}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60 px-3 py-2 text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer shadow-2xs"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Tech Received
+            </button>
+          )}
+
+          {(activeTab === "Technician Received" || activeTab === "Driver Assigned") && (
             <>
               <button
                 type="button"
@@ -285,14 +414,16 @@ export function ScheduledRow({
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Complete
               </button>
-              <button
-                type="button"
-                onClick={onAssignDriver}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer shadow-2xs"
-                title="Change assigned driver"
-              >
-                <Truck className="h-3.5 w-3.5" />
-              </button>
+              {onAssignDriver && (
+                <button
+                  type="button"
+                  onClick={onAssignDriver}
+                  className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer shadow-2xs"
+                  title="Change technician/driver"
+                >
+                  <Wrench className="h-3.5 w-3.5 text-indigo-500" />
+                </button>
+              )}
             </>
           )}
 
@@ -361,12 +492,17 @@ export function ScheduledRow({
 
               {activeTab === "Scheduled" && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase">
-                  Scheduled
+                  {item.orderItemStatus ? item.orderItemStatus.replace(/_/g, " ") : "Pending"}
                 </span>
               )}
-              {activeTab === "Driver Assigned" && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/30 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase">
-                  Driver Assigned
+              {activeTab === "Main Warehouse Picked" && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-900/60 bg-sky-50 dark:bg-sky-950/30 px-2 py-0.5 text-[10px] font-bold text-sky-700 dark:text-sky-400 uppercase">
+                  Picked
+                </span>
+              )}
+              {(activeTab === "Technician Received" || activeTab === "Driver Assigned") && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/30 px-2 py-0.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase">
+                  Tech Received
                 </span>
               )}
               {activeTab === "Completed" && (
@@ -379,9 +515,14 @@ export function ScheduledRow({
             <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2">
               {item.productName}
             </p>
-            {item.sku && (
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">SKU: {item.sku}</p>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {item.sku && (
+                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">SKU: {item.sku}</p>
+              )}
+              {item.lineItemId && (
+                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Item #{item.lineItemId}</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -446,18 +587,68 @@ export function ScheduledRow({
 
         {/* Mobile Action Buttons */}
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-          {activeTab === "Scheduled" && (
+          {activeTab === "Pending Scheduled" && (
             <button
               type="button"
-              onClick={onAssignDriver}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary cursor-pointer"
+              onClick={onConfirmSchedule}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-300 cursor-pointer"
             >
-              <UserPlus className="h-3.5 w-3.5" />
-              Assign Driver
+              <Calendar className="h-3.5 w-3.5" />
+              Schedule
             </button>
           )}
 
-          {activeTab === "Driver Assigned" && (
+          {activeTab === "Scheduled" && (
+            <button
+              type="button"
+              onClick={onMarkPicked}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold uppercase cursor-pointer",
+                item.orderItemStatus === "picker_assigned"
+                  ? "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300"
+                  : item.orderItemStatus === "picking"
+                    ? "border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300"
+                    : item.orderItemStatus === "picked"
+                      ? "border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300"
+                      : "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300",
+              )}
+            >
+              {item.orderItemStatus === "picker_assigned" ? (
+                <>
+                  <User className="h-3.5 w-3.5" />
+                  Picker Assigned
+                </>
+              ) : item.orderItemStatus === "picking" ? (
+                <>
+                  <Package className="h-3.5 w-3.5" />
+                  Picking
+                </>
+              ) : item.orderItemStatus === "picked" ? (
+                <>
+                  <PackageCheck className="h-3.5 w-3.5" />
+                  Picked
+                </>
+              ) : (
+                <>
+                  <Clock className="h-3.5 w-3.5" />
+                  {item.orderItemStatus ? item.orderItemStatus.toUpperCase() : "PENDING"}
+                </>
+              )}
+            </button>
+          )}
+
+          {activeTab === "Main Warehouse Picked" && (
+            <button
+              type="button"
+              onClick={onTechnicianReceive}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 cursor-pointer"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Tech Received
+            </button>
+          )}
+
+          {(activeTab === "Technician Received" || activeTab === "Driver Assigned") && (
             <>
               <button
                 type="button"
@@ -466,13 +657,6 @@ export function ScheduledRow({
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Complete
-              </button>
-              <button
-                type="button"
-                onClick={onAssignDriver}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer"
-              >
-                Change Driver
               </button>
             </>
           )}

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { Zap } from "lucide-react";
+import { Zap, ClipboardList } from "lucide-react";
 import { LEGACY_TABS, type LegacyTabId, type LegacyTab } from "@/lib/orders";
 import { cn } from "@/lib/utils";
 
@@ -73,7 +73,7 @@ export function OrdersTabs({
       ref={scrollRef}
       className={cn(
         "scrollbar-none flex items-center gap-1 overflow-x-auto py-1 px-4 sm:px-0",
-        isDragging ? "cursor-grabbing" : "cursor-grab"
+        isDragging ? "cursor-grabbing" : "cursor-grab",
       )}
       role="tablist"
       aria-label="Order status filters"
@@ -83,8 +83,13 @@ export function OrdersTabs({
       onMouseMove={handleMouseMove}
     >
       {LEGACY_TABS.reduce<React.ReactNode[]>((acc, tab) => {
-        const EXCLUDED_TABS = ["Returns & Replacements", "Replacement", "Exchange", "Delivery Failed"];
-        
+        const EXCLUDED_TABS = [
+          "Returns & Replacements",
+          "Replacement",
+          "Exchange",
+          "Delivery Failed",
+        ];
+
         // Skip these as they are now in the sidebar After-Sales Operations group
         if (EXCLUDED_TABS.includes(tab.id)) {
           return acc;
@@ -136,6 +141,15 @@ export function OrdersTabs({
                   isActive
                     ? "fill-primary-foreground text-primary-foreground"
                     : "fill-amber-500 text-amber-500",
+                )}
+                aria-hidden
+              />
+            )}
+            {tab.id === "My Tasks" && (
+              <ClipboardList
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
+                  isActive ? "text-primary-foreground" : "text-teal-500",
                 )}
                 aria-hidden
               />
