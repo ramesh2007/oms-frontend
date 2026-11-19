@@ -22,6 +22,7 @@ import {
   syncCompletedInstallations,
   syncMainWarehousePickedItems,
   normalizeDateStr,
+  itemMatchesDate,
   type ScheduledItem,
   type ScheduledTabType,
 } from "@/lib/scheduled-installations";
@@ -30,7 +31,11 @@ import {
   useCompletedInstallations,
   useScheduledItems,
   useMainWarehousePickedItems,
+  orderKeys,
 } from "@/hooks/useOrders";
+import { useQueryClient } from "@tanstack/react-query";
+import { ScheduleDialog } from "./customer-care";
+import type { ScheduledOrderItem } from "@/lib/api/services";
 import { ordersApi } from "@/lib/api";
 import { getUsers } from "@/lib/sync";
 import { ScheduledList } from "@/components/scheduled/ScheduledList";
@@ -102,6 +107,7 @@ function ScheduledInstallationsPage() {
 
 function ScheduledInstallationsContent() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const items = useSyncExternalStore(subscribe, getSnapshot);
 
   // 1. Fetch live technician schedules from backend (/api/admin/technician-scheduled-list)
@@ -233,6 +239,59 @@ function ScheduledInstallationsContent() {
   // Cancel Schedule Dialog State
   const [pendingCancelItem, setPendingCancelItem] = useState<ScheduledItem | null>(null);
 
+  // Reschedule Dialog State
+  const [rescheduleItem, setRescheduleItem] = useState<ScheduledItem | null>(null);
+
+  // Convert ScheduledItem to ScheduledOrderItem for ScheduleDialog
+  const targetRescheduleOrderItem: ScheduledOrderItem | null = useMemo(() => {
+    if (!rescheduleItem) return null;
+    const raw = rescheduleItem.raw;
+    if (raw && (raw.order_id || raw.order_number || raw.order_item_id || raw.id)) {
+      return {
+        ...raw,
+        id: raw.order_item_id ?? raw.id ?? rescheduleItem.orderItemId ?? rescheduleItem.id,
+        order_id: raw.order_id ?? (rescheduleItem.orderId ? Number(String(rescheduleItem.orderId).replace(/\D/g, "")) : 0),
+        order_number: raw.order_number ?? rescheduleItem.orderNumber ?? `#${rescheduleItem.orderId}`,
+        customer_name: raw.customer_name ?? raw.customer?.name ?? rescheduleItem.customerName,
+        customer_phone: raw.customer_phone ?? raw.customer?.phone ?? rescheduleItem.customerPhone,
+        delivery_address: raw.delivery_address ?? raw.customer?.address ?? raw.address ?? rescheduleItem.address,
+        product_name: raw.product_name ?? rescheduleItem.productName,
+        product_code: raw.product_code ?? raw.sku ?? rescheduleItem.sku,
+        schedule_id: raw.schedule_id ?? raw.id ?? rescheduleItem.id,
+        technician_id: raw.technician_id ?? rescheduleItem.technicianId,
+        technician_name: raw.technician_name ?? rescheduleItem.technicianName,
+        scheduled_date: raw.scheduled_date ?? rescheduleItem.scheduledDate,
+        start_time: raw.start_time ?? rescheduleItem.startTime,
+        end_time: raw.end_time ?? rescheduleItem.endTime,
+        installation: raw.installation ?? {
+          id: rescheduleItem.orderInstallationId ?? raw.order_installation_id,
+          is_scheduled_assigned: true,
+        },
+      } as unknown as ScheduledOrderItem;
+    }
+    return {
+      id: rescheduleItem.orderItemId ?? rescheduleItem.id,
+      order_id: Number(String(rescheduleItem.orderId).replace(/\D/g, "")) || 0,
+      order_number: rescheduleItem.orderNumber || `#${rescheduleItem.orderId}`,
+      customer_name: rescheduleItem.customerName,
+      customer_phone: rescheduleItem.customerPhone || "",
+      delivery_address: rescheduleItem.address || "",
+      product_name: rescheduleItem.productName,
+      product_code: rescheduleItem.sku,
+      image_url: rescheduleItem.image,
+      schedule_id: rescheduleItem.id,
+      technician_id: rescheduleItem.technicianId,
+      technician_name: rescheduleItem.technicianName,
+      scheduled_date: rescheduleItem.scheduledDate,
+      start_time: rescheduleItem.startTime,
+      end_time: rescheduleItem.endTime,
+      installation: {
+        id: rescheduleItem.orderInstallationId,
+        is_scheduled_assigned: true,
+      },
+    } as unknown as ScheduledOrderItem;
+  }, [rescheduleItem]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const extraFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -268,28 +327,9 @@ function ScheduledInstallationsContent() {
       return i.status === activeTab;
     });
 
-    // Scheduled date filter (defaults to today for Scheduled tab)
+    // Scheduled date filter (defaults to today; matches scheduled_date or rescheduled date)
     if (selectedScheduledDate) {
-      result = result.filter((i) => {
-        const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-        const itemDate = normalizeDateStr(rawDate) || rawDate;
-        const rawCompletedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
-        const completedDate = normalizeDateStr(rawCompletedDate) || rawCompletedDate;
-        if (activeTab === "Completed") {
-          return itemDate === selectedScheduledDate || completedDate === selectedScheduledDate;
-        }
-        if (activeTab === "Pending Scheduled") {
-          return !itemDate || itemDate === selectedScheduledDate;
-        }
-        if (activeTab === "Main Warehouse Picked") {
-          const pickedDate = normalizeDateStr(i.pickedAt) || (i.pickedAt ? i.pickedAt.slice(0, 10) : "");
-          return itemDate === selectedScheduledDate || pickedDate === selectedScheduledDate || !itemDate;
-        }
-        if (activeTab === "Scheduled") {
-          return !itemDate || itemDate === selectedScheduledDate;
-        }
-        return itemDate === selectedScheduledDate;
-      });
+      result = result.filter((i) => itemMatchesDate(i, selectedScheduledDate, activeTab));
     }
 
     if (searchQuery.trim()) {
@@ -334,24 +374,7 @@ function ScheduledInstallationsContent() {
           ? i.status === "Technician Received" || i.status === "Driver Assigned"
           : i.status === activeTab;
       if (!matchesTab) return false;
-      const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-      const itemDate = normalizeDateStr(rawDate) || rawDate;
-      const rawCompletedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
-      const completedDate = normalizeDateStr(rawCompletedDate) || rawCompletedDate;
-      if (activeTab === "Completed") {
-        return itemDate === todayStr || completedDate === todayStr;
-      }
-      if (activeTab === "Pending Scheduled") {
-        return !itemDate || itemDate === todayStr;
-      }
-      if (activeTab === "Main Warehouse Picked") {
-        const pickedDate = normalizeDateStr(i.pickedAt) || (i.pickedAt ? i.pickedAt.slice(0, 10) : "");
-        return itemDate === todayStr || pickedDate === todayStr || !itemDate;
-      }
-      if (activeTab === "Scheduled") {
-        return !itemDate || itemDate === todayStr;
-      }
-      return itemDate === todayStr;
+      return itemMatchesDate(i, todayStr, activeTab);
     }).length;
   }, [items, todayStr, activeTab]);
 
@@ -362,21 +385,7 @@ function ScheduledInstallationsContent() {
           ? i.status === "Technician Received" || i.status === "Driver Assigned"
           : i.status === activeTab;
       if (!matchesTab) return false;
-      const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-      const itemDate = normalizeDateStr(rawDate) || rawDate;
-      const rawCompletedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
-      const completedDate = normalizeDateStr(rawCompletedDate) || rawCompletedDate;
-      if (activeTab === "Completed") {
-        return itemDate === tomorrowStr || completedDate === tomorrowStr;
-      }
-      if (activeTab === "Pending Scheduled") {
-        return itemDate === tomorrowStr;
-      }
-      if (activeTab === "Main Warehouse Picked") {
-        const pickedDate = normalizeDateStr(i.pickedAt) || (i.pickedAt ? i.pickedAt.slice(0, 10) : "");
-        return itemDate === tomorrowStr || pickedDate === tomorrowStr;
-      }
-      return itemDate === tomorrowStr;
+      return itemMatchesDate(i, tomorrowStr, activeTab);
     }).length;
   }, [items, tomorrowStr, activeTab]);
 
@@ -389,38 +398,26 @@ function ScheduledInstallationsContent() {
     }).length;
   }, [items, activeTab]);
 
-  const pendingScheduledCount = selectedScheduledDate
-    ? pendingScheduledAll.filter((i) => {
-        const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-        const itemDate = normalizeDateStr(rawDate) || rawDate;
-        return !itemDate || itemDate === selectedScheduledDate;
-      }).length
-    : pendingScheduledAll.length;
-  const scheduledCount = selectedScheduledDate
-    ? scheduledAll.filter((i) => {
-        const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-        const itemDate = normalizeDateStr(rawDate) || rawDate;
-        return !itemDate || itemDate === selectedScheduledDate;
-      }).length
-    : scheduledAll.length;
-  const pickedCount = selectedScheduledDate
-    ? pickedAll.filter((i) => {
-        const rawDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-        const itemDate = normalizeDateStr(rawDate) || rawDate;
-        const pickedDate = normalizeDateStr(i.pickedAt) || (i.pickedAt ? i.pickedAt.slice(0, 10) : "");
-        return itemDate === selectedScheduledDate || pickedDate === selectedScheduledDate || !itemDate;
-      }).length
-    : pickedAll.length;
-  const techReceivedCount = selectedScheduledDate
-    ? techReceivedAll.filter((i) => (i.scheduledDate || i.scheduledAt?.slice(0, 10)) === selectedScheduledDate).length
-    : techReceivedAll.length;
-  const completedCount = selectedScheduledDate
-    ? completedAll.filter((i) => {
-        const itemDate = i.scheduledDate || (i.scheduledAt ? i.scheduledAt.slice(0, 10) : "");
-        const completedDate = i.completedAt ? i.completedAt.slice(0, 10) : "";
-        return itemDate === selectedScheduledDate || completedDate === selectedScheduledDate;
-      }).length
-    : completedAll.length;
+  const pendingScheduledCount = useMemo(
+    () => pendingScheduledAll.filter((i) => itemMatchesDate(i, selectedScheduledDate, "Pending Scheduled")).length,
+    [pendingScheduledAll, selectedScheduledDate],
+  );
+  const scheduledCount = useMemo(
+    () => scheduledAll.filter((i) => itemMatchesDate(i, selectedScheduledDate, "Scheduled")).length,
+    [scheduledAll, selectedScheduledDate],
+  );
+  const pickedCount = useMemo(
+    () => pickedAll.filter((i) => itemMatchesDate(i, selectedScheduledDate, "Main Warehouse Picked")).length,
+    [pickedAll, selectedScheduledDate],
+  );
+  const techReceivedCount = useMemo(
+    () => techReceivedAll.filter((i) => itemMatchesDate(i, selectedScheduledDate, "Technician Received")).length,
+    [techReceivedAll, selectedScheduledDate],
+  );
+  const completedCount = useMemo(
+    () => completedAll.filter((i) => itemMatchesDate(i, selectedScheduledDate, "Completed")).length,
+    [completedAll, selectedScheduledDate],
+  );
 
   const currentTabItems = filtered;
   const uniqueOrders = new Set(currentTabItems.map((i) => i.orderId)).size;
@@ -1194,6 +1191,7 @@ function ScheduledInstallationsContent() {
         onToggleSelect={toggleSelect}
         onToggleSelectAll={toggleSelectAll}
         onRemoveItem={(item) => setPendingCancelItem(item)}
+        onReschedule={(item) => setRescheduleItem(item)}
         onViewOrder={(orderId) => {
           if (typeof window !== "undefined") {
             sessionStorage.setItem("last_orders_tab", "Scheduled Installation");
@@ -1654,6 +1652,24 @@ function ScheduledInstallationsContent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ─── MODAL 6: Reschedule Installation Dialog ────────────────── */}
+      {targetRescheduleOrderItem && (
+        <ScheduleDialog
+          item={targetRescheduleOrderItem}
+          initialMode="reschedule"
+          liveSchedules={liveSchedulesData?.data || []}
+          onClose={() => setRescheduleItem(null)}
+          onSaved={() => {
+            setRescheduleItem(null);
+            refetchSchedules();
+            refetchCompleted();
+            refetchPicked();
+            queryClient.invalidateQueries({ queryKey: orderKeys.all });
+            toast.success("Installation rescheduled successfully!");
+          }}
+        />
+      )}
     </div>
   );
 }
