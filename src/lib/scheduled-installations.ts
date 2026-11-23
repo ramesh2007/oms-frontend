@@ -84,6 +84,10 @@ export interface ScheduledItem {
   latestRescheduleReason?: string | null;
   /** Full reschedule history entries */
   rescheduleHistory?: any[];
+  /** ISO timestamp when the appointment was rescheduled */
+  rescheduledAt?: string | null;
+  /** Normalized YYYY-MM-DD rescheduled date or new scheduled date */
+  rescheduledDate?: string | null;
   /** Product tags (e.g. Bedding, Boys, etc.) */
   productTags?: string | string[] | null;
   /** Gift wrap value */
@@ -173,6 +177,73 @@ export function normalizeDateStr(dateStr?: string | null): string | undefined {
     return `${y}-${m}-${day}`;
   }
   return s.slice(0, 10);
+}
+
+/**
+ * Determines whether a ScheduledItem matches a target date string (YYYY-MM-DD).
+ * If targetDate is null/undefined, returns true (All Dates view).
+ * If targetDate is provided (e.g. today "2026-11-17", tomorrow, or a selected date):
+ * - Matches if scheduledDate === targetDate
+ * - Matches if rescheduledDate === targetDate
+ * - Matches if rescheduledAt date === targetDate
+ * - Matches if any rescheduleHistory entry has scheduled_date === targetDate or rescheduled_at === targetDate
+ * - For "Main Warehouse Picked": also matches if pickedAt date === targetDate
+ * - For "Technician Received": also matches if technicianReceivedAt date === targetDate
+ * - For "Completed": also matches if completedAt date === targetDate
+ * - For "Pending Scheduled": also matches if !scheduledDate && !item.rescheduledDate
+ */
+export function itemMatchesDate(item: ScheduledItem, targetDate: string | null | undefined, tab: ScheduledTabType): boolean {
+  if (!targetDate) return true;
+
+  const rawScheduled = item.scheduledDate || (item.scheduledAt ? item.scheduledAt.slice(0, 10) : "");
+  const scheduledDate = normalizeDateStr(rawScheduled) || rawScheduled;
+
+  // 1. Direct scheduled date match
+  if (scheduledDate === targetDate) return true;
+
+  // 2. Rescheduled date match (e.g. appointment rescheduled to targetDate or rescheduled on targetDate)
+  if (item.rescheduledDate && normalizeDateStr(item.rescheduledDate) === targetDate) return true;
+  if (item.rescheduledAt && normalizeDateStr(item.rescheduledAt.slice(0, 10)) === targetDate) return true;
+
+  // 3. Check any history entries for a match with targetDate
+  if (Array.isArray(item.rescheduleHistory) && item.rescheduleHistory.length > 0) {
+    const hasHistoryMatch = item.rescheduleHistory.some((h: any) => {
+      const hDate = h.scheduled_date ? normalizeDateStr(h.scheduled_date) : "";
+      const hReschedAt = h.rescheduled_at ? normalizeDateStr(String(h.rescheduled_at).slice(0, 10)) : "";
+      return hDate === targetDate || hReschedAt === targetDate;
+    });
+    if (hasHistoryMatch) return true;
+  }
+
+  // 4. Check raw backend payload if available
+  if (item.raw) {
+    const rawReschedAt = item.raw.rescheduled_at ? normalizeDateStr(String(item.raw.rescheduled_at).slice(0, 10)) : "";
+    if (rawReschedAt === targetDate) return true;
+    const rawSchedDate = item.raw.scheduled_date ? normalizeDateStr(item.raw.scheduled_date) : "";
+    if (rawSchedDate === targetDate) return true;
+  }
+
+  // 5. Stage-specific event date matches
+  if (tab === "Main Warehouse Picked") {
+    const pickedDate = item.pickedAt ? (normalizeDateStr(item.pickedAt.slice(0, 10)) || item.pickedAt.slice(0, 10)) : "";
+    if (pickedDate === targetDate) return true;
+  }
+
+  if (tab === "Technician Received") {
+    const receivedDate = item.technicianReceivedAt ? (normalizeDateStr(item.technicianReceivedAt.slice(0, 10)) || item.technicianReceivedAt.slice(0, 10)) : "";
+    if (receivedDate === targetDate) return true;
+  }
+
+  if (tab === "Completed") {
+    const completedDate = item.completedAt ? (normalizeDateStr(item.completedAt.slice(0, 10)) || item.completedAt.slice(0, 10)) : "";
+    if (completedDate === targetDate) return true;
+  }
+
+  if (tab === "Pending Scheduled") {
+    if (!scheduledDate && !item.rescheduledDate) return true;
+  }
+
+  return false;
 }
 
 export function normalizeScheduledStatus(
@@ -694,6 +765,23 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
       existing?.scheduledDate;
     const scheduledDate = normalizeDateStr(rawDateStr) || getTodayDateStr();
 
+    const rawRescheduledAt = record.rescheduled_at || existing?.rescheduledAt || null;
+    let rescheduledDate: string | null = null;
+    if (rawRescheduledAt) {
+      rescheduledDate = normalizeDateStr(String(rawRescheduledAt).slice(0, 10)) || null;
+    }
+    if (Array.isArray(record.reschedule_history) && record.reschedule_history.length > 0) {
+      const latestHist = record.reschedule_history[record.reschedule_history.length - 1];
+      const histDate = latestHist?.scheduled_date || (latestHist?.rescheduled_at ? String(latestHist.rescheduled_at).slice(0, 10) : null);
+      if (histDate) {
+        const normHist = normalizeDateStr(histDate);
+        if (normHist) rescheduledDate = normHist;
+      }
+    }
+    if (!rescheduledDate && existing?.rescheduledDate) {
+      rescheduledDate = existing.rescheduledDate;
+    }
+
     const mappedItem: ScheduledItem = {
       id: existing ? existing.id : rawId,
       orderId: String(record.order_number || record.order_id || ""),
@@ -748,6 +836,8 @@ export function syncTechnicianSchedules(records: TechnicianScheduleRecord[]) {
       rescheduleCount: record.reschedule_count ?? existing?.rescheduleCount ?? 0,
       latestRescheduleReason: record.latest_reschedule_reason || existing?.latestRescheduleReason || null,
       rescheduleHistory: record.reschedule_history || existing?.rescheduleHistory || [],
+      rescheduledAt: rawRescheduledAt,
+      rescheduledDate,
       productTags: record.product_tags || record.order_item?.product_tags || existing?.productTags || null,
       giftWrap: record.gift_wrap || record.order_item?.gift_wrap || existing?.giftWrap || null,
       giftMessage: record.gift_message || record.order_item?.gift_message || existing?.giftMessage || null,
@@ -1208,6 +1298,24 @@ export function syncMainWarehousePickedItems(records: MainWarehousePickedRecord[
       existing?.pickedAt ||
       new Date().toISOString();
 
+    const rawRescheduledAt = record.rescheduled_at || record.technician_schedule?.rescheduled_at || existing?.rescheduledAt || null;
+    let rescheduledDate: string | null = null;
+    if (rawRescheduledAt) {
+      rescheduledDate = normalizeDateStr(String(rawRescheduledAt).slice(0, 10)) || null;
+    }
+    const history = record.reschedule_history || record.technician_schedule?.reschedule_history;
+    if (Array.isArray(history) && history.length > 0) {
+      const latestHist = history[history.length - 1];
+      const histDate = latestHist?.scheduled_date || (latestHist?.rescheduled_at ? String(latestHist.rescheduled_at).slice(0, 10) : null);
+      if (histDate) {
+        const normHist = normalizeDateStr(histDate);
+        if (normHist) rescheduledDate = normHist;
+      }
+    }
+    if (!rescheduledDate && existing?.rescheduledDate) {
+      rescheduledDate = existing.rescheduledDate;
+    }
+
     const mappedItem: ScheduledItem = {
       id: existing ? existing.id : rawId,
       orderId: String(record.order_number || record.order_id || record.order?.order_number || record.order?.id || existing?.orderId || ""),
@@ -1281,6 +1389,8 @@ export function syncMainWarehousePickedItems(records: MainWarehousePickedRecord[
       rescheduleCount: record.reschedule_count ?? existing?.rescheduleCount ?? 0,
       latestRescheduleReason: record.latest_reschedule_reason || existing?.latestRescheduleReason || null,
       rescheduleHistory: record.reschedule_history || existing?.rescheduleHistory || [],
+      rescheduledAt: rawRescheduledAt,
+      rescheduledDate,
       productTags: record.product_tags || record.order_item?.product_tags || existing?.productTags || null,
       giftWrap: record.gift_wrap || record.order_item?.gift_wrap || existing?.giftWrap || null,
       giftMessage: record.gift_message || record.order_item?.gift_message || existing?.giftMessage || null,
@@ -1290,7 +1400,7 @@ export function syncMainWarehousePickedItems(records: MainWarehousePickedRecord[
         record.created_at ||
         existing?.scheduledAt ||
         new Date().toISOString(),
-      scheduledDate: scheduledDateStr ? String(scheduledDateStr).slice(0, 10) : undefined,
+      scheduledDate: normalizeDateStr(scheduledDateStr) || (scheduledDateStr ? String(scheduledDateStr).slice(0, 10) : undefined),
       startTime: record.start_time || record.technician_schedule?.start_time || existing?.startTime,
       endTime: record.end_time || record.technician_schedule?.end_time || existing?.endTime,
       scheduledTimeRange: timeRange,

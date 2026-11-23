@@ -22,6 +22,7 @@ export interface ScheduledRowProps {
   item: ScheduledItem;
   selected: boolean;
   activeTab: ScheduledTabType;
+  todayStr?: string;
   onToggle: () => void;
   onRemove: () => void;
   onViewOrder: () => void;
@@ -30,6 +31,7 @@ export interface ScheduledRowProps {
   onTechnicianReceive?: () => void;
   onAssignDriver?: () => void;
   onCompleteInstallation?: () => void;
+  onReschedule?: () => void;
   onUploadPhotos?: () => void;
   onPreviewImage?: (imageUrl: string) => void;
   formatTime: (iso: string) => string;
@@ -39,6 +41,7 @@ export function ScheduledRow({
   item,
   selected,
   activeTab,
+  todayStr,
   onToggle,
   onRemove,
   onViewOrder,
@@ -47,6 +50,7 @@ export function ScheduledRow({
   onTechnicianReceive,
   onAssignDriver,
   onCompleteInstallation,
+  onReschedule,
   onUploadPhotos,
   onPreviewImage,
   formatTime,
@@ -152,6 +156,11 @@ export function ScheduledRow({
               <span>
                 {item.scheduledDate ? item.scheduledDate : formatTime(item.scheduledAt).split(" ")[0]}
               </span>
+              {activeTab === "Scheduled" && item.scheduledDate && todayStr && item.scheduledDate < todayStr && (
+                <span className="inline-flex items-center rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40">
+                  Overdue
+                </span>
+              )}
             </div>
             <div className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
               <Clock className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -350,47 +359,60 @@ export function ScheduledRow({
           )}
 
           {activeTab === "Scheduled" && (
-            <button
-              type="button"
-              onClick={onMarkPicked}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-2xs",
-                item.orderItemStatus === "picker_assigned"
-                  ? "border-blue-300 dark:border-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 text-blue-700 dark:text-blue-300"
-                  : item.orderItemStatus === "picking"
-                    ? "border-indigo-300 dark:border-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300"
-                    : item.orderItemStatus === "picked"
-                      ? "border-sky-300 dark:border-sky-700 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-950/60 text-sky-700 dark:text-sky-300"
-                      : "border-amber-300 dark:border-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 text-amber-700 dark:text-amber-300",
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={onMarkPicked}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-2xs",
+                  item.orderItemStatus === "picker_assigned"
+                    ? "border-blue-300 dark:border-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 text-blue-700 dark:text-blue-300"
+                    : item.orderItemStatus === "picking"
+                      ? "border-indigo-300 dark:border-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300"
+                      : item.orderItemStatus === "picked"
+                        ? "border-sky-300 dark:border-sky-700 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-950/60 text-sky-700 dark:text-sky-300"
+                        : "border-amber-300 dark:border-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 text-amber-700 dark:text-amber-300",
+                )}
+                title={
+                  item.lineItemId
+                    ? `Line Item #${item.lineItemId} status in order_items table: ${item.orderItemStatus || "pending"}`
+                    : `Line item status in order_items table: ${item.orderItemStatus || "pending"}`
+                }
+              >
+                {item.orderItemStatus === "picker_assigned" ? (
+                  <>
+                    <User className="h-3.5 w-3.5" />
+                    Picker Assigned
+                  </>
+                ) : item.orderItemStatus === "picking" ? (
+                  <>
+                    <Package className="h-3.5 w-3.5" />
+                    Picking
+                  </>
+                ) : item.orderItemStatus === "picked" ? (
+                  <>
+                    <PackageCheck className="h-3.5 w-3.5" />
+                    Picked
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-3.5 w-3.5" />
+                    {item.orderItemStatus ? item.orderItemStatus.toUpperCase() : "PENDING"}
+                  </>
+                )}
+              </button>
+              {onReschedule && (
+                <button
+                  type="button"
+                  onClick={onReschedule}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 px-3 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 transition-colors cursor-pointer shadow-2xs"
+                  title="Reschedule installation appointment"
+                >
+                  <Calendar className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  Reschedule
+                </button>
               )}
-              title={
-                item.lineItemId
-                  ? `Line Item #${item.lineItemId} status in order_items table: ${item.orderItemStatus || "pending"}`
-                  : `Line item status in order_items table: ${item.orderItemStatus || "pending"}`
-              }
-            >
-              {item.orderItemStatus === "picker_assigned" ? (
-                <>
-                  <User className="h-3.5 w-3.5" />
-                  Picker Assigned
-                </>
-              ) : item.orderItemStatus === "picking" ? (
-                <>
-                  <Package className="h-3.5 w-3.5" />
-                  Picking
-                </>
-              ) : item.orderItemStatus === "picked" ? (
-                <>
-                  <PackageCheck className="h-3.5 w-3.5" />
-                  Picked
-                </>
-              ) : (
-                <>
-                  <Clock className="h-3.5 w-3.5" />
-                  {item.orderItemStatus ? item.orderItemStatus.toUpperCase() : "PENDING"}
-                </>
-              )}
-            </button>
+            </div>
           )}
 
           {activeTab === "Main Warehouse Picked" && (
@@ -428,14 +450,27 @@ export function ScheduledRow({
           )}
 
           {activeTab === "Completed" && (
-            <button
-              type="button"
-              onClick={onUploadPhotos}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer shadow-2xs"
-            >
-              <Upload className="h-3.5 w-3.5 text-slate-500" />
-              {hasPhotos ? "Add Photos" : "Upload Photos"}
-            </button>
+            <div className="flex items-center gap-1.5">
+              {onReschedule && (
+                <button
+                  type="button"
+                  onClick={onReschedule}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 px-3 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 transition-colors cursor-pointer shadow-2xs"
+                  title="Reschedule installation"
+                >
+                  <Calendar className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  Reschedule
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onUploadPhotos}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer shadow-2xs"
+              >
+                <Upload className="h-3.5 w-3.5 text-slate-500" />
+                {hasPhotos ? "Add Photos" : "Upload Photos"}
+              </button>
+            </div>
           )}
 
           <button
@@ -599,8 +634,9 @@ export function ScheduledRow({
           )}
 
           {activeTab === "Scheduled" && (
-            <button
-              type="button"
+            <>
+              <button
+                type="button"
               onClick={onMarkPicked}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold uppercase cursor-pointer",
@@ -635,6 +671,17 @@ export function ScheduledRow({
                 </>
               )}
             </button>
+            {onReschedule && (
+              <button
+                type="button"
+                onClick={onReschedule}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-300 cursor-pointer"
+              >
+                <Calendar className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                Reschedule
+              </button>
+            )}
+          </>
           )}
 
           {activeTab === "Main Warehouse Picked" && (
@@ -662,14 +709,26 @@ export function ScheduledRow({
           )}
 
           {activeTab === "Completed" && (
-            <button
-              type="button"
-              onClick={onUploadPhotos}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              {hasPhotos ? "Add Photos" : "Upload Photos"}
-            </button>
+            <>
+              {onReschedule && (
+                <button
+                  type="button"
+                  onClick={onReschedule}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-300 cursor-pointer"
+                >
+                  <Calendar className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  Reschedule
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onUploadPhotos}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                {hasPhotos ? "Add Photos" : "Upload Photos"}
+              </button>
+            </>
           )}
 
           <button

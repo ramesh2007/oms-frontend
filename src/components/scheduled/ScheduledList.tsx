@@ -21,6 +21,7 @@ export interface ScheduledListProps {
   onTechnicianReceive?: (item: ScheduledItem) => void;
   onAssignDriver?: (item: ScheduledItem) => void;
   onCompleteInstallation?: (item: ScheduledItem) => void;
+  onReschedule?: (item: ScheduledItem) => void;
   onUploadPhotos?: (item: ScheduledItem) => void;
   onPreviewImage?: (imageUrl: string) => void;
   formatTime: (iso: string) => string;
@@ -43,6 +44,7 @@ export function ScheduledList({
   onTechnicianReceive,
   onAssignDriver,
   onCompleteInstallation,
+  onReschedule,
   onUploadPhotos,
   onPreviewImage,
   formatTime,
@@ -283,6 +285,7 @@ export function ScheduledList({
               item={item}
               selected={selectedIds.has(item.id)}
               activeTab={activeTab}
+              todayStr={todayStr}
               onToggle={() => onToggleSelect(item.id)}
               onRemove={() => onRemoveItem(item)}
               onViewOrder={() => onViewOrder(item.orderId)}
@@ -291,6 +294,7 @@ export function ScheduledList({
               onTechnicianReceive={() => onTechnicianReceive?.(item)}
               onAssignDriver={() => onAssignDriver?.(item)}
               onCompleteInstallation={() => onCompleteInstallation?.(item)}
+              onReschedule={() => onReschedule?.(item)}
               onUploadPhotos={() => onUploadPhotos?.(item)}
               onPreviewImage={onPreviewImage}
               formatTime={formatTime}
